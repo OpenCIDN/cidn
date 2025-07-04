@@ -1,0 +1,52 @@
+apiVersion: task.opencidn.daocloud.io/v1alpha1
+kind: Blob
+metadata:
+  name: blob-parts
+spec:
+  chunkSize: 5242880
+  sha256: f2ae6b225e2f60c51c11d8c8215ed0960ccb0965a465e5731a044fcf5c8e0357
+  source: http://nginx/vendor.zip
+  destination:
+  - vendor-parts
+---
+apiVersion: task.opencidn.daocloud.io/v1alpha1
+kind: Blob
+metadata:
+  name: blob-all
+spec:
+  sha256: f2ae6b225e2f60c51c11d8c8215ed0960ccb0965a465e5731a044fcf5c8e0357
+  source: http://nginx/vendor.zip
+  destination:
+  - vendor-all
+---
+apiVersion: task.opencidn.daocloud.io/v1alpha1
+kind: Blob
+metadata:
+  name: blob-parts-size-error
+spec:
+  chunkSize: 5242879
+  sha256: f2ae6b225e2f60c51c11d8c8215ed0960ccb0965a465e5731a044fcf5c8e0357
+  source: http://nginx/vendor.zip
+  destination:
+  - vendor-parts-size-error
+---
+apiVersion: task.opencidn.daocloud.io/v1alpha1
+kind: Blob
+metadata:
+  name: blob-parts-hash-error
+spec:
+  chunkSize: 5242881
+  sha256: f2ae6b225e2f60c51c11d8c8215ed0960ccb0965a465e5731a044fcf5c8e0351
+  source: http://nginx/vendor.zip
+  destination:
+  - vendor-parts-hash-error
+---
+apiVersion: task.opencidn.daocloud.io/v1alpha1
+kind: Blob
+metadata:
+  name: blob-all-hash-error
+spec:
+  sha256: f2ae6b225e2f60c51c11d8c8215ed0960ccb0965a465e5731a044fcf5c8e0352
+  source: http://nginx/vendor.zip
+  destination:
+  - vendor-all-hash-error
