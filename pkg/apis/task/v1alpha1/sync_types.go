@@ -70,6 +70,12 @@ type SyncStatus struct {
 	// Progress is the progress of the sync.
 	Progress int64 `json:"progress,omitempty"`
 
+	// SourceProgress is the progress of reading the source resource
+	SourceProgress int64 `json:"sourceProgress,omitempty"`
+
+	// DestinationProgresses tracks progress of writing to destination resources
+	DestinationProgresses []int64 `json:"destinationProgresses,omitempty"`
+
 	// Sha256Partial contains sha256 hash that is partially calculated and saved
 	Sha256Partial []byte `json:"sha256Partial,omitempty"`
 

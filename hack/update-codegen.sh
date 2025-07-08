@@ -18,31 +18,95 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
-ROOT_DIR="${SCRIPT_DIR}/.."
-source "${SCRIPT_DIR}/kube_codegen.sh"
+DIR="$(dirname "${BASH_SOURCE[0]}")"
 
-THIS_PKG="github.com/OpenCIDN/cidn"
+ROOT_DIR="$(realpath "${DIR}/..")"
 
-kube::codegen::gen_helpers \
-    --boilerplate "${ROOT_DIR}/hack/boilerplate.go.txt" \
-    "${ROOT_DIR}/pkg/apis"
+KUBE_VERSION=v0.33.2
 
-kube::codegen::gen_client \
-    --with-watch \
-    --output-dir "${ROOT_DIR}/pkg" \
-    --output-pkg "${THIS_PKG}/pkg" \
-    --boilerplate "${ROOT_DIR}/hack/boilerplate.go.txt" \
-    "${ROOT_DIR}/pkg/apis"
+function deepcopy-gen() {
+  go run k8s.io/code-generator/cmd/deepcopy-gen@${KUBE_VERSION} "$@"
+}
 
-kube::codegen::gen_openapi \
-    --output-dir "${ROOT_DIR}/pkg/openapi" \
-    --output-pkg "k8s.io/${THIS_PKG}/pkg/openapi" \
-    --report-filename "${report_filename:-"/dev/null"}" \
-    --update-report \
-    --boilerplate "${ROOT_DIR}/hack/boilerplate.go.txt" \
-    "${ROOT_DIR}/pkg/apis"
+function defaulter-gen() {
+  go run k8s.io/code-generator/cmd/defaulter-gen@${KUBE_VERSION} "$@"
+}
 
-kube::codegen::gen_register \
-    --boilerplate "${ROOT_DIR}/hack/boilerplate.go.txt" \
-    "${ROOT_DIR}/pkg/apis"
+function conversion-gen() {
+  go run k8s.io/code-generator/cmd/conversion-gen@${KUBE_VERSION} "$@"
+}
+
+function client-gen() {
+  go run k8s.io/code-generator/cmd/client-gen@${KUBE_VERSION} "$@"
+}
+
+function register-gen() {
+  go run k8s.io/code-generator/cmd/register-gen@${KUBE_VERSION} "$@"
+}
+
+# Clean up previously generated files
+rm -f "${ROOT_DIR}/pkg/apis/task/v1alpha1/zz_generated."*
+rm -rf "${ROOT_DIR}/pkg/clientset"
+rm -rf "${ROOT_DIR}/pkg/listers" 
+rm -rf "${ROOT_DIR}/pkg/informers"
+rm -rf "${ROOT_DIR}/pkg/openapi"
+
+
+# Generate deepcopy functions
+deepcopy-gen \
+  --output-file zz_generated.deepcopy.go \
+  --go-header-file "${ROOT_DIR}/hack/boilerplate.go.txt" \
+  github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1
+
+# Generate defaulting functions
+defaulter-gen \
+  --output-file zz_generated.defaults.go \
+  --go-header-file "${ROOT_DIR}/hack/boilerplate.go.txt" \
+  github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1
+
+# Generate clientset
+client-gen \
+  --go-header-file "${ROOT_DIR}/hack/boilerplate.go.txt" \
+  --output-dir "${ROOT_DIR}/pkg/clientset" \
+  --output-pkg github.com/OpenCIDN/cidn/pkg/clientset \
+  --clientset-name versioned \
+  --input-base github.com/OpenCIDN/cidn/pkg/apis \
+  --input task/v1alpha1 \
+  --plural-exceptions "" \
+  --prefers-protobuf=false
+
+# Generate lister
+lister-gen \
+  --go-header-file "${ROOT_DIR}/hack/boilerplate.go.txt" \
+  --output-dir "${ROOT_DIR}/pkg/listers" \
+  --output-pkg github.com/OpenCIDN/cidn/pkg/listers \
+  --plural-exceptions "" \
+  github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1
+
+# Generate informer
+informer-gen \
+  --go-header-file "${ROOT_DIR}/hack/boilerplate.go.txt" \
+  --output-dir "${ROOT_DIR}/pkg/informers" \
+  --output-pkg github.com/OpenCIDN/cidn/pkg/informers \
+  --versioned-clientset-package github.com/OpenCIDN/cidn/pkg/clientset/versioned \
+  --listers-package github.com/OpenCIDN/cidn/pkg/listers \
+  --plural-exceptions "" \
+  github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1
+
+# Generate openapi
+openapi-gen \
+  --output-file zz_generated.openapi.go \
+  --go-header-file "${ROOT_DIR}/hack/boilerplate.go.txt" \
+  --output-dir "${ROOT_DIR}/pkg/openapi" \
+  --output-pkg k8s.io/github.com/OpenCIDN/cidn/pkg/openapi \
+  --report-filename /dev/null \
+  k8s.io/apimachinery/pkg/apis/meta/v1 \
+  k8s.io/apimachinery/pkg/runtime \
+  k8s.io/apimachinery/pkg/version \
+  github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1
+
+# Generate register
+register-gen \
+  --output-file zz_generated.register.go \
+  --go-header-file "${ROOT_DIR}/hack/boilerplate.go.txt" \
+  github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1

@@ -1,3 +1,19 @@
+/*
+Copyright 2025 The OpenCIDN Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package runner
 
 import (
@@ -22,29 +38,26 @@ import (
 
 // HeadRunner executes HEAD requests for blob tasks
 type HeadRunner struct {
-	handlerName           string
-	client                versioned.Interface
-	sharedInformerFactory externalversions.SharedInformerFactory
-	blobInformer          informers.BlobInformer
-	httpClient            *http.Client
-	workqueue             workqueue.TypedRateLimitingInterface[string]
+	handlerName  string
+	client       versioned.Interface
+	blobInformer informers.BlobInformer
+	httpClient   *http.Client
+	workqueue    workqueue.TypedRateLimitingInterface[string]
 }
 
 // NewHeadRunner creates a new HeadRunner instance
-func NewHeadRunner(handlerName string, clientset versioned.Interface) *HeadRunner {
-	sharedInformerFactory := externalversions.NewSharedInformerFactory(clientset, 0)
-	return &HeadRunner{
-		handlerName:           handlerName,
-		client:                clientset,
-		sharedInformerFactory: sharedInformerFactory,
-		blobInformer:          sharedInformerFactory.Task().V1alpha1().Blobs(),
-		httpClient:            http.DefaultClient,
-		workqueue:             workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+func NewHeadRunner(
+	handlerName string,
+	clientset versioned.Interface,
+	sharedInformerFactory externalversions.SharedInformerFactory,
+) *HeadRunner {
+	r := &HeadRunner{
+		handlerName:  handlerName,
+		client:       clientset,
+		blobInformer: sharedInformerFactory.Task().V1alpha1().Blobs(),
+		httpClient:   http.DefaultClient,
+		workqueue:    workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 	}
-}
-
-// Start starts the head runner
-func (r *HeadRunner) Start(ctx context.Context) error {
 	r.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			key, err := cache.MetaNamespaceKeyFunc(obj)
@@ -67,11 +80,11 @@ func (r *HeadRunner) Start(ctx context.Context) error {
 		},
 	})
 
-	r.sharedInformerFactory.Start(ctx.Done())
+	return r
+}
 
-	if !cache.WaitForCacheSync(ctx.Done(), r.blobInformer.Informer().HasSynced) {
-		return fmt.Errorf("failed to wait for caches to sync")
-	}
+// Start starts the head runner
+func (r *HeadRunner) Start(ctx context.Context) error {
 
 	go r.runWorker(ctx)
 

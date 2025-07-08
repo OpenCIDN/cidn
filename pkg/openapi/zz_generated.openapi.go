@@ -661,9 +661,9 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 							Format:      "int64",
 						},
 					},
-					"chunk": {
+					"partNumber": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Chunk represents whether this sync is part of a larger chunked operation. 0 means not chunked, >0 means chunk number.",
+							Description: "PartNumber represents the chunk number in a larger chunked operation. 0 means not chunked, >0 means the part number (1-based index).",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -710,6 +710,28 @@ func schema_pkg_apis_task_v1alpha1_SyncStatus(ref common.ReferenceCallback) comm
 							Description: "Progress is the progress of the sync.",
 							Type:        []string{"integer"},
 							Format:      "int64",
+						},
+					},
+					"sourceProgress": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SourceProgress is the progress of reading the source resource",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"destinationProgresses": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DestinationProgresses tracks progress of writing to destination resources",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: 0,
+										Type:    []string{"integer"},
+										Format:  "int64",
+									},
+								},
+							},
 						},
 					},
 					"sha256Partial": {

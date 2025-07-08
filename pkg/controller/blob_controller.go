@@ -1,3 +1,19 @@
+/*
+Copyright 2025 The OpenCIDN Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package controller
 
 import (
@@ -6,6 +22,7 @@ import (
 	"math"
 	"net/http"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -25,41 +42,34 @@ import (
 )
 
 type BlobController struct {
-	handlerName string
-
-	s3 *sss.SSS
-
-	expires time.Duration
-
-	httpClient *http.Client
-
-	client                versioned.Interface
-	blobInformer          informers.BlobInformer
-	syncInformer          informers.SyncInformer
-	sharedInformerFactory externalversions.SharedInformerFactory
-	workqueue             workqueue.TypedRateLimitingInterface[string]
+	handlerName  string
+	s3           *sss.SSS
+	expires      time.Duration
+	client       versioned.Interface
+	blobInformer informers.BlobInformer
+	syncInformer informers.SyncInformer
+	workqueue    workqueue.TypedRateLimitingInterface[string]
+	lastSeen     map[string]time.Time
+	lastSeenMut  sync.RWMutex
 }
 
 func NewBlobController(
 	handlerName string,
 	s3 *sss.SSS,
 	client versioned.Interface,
+	sharedInformerFactory externalversions.SharedInformerFactory,
 ) *BlobController {
-	sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
-	return &BlobController{
-		handlerName:           handlerName,
-		s3:                    s3,
-		expires:               24 * time.Hour,
-		httpClient:            http.DefaultClient,
-		blobInformer:          sharedInformerFactory.Task().V1alpha1().Blobs(),
-		syncInformer:          sharedInformerFactory.Task().V1alpha1().Syncs(),
-		sharedInformerFactory: sharedInformerFactory,
-		client:                client,
-		workqueue:             workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+	c := &BlobController{
+		handlerName:  handlerName,
+		s3:           s3,
+		expires:      24 * time.Hour,
+		blobInformer: sharedInformerFactory.Task().V1alpha1().Blobs(),
+		syncInformer: sharedInformerFactory.Task().V1alpha1().Syncs(),
+		client:       client,
+		workqueue:    workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+		lastSeen:     map[string]time.Time{},
 	}
-}
 
-func (c *BlobController) Start(ctx context.Context) error {
 	c.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			blob := obj.(*v1alpha1.Blob)
@@ -80,24 +90,7 @@ func (c *BlobController) Start(ctx context.Context) error {
 			c.workqueue.Add(key)
 		},
 		DeleteFunc: func(obj interface{}) {
-			blob, ok := obj.(*v1alpha1.Blob)
-			if !ok {
-				return
-			}
-
-			key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(blob)
-			if err != nil {
-				klog.Errorf("couldn't get key for object %+v: %v", blob, err)
-				return
-			}
-			c.workqueue.Forget(key)
-
-			err = c.client.TaskV1alpha1().Syncs().DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{
-				LabelSelector: labels.Set{BlobNameLabel: blob.Name}.String(),
-			})
-			if err != nil {
-				klog.Errorf("failed to delete syncs for blob %s: %v", blob.Name, err)
-			}
+			c.cleanupBlob(obj)
 		},
 	})
 
@@ -124,13 +117,43 @@ func (c *BlobController) Start(ctx context.Context) error {
 		},
 	})
 
+	return c
+}
+
+func (c *BlobController) Start(ctx context.Context) error {
+
 	go c.runWorker(ctx)
-	c.sharedInformerFactory.Start(ctx.Done())
 	return nil
 }
 
 func (c *BlobController) runWorker(ctx context.Context) {
 	for c.processNextItem(ctx) {
+	}
+}
+
+func (c *BlobController) cleanupBlob(obj interface{}) {
+	blob, ok := obj.(*v1alpha1.Blob)
+	if !ok {
+		return
+	}
+
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(blob)
+	if err != nil {
+		klog.Errorf("couldn't get key for blob %+v: %v", blob, err)
+		return
+	}
+
+	c.lastSeenMut.Lock()
+	delete(c.lastSeen, key)
+	c.lastSeenMut.Unlock()
+
+	c.workqueue.Forget(key)
+
+	err = c.client.TaskV1alpha1().Syncs().DeleteCollection(context.Background(), metav1.DeleteOptions{}, metav1.ListOptions{
+		LabelSelector: labels.Set{BlobNameLabel: blob.Name}.String(),
+	})
+	if err != nil {
+		klog.Errorf("failed to delete syncs for blob %s: %v", blob.Name, err)
 	}
 }
 
@@ -198,6 +221,20 @@ func (c *BlobController) syncHandler(ctx context.Context, key string) error {
 
 	defer func() {
 		if !reflect.DeepEqual(oldBlob.Status, blob.Status) {
+
+			c.lastSeenMut.Lock()
+			defer c.lastSeenMut.Unlock()
+			lastTime, ok := c.lastSeen[key]
+			if ok &&
+				oldBlob.Status.Phase == v1alpha1.BlobPhaseRunning &&
+				blob.Status.Phase == v1alpha1.BlobPhaseRunning &&
+				blob.Status.Progress != blob.Spec.Total &&
+				time.Since(lastTime) < time.Second {
+				return
+			}
+
+			c.lastSeen[key] = time.Now()
+
 			_, err := c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
 			if err != nil {
 				klog.Errorf("failed to update blob status: %v", err)
