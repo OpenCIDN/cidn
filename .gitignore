@@ -33,3 +33,4 @@ go.work.sum
 
 apiserver.local.config
 .DS_Store
+static/

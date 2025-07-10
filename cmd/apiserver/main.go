@@ -19,10 +19,9 @@ package main
 import (
 	"os"
 
+	"github.com/OpenCIDN/cidn/pkg/cmd/apiserver"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/component-base/cli"
-
-	"github.com/OpenCIDN/cidn/pkg/cmd/apiserver"
 )
 
 func main() {

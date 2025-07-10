@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -37,7 +38,7 @@ type ReleaseBlobController struct {
 	handlerName  string
 	client       versioned.Interface
 	blobInformer informers.BlobInformer
-	workqueue    workqueue.TypedRateLimitingInterface[string]
+	workqueue    workqueue.TypedDelayingInterface[string]
 	lastSeen     map[string]time.Time
 	lastSeenMut  sync.RWMutex
 }
@@ -51,7 +52,7 @@ func NewReleaseBlobController(
 		handlerName:  handlerName,
 		client:       client,
 		blobInformer: sharedInformerFactory.Task().V1alpha1().Blobs(),
-		workqueue:    workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+		workqueue:    workqueue.NewTypedDelayingQueue[string](),
 		lastSeen:     map[string]time.Time{},
 	}
 	c.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -123,11 +124,12 @@ func (c *ReleaseBlobController) processNextItem(ctx context.Context) bool {
 	err := c.syncHandler(ctx, key)
 	if err != nil {
 		c.workqueue.AddAfter(key, 10*time.Second)
-		klog.Errorf("error syncing '%s': %v, requeuing", key, err)
+		if !errors.Is(err, errNotEnoughTime) {
+			klog.Errorf("error release blob syncing '%s': %v, requeuing", key, err)
+		}
 		return true
 	}
 
-	c.workqueue.Forget(key)
 	return true
 }
 
@@ -138,8 +140,6 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, key string) err
 		return nil
 	}
 
-	klog.Infof("processing blob %q", name)
-
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -148,7 +148,8 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, key string) err
 		return err
 	}
 
-	if blob.Status.Phase != v1alpha1.BlobPhaseRunning || blob.Spec.HandlerName == "" {
+	if blob.Status.Phase != v1alpha1.BlobPhaseRunning ||
+		blob.Spec.HandlerName == "" {
 		return nil
 	}
 
@@ -160,10 +161,15 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, key string) err
 		return nil
 	}
 
-	if time.Since(lastSeenTime) < 10*time.Second {
-		return fmt.Errorf("not enough time: %s", key)
+	// if blob.Status.Progress == blob.Spec.Total {
+	// 	if time.Since(lastSeenTime) < 1800*time.Second {
+	// 		return fmt.Errorf("%w: %s", errNotEnoughTime, key)
+	// 	}
+	// } else {
+	if time.Since(lastSeenTime) < 60*time.Second {
+		return fmt.Errorf("%w: %s", errNotEnoughTime, key)
 	}
-
+	// }
 	// Reset to pending and clear handler name
 	newBlob := blob.DeepCopy()
 	newBlob.Status.Phase = v1alpha1.BlobPhasePending
@@ -176,3 +182,5 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, key string) err
 
 	return nil
 }
+
+var errNotEnoughTime = fmt.Errorf("not enough time")

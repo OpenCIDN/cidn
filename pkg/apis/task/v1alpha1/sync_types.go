@@ -140,15 +140,18 @@ type SyncSpec struct {
 	// Destination is the destination of the sync.
 	Destination []SyncHTTP `json:"destination"`
 
-	// Weight represents the relative importance of this sync when multiple syncs exist.
-	Weight int64 `json:"weight"`
+	// Priority represents the relative importance of this sync when multiple syncs exist.
+	Priority int64 `json:"priority"`
 
 	// Total represents the total amount of work to be done for this sync.
 	Total int64 `json:"total"`
 
-	// PartNumber represents the chunk number in a larger chunked operation.
-	// 0 means not chunked, >0 means the part number (1-based index).
-	PartNumber int64 `json:"partNumber,omitempty"`
+	// ChunkIndex represents the part number in a multipart upload operation.
+	// 0 means not part of a multipart upload, >0 means the part number (1-based index).
+	ChunkIndex int64 `json:"chunkIndex,omitempty"`
+
+	// ChunksNumber represents the total number of chunks that the sync is part of in a multipart operation.
+	ChunksNumber int64 `json:"chunksNumber,omitempty"`
 
 	// Sha256PartialPreviousName indicates if this is an initial block when set to "-"
 	Sha256PartialPreviousName string `json:"sha256PartialPreviousName,omitempty"`

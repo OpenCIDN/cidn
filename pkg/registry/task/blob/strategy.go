@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
+	humanize "github.com/dustin/go-humanize"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -32,8 +34,6 @@ import (
 	"k8s.io/apiserver/pkg/registry/generic"
 	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
-
-	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 )
 
 // NewStrategy creates and returns a blobStrategy instance
@@ -113,6 +113,51 @@ func (*blobStrategy) Canonicalize(obj runtime.Object) {
 	if blob.Status.Phase == "" {
 		blob.Status.Phase = v1alpha1.BlobPhasePending
 	}
+
+	if blob.Spec.Total != 0 {
+		if blob.Spec.MinimumChunkSize != 0 && blob.Spec.ChunkSize == 0 && blob.Spec.ChunksNumber == 0 {
+			blob.Spec.ChunksNumber = getChunksNumberByMinimumChunkSize(blob.Spec.Total, blob.Spec.MinimumChunkSize)
+		}
+
+		if blob.Spec.ChunkSize == 0 && blob.Spec.ChunksNumber > 1 {
+			blob.Spec.ChunkSize = getChunkSize(blob.Spec.Total, blob.Spec.ChunksNumber)
+		}
+
+		if blob.Spec.ChunksNumber == 0 {
+			blob.Spec.ChunksNumber = getChunksNumber(blob.Spec.Total, blob.Spec.ChunkSize)
+		}
+	}
+}
+
+func getChunksNumberByMinimumChunkSize(total, minimumChunkSize int64) int64 {
+	chunksNumber := total / minimumChunkSize
+	return min(chunksNumber, 10000)
+}
+
+func getChunkSize(total, chunksNumber int64) int64 {
+	if total <= 5*1024*1024 { // <= 5MiB
+		return total
+	}
+	chunkSize := total / chunksNumber
+	if total%chunksNumber != 0 {
+		chunkSize++
+	}
+	return min(chunkSize, 5*1024*1024*1024) // 5GiB
+}
+
+func getChunksNumber(total, chunkSize int64) int64 {
+	if chunkSize == 0 {
+		return 1
+	}
+	if chunkSize >= total {
+		return 1
+	}
+
+	count := total / chunkSize
+	if total%chunkSize != 0 {
+		count++
+	}
+	return count
 }
 
 func (*blobStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object) field.ErrorList {
@@ -155,7 +200,8 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 			{Name: "Source", Type: "string", Description: "Source of the blob"},
 			{Name: "Phase", Type: "string", Description: "Current phase of the blob"},
 			{Name: "Progress", Type: "string", Description: "Progress of the blob"},
-			{Name: "Created At", Type: "date", Description: "Creation timestamp of the blob"},
+			{Name: "Chunks", Type: "string", Description: "Completed chunks of the blob"},
+			{Name: "Age", Type: "date", Description: "Creation timestamp of the blob"},
 		}
 	}
 
@@ -177,14 +223,28 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 				phase += "(" + strings.Join(faileds, ",") + ")"
 			}
 		}
+
+		var progress string
+		if blob.Status.Progress == blob.Spec.Total {
+			progress = humanize.IBytes(uint64(blob.Spec.Total))
+		} else {
+			progress = fmt.Sprintf("%s/%s", humanize.IBytes(uint64(blob.Status.Progress)), humanize.IBytes(uint64(blob.Spec.Total)))
+		}
+
+		chunks := "<none>"
+		if blob.Spec.ChunksNumber != 1 {
+			chunks = fmt.Sprintf("%d/%d", blob.Status.SucceededChunks, blob.Spec.ChunksNumber)
+		}
+
 		table.Rows = append(table.Rows, metav1.TableRow{
 			Cells: []interface{}{
 				blob.Name,
 				blob.Spec.HandlerName,
 				blob.Spec.Source,
 				phase,
-				fmt.Sprintf("%d/%d", blob.Status.Progress, blob.Spec.Total),
-				blob.CreationTimestamp.Time.UTC().Format(time.RFC3339),
+				progress,
+				chunks,
+				time.Since(blob.CreationTimestamp.Time).Truncate(time.Second).String(),
 			},
 			Object: runtime.RawExtension{Object: blob},
 		})

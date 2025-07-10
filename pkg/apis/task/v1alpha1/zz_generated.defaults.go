@@ -35,11 +35,8 @@ func RegisterDefaults(scheme *runtime.Scheme) error {
 }
 
 func SetObjectDefaults_Blob(in *Blob) {
-	if in.Spec.PendingSize == 0 {
-		in.Spec.PendingSize = 2
-	}
-	if in.Spec.RunningSize == 0 {
-		in.Spec.RunningSize = 2
+	if in.Spec.MaximumParallelism == 0 {
+		in.Spec.MaximumParallelism = 2
 	}
 }
 

@@ -70,6 +70,15 @@ type BlobStatus struct {
 	// Progress is the progress of the blob.
 	Progress int64 `json:"progress,omitempty"`
 
+	// PendingChunks is the number of pending chunks for this blob.
+	PendingChunks int64 `json:"pendingChunks,omitempty"`
+
+	// RunningChunks is the number of running chunks for this blob.
+	RunningChunks int64 `json:"runningChunks,omitempty"`
+
+	// SucceededChunks is the number of succeeded chunks for this blob.
+	SucceededChunks int64 `json:"succeededChunks,omitempty"`
+
 	// UploadIDs holds the list of upload IDs for multipart uploads
 	UploadIDs []string `json:"uploadIDs,omitempty"`
 
@@ -94,25 +103,27 @@ type BlobSpec struct {
 	// Destination is the destination of the blob.
 	Destination []string `json:"destination"`
 
-	// Weight represents the relative importance of this blob when multiple blobs exist.
-	Weight int64 `json:"weight"`
+	// Priority represents the relative importance of this blob when multiple blobs exist.
+	Priority int64 `json:"priority,omitempty"`
 
 	// Total represents the total amount of work to be done for this blob.
 	Total int64 `json:"total"`
 
+	// MinimumChunkSize represents the minimum size of each chunk when splitting the blob.
+	MinimumChunkSize int64 `json:"minimumChunkSize,omitempty"`
+
 	// ChunkSize represents the size of each chunk when splitting the blob.
 	ChunkSize int64 `json:"chunkSize,omitempty"`
+
+	// ChunksNumber represents the total number of chunks that the blob will be split into.
+	ChunksNumber int64 `json:"chunkCount,omitempty"`
 
 	// Sha256 is the sha256 checksum of the blob content being verified.
 	Sha256 string `json:"sha256,omitempty"`
 
-	// PendingSize is the maximum number of pending syncs allowed for this blob.
+	// MaximumParallelism is the maximum number of syncs allowed for this blob.
 	// +default=2
-	PendingSize int64 `json:"pendingSize,omitempty"`
-
-	// RunningSize is the maximum number of running syncs allowed for this blob.
-	// +default=2
-	RunningSize int64 `json:"runningSize,omitempty"`
+	MaximumParallelism int64 `json:"maximumParallelism,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

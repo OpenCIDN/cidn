@@ -17,24 +17,29 @@ limitations under the License.
 package runner
 
 import (
+	"context"
 	"io"
 	"sync"
 )
 
 // ReadCount tracks the number of bytes read through an io.Reader
 type ReadCount struct {
+	ctx    context.Context
 	reader io.Reader
 	count  int64
 	mut    sync.RWMutex
 }
 
 // NewReadCount returns a new ReadCount that wraps the given reader
-func NewReadCount(r io.Reader) *ReadCount {
-	return &ReadCount{reader: r}
+func NewReadCount(ctx context.Context, r io.Reader) *ReadCount {
+	return &ReadCount{ctx: ctx, reader: r}
 }
 
 // Read implements io.Reader and tracks bytes read
 func (r *ReadCount) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
 	n, err := r.reader.Read(p)
 
 	r.mut.Lock()
@@ -49,11 +54,4 @@ func (r *ReadCount) Count() int64 {
 	r.mut.RLock()
 	defer r.mut.RUnlock()
 	return r.count
-}
-
-// Reset sets the byte counter to zero
-func (r *ReadCount) Reset() {
-	r.mut.Lock()
-	r.count = 0
-	r.mut.Unlock()
 }

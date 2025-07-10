@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Blob sync queue</title>
+    <style>
+        :root {
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+            --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.15);
+
+            --color-status-progress: #1E88E5;
+            --color-status-waiting: #FFB300;
+            --color-status-error: #D32F2D;
+            --color-status-success: #388E3C;
+
+            --color-text-secondary: #555;
+
+            --color-bg-surface: #f0f4f8;
+            --color-bg-primary: #ffffff;
+            --color-progress-track: #e0e0e0;
+
+            --color-alert-error: #e53935;
+            --color-status-waiting-hover: #FFA000;
+
+            --color-info-size: #2E7D32;
+            --color-info-speed: #1976D2;
+            --color-info-time: #6A1B9A;
+            --color-info-progress: #E65100;
+            --color-info-error: #D32F2F;
+
+            --color-size-bytes: #90A4AE;
+            --color-size-kib: #78909C;
+            --color-size-mib: #546E7A;
+            --color-size-gib: #37474F;
+            --color-size-tib: #263238;
+            --color-size-pib: #1A237E;
+
+            --color-time-s: #78909C;
+            --color-time-m: #546E7A;
+            --color-time-h: #37474F;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --shadow-sm: 0 1px 3px rgba(255, 255, 255, 0.1);
+                --shadow-md: 0 2px 6px rgba(255, 255, 255, 0.15);
+
+                --color-status-progress: #90CAF9;
+                --color-status-waiting: #FFE082;
+                --color-status-error: #FF8A80;
+                --color-status-success: #81C784;
+
+                --color-text-secondary: #aaa;
+
+                --color-bg-surface: #1a1a1a;
+                --color-bg-primary: #2d2d2d;
+                --color-progress-track: #404040;
+
+                --color-alert-error: #ef5350;
+                --color-status-waiting-hover: #FFB74D;
+
+                --color-info-size: #66BB6A;
+                --color-info-speed: #42A5F5;
+                --color-info-time: #AB47BC;
+                --color-info-progress: #FFA726;
+                --color-info-error: #EF5350;
+
+                --color-size-bytes: #B0BEC5;
+                --color-size-kib: #90A4AE;
+                --color-size-mib: #78909C;
+                --color-size-gib: #607D8B;
+                --color-size-tib: #546E7A;
+                --color-size-pib: #455A64;
+
+                --color-time-s: #90A4AE;
+                --color-time-m: #78909C;
+                --color-time-h: #607D8B;
+            }
+        }
+
+        .size-text,
+        .time-text,
+        .progress-text,
+        .error-text {
+            font-weight: 500;
+        }
+
+        .size-text {
+            color: var(--color-info-size);
+        }
+
+        .size-unit-bytes {
+            color: var(--color-size-bytes);
+        }
+
+        .size-unit-kib {
+            color: var(--color-size-kib);
+        }
+
+        .size-unit-mib {
+            color: var(--color-size-mib);
+        }
+
+        .size-unit-gib {
+            color: var(--color-size-gib);
+        }
+
+        .size-unit-tib {
+            color: var(--color-size-tib);
+        }
+
+        .size-unit-pib {
+            color: var(--color-size-pib);
+        }
+
+        .time-unit-s {
+            color: var(--color-time-s);
+        }
+
+        .time-unit-m {
+            color: var(--color-time-m);
+        }
+
+        .time-unit-h {
+            color: var(--color-time-h);
+        }
+
+        .time-text {
+            color: var(--color-info-time);
+        }
+
+        .progress-text {
+            color: var(--color-info-progress);
+        }
+
+        .error-text {
+            color: var(--color-info-error);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            max-width: 100%;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1.5rem;
+            background-color: var(--color-bg-surface);
+            color: var(--color-text-secondary);
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .status-container {
+            padding: 1rem;
+            margin: 1rem 0;
+            background: var(--color-bg-primary);
+            border-radius: 0.5rem;
+            box-shadow: var(--shadow-sm);
+            min-height: 2rem;
+        }
+
+        .status-container:empty::after {
+            content: 'None';
+            display: block;
+            text-align: center;
+            color: var(--color-text-secondary);
+            font-style: italic;
+        }
+
+        .status-title {
+            padding: 0.75rem 1rem;
+            color: var(--color-bg-primary);
+            border-radius: 0.375rem;
+            margin: 1.5rem 0 1rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .status-title::after {
+            content: '▼';
+            font-size: 0.8em;
+            transition: transform 0.3s ease;
+        }
+
+        .status-title.collapsed::after {
+            transform: rotate(-90deg);
+        }
+
+        .status-title.processing {
+            background: var(--color-status-progress);
+        }
+
+        .status-title.pending {
+            background: var(--color-status-waiting);
+        }
+
+        .status-title.failed {
+            background: var(--color-status-error);
+        }
+
+        .status-title.completed {
+            background: var(--color-status-success);
+        }
+
+        .data-item {
+            padding: 0.75rem;
+            margin: 0.5rem 0;
+            background: var(--color-bg-primary);
+            border-radius: 0.375rem;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .data-item:hover {
+            transform: translateX(0.25rem);
+            box-shadow: var(--shadow-md);
+        }
+
+        .data-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 0;
+            flex-wrap: wrap;
+        }
+
+        .data-header>strong {
+            flex: 1;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+
+        .progress-container {
+            height: 1rem;
+            background: var(--color-progress-track);
+            border-radius: 1rem;
+            overflow: hidden;
+            position: relative;
+            box-shadow: inset 0 1px 2px var(--shadow-sm);
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--color-status-progress), var(--color-status-progress));
+            transition: width 0.3s ease-out;
+            position: relative;
+        }
+
+        .progress-text {
+            color: var(--color-text-secondary);
+            font-size: 0.875em;
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        @keyframes item-entrance {
+            from {
+                opacity: 0;
+                transform: translateY(0.5rem);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        #error {
+            color: var(--color-alert-error);
+            margin: 20px 0;
+        }
+
+    </style>
+</head>
+
+<body>
+    <header class="page-header">
+        <h1>Blob sync queue</h1>
+    </header>
+
+    <div id="error" style="display: none;"></div>
+    <div class="status-group">
+        <h2 class="status-title processing" onclick="toggleContainer('processing-container')">Processing</h2>
+        <div id="processing-container" class="status-container"></div>
+
+        <h2 class="status-title pending" onclick="toggleContainer('pending-container')">Pending</h2>
+        <div id="pending-container" class="status-container"></div>
+
+        <h2 class="status-title failed collapsed" onclick="toggleContainer('failed-container')">Failed</h2>
+        <div id="failed-container" class="status-container" style="display: none;"></div>
+
+        <h2 class="status-title completed collapsed" onclick="toggleContainer('completed-container')">Completed</h2>
+        <div id="completed-container" class="status-container" style="display: none;"></div>
+    </div>
+
+    <script>
+        const containers = {
+            processing: document.getElementById('processing-container'),
+            pending: document.getElementById('pending-container'),
+            failed: document.getElementById('failed-container'),
+            completed: document.getElementById('completed-container')
+        };
+
+        const highlightBytes = (bytes) => {
+            if (!bytes || bytes < 0) return '<span class="size-unit-bytes">0 Bytes</span>';
+            const k = 1024;
+            const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
+            const sizeClasses = ['size-unit-bytes', 'size-unit-kib', 'size-unit-mib', 'size-unit-gib', 'size-unit-tib', 'size-unit-pib'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `<span class="${sizeClasses[i]}">${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}</span>`;
+        };
+
+        const highlightError = error =>
+            error ? `<span class="error-text">${error}</span>` : '';
+
+        const highlightProgress = (progress, total) =>
+            `<span title="Progress in bytes">${highlightBytes(progress)} / ${highlightBytes(total)}</span>`;
+
+        const highlightSpeed = (speed, remainingTime) =>
+            speed ? `<span title="Estimated remaining time, Download speed">
+                🕒 ${formatRemainingTime(remainingTime)}
+                ⬇️ ${highlightBytes(speed)} / s
+                </span>` : '<span></span>';
+
+        const highlightChunksInfo = data =>
+            data && data.chunksNumber > 1 ?
+                `<span title="Chunks status: 💤 idle, ⏳ pending, 🚀 running, ✅ succeeded/total">
+                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) > 0 ? `💤 ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0)}` : ''}
+                ${(data.pendingChunks || 0) > 0 ? `⏳ ${data.pendingChunks || 0}` : ''}
+                🚀 ${data.runningChunks || 0}
+                ✅ ${data.succeededChunks || 0} / ${data.chunksNumber}
+            </span>`
+                :
+                `<span title="This is a non-parallel task">
+                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) > 0 ? `💤 ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0)}` : ''}
+                ${(data.pendingChunks || 0) > 0 ? `⏳ ${data.pendingChunks || 0}` : ''}
+                🚀 ${data.runningChunks || 0}
+            </span>`;
+
+        const progressData = {};
+        const statusMap = {
+            'Pending': 'pending',
+            'Running': 'processing',
+            'Succeeded': 'completed',
+            'Failed': 'failed'
+        };
+        const renderDataItem = (event) => {
+            const elementId = `item-${event.lastEventId}`;
+
+            let element = document.getElementById(elementId);
+            if (!element && event.type !== 'DELETED') {
+                element = document.createElement('div');
+                element.id = elementId;
+                element.className = 'data-item';
+                element.style.animation = 'item-entrance 0.3s';
+            }
+
+            if (event.type === 'DELETED') {
+                if (element) {
+                    element.remove();
+                }
+                return;
+            }
+
+            const data = JSON.parse(event.data);
+
+            const targetContainer = containers[statusMap[data.phase]];
+
+            if (element.parentNode !== targetContainer) {
+                element.remove();
+            }
+
+            element.innerHTML = generateItemContent(data);
+            if (!element.isConnected) {
+                targetContainer.prepend(element);
+            }
+        };
+
+        const generateItemContent = (data) => {
+            const name = data.name;
+            const size = data.total || 0;
+            const progress = data.progress || 0;
+            const error = data.errors ? data.errors.join('\n') : '';
+
+            // Calculate speed and remaining time if this is a running item
+            let speed = 0;
+            let remainingTime = 0;
+            if (data.phase === 'Running' && data.runningChunks >= 1) {
+                const now = Date.now();
+                if (progressData[data.name]) {
+                    const prev = progressData[data.name];
+                    const timeDiff = (now - prev.time) / 1000; // in seconds
+                    const progressDiff = progress - prev.progress;
+                    if (timeDiff > 0 && progressDiff > 0) {
+                        speed = progressDiff / timeDiff;
+                        const remainingBytes = size - progress;
+                        remainingTime = Math.round(remainingBytes / (progressDiff / timeDiff));
+                    }
+                }
+                progressData[data.name] = { progress, time: now };
+            }
+
+            const header = `
+                <div class="data-header">
+                    ${name}
+                </div>
+            `;
+
+            switch (data.phase) {
+                case 'Pending':
+                    return `${header}${highlightBytes(size)}`;
+                case 'Running': {
+                    let progressPercent = size > 0 ? (progress / size) * 100 : 0;
+                    if (progressPercent > 99.99 && size != progress) {
+                        progressPercent = 99.99;
+                    }
+
+                    return `
+                        ${header}
+                        <div class="progress-text">
+                            ${highlightProgress(progress, size)} 
+                            ${highlightSpeed(speed, remainingTime)} 
+                            ${highlightChunksInfo(data)}
+                        </div>
+                        <div class="progress-container">
+                            <div class="progress-bar" style="width: ${progressPercent}%"></div>
+                        </div>
+                    `;
+                }
+                case 'Succeeded':
+                    return `${header}${highlightBytes(size)}`;
+                case 'Failed':
+                    return `${header}${highlightError(escapeHtml(error))}`;
+                default:
+                    return 'Unknown';
+            }
+        };
+
+        const escapeHtml = unsafe => {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return unsafe.replace(/[&<>"']/g, m => map[m]);
+        };
+
+        const toggleContainer = containerId => {
+            const container = document.getElementById(containerId);
+            const title = container.previousElementSibling;
+            container.style.display = container.style.display === 'none' ? 'block' : 'none';
+            title.classList.toggle('collapsed');
+        };
+
+        const showError = message => {
+            const errorDiv = document.getElementById('error');
+            errorDiv.style.display = 'block';
+            errorDiv.textContent = message;
+        };
+
+        const startStream = async () => {
+            try {
+                const eventSource = new EventSource('/api/blobs');
+
+                eventSource.addEventListener('ADDED', (event) => {
+                    try {
+                        renderDataItem(event);
+                    } catch (e) {
+                        console.error('Error parsing event data:', e);
+                        showError(`Error parsing event data: ${e.message}`);
+                    }
+                });
+
+                eventSource.addEventListener('MODIFIED', (event) => {
+                    try {
+                        renderDataItem(event);
+                    } catch (e) {
+                        console.error('Error parsing event data:', e);
+                        showError(`Error parsing event data: ${e.message}`);
+                    }
+                });
+
+                eventSource.addEventListener('DELETED', (event) => {
+                    try {
+                        renderDataItem(event);
+                    } catch (e) {
+                        console.error('Error parsing event data:', e);
+                        showError(`Error parsing event data: ${e.message}`);
+                    }
+                });
+
+                eventSource.onerror = (e) => {
+                    console.error('EventSource error:', e);
+                    showError('Connection error occurred');
+                    eventSource.close();
+                };
+            } catch (e) {
+                console.error('EventSource initialization error:', e);
+                showError(`EventSource initialization error: ${e.message}`);
+            }
+        };
+
+        const formatRemainingTime = remainingTime => {
+            const hours = Math.floor(remainingTime / 3600);
+            const minutes = Math.floor((remainingTime % 3600) / 60);
+            const seconds = remainingTime % 60;
+
+            return [
+                hours > 0 ? `<span class="time-unit-h">${hours} h</span>` : null,
+                minutes > 0 ? `<span class="time-unit-m">${minutes} m</span>` : null,
+                `<span class="time-unit-s">${seconds} s</span>`
+            ].filter(Boolean).join(' ');
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            startStream();
+        });
+
+        Object.values(containers).forEach(container => {
+            const observer = new MutationObserver(mutations => {
+                const itemCount = container.children.length;
+                const title = container.previousElementSibling;
+                const titleText = title.textContent.split('[')[0].trim();
+                title.textContent = `${titleText} [${itemCount}]`;
+            });
+            observer.observe(container, { childList: true });
+        });
+    </script>
+</body>
+
+</html>

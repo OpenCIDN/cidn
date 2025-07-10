@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
+	humanize "github.com/dustin/go-humanize"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -32,8 +34,6 @@ import (
 	"k8s.io/apiserver/pkg/registry/generic"
 	"k8s.io/apiserver/pkg/storage"
 	"k8s.io/apiserver/pkg/storage/names"
-
-	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 )
 
 // NewStrategy creates and returns a syncStrategy instance
@@ -161,7 +161,7 @@ func (*syncStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 			{Name: "Handler", Type: "string", Description: "Handler for the sync"},
 			{Name: "Phase", Type: "string", Description: "Current phase of the sync"},
 			{Name: "Progress", Type: "string", Description: "Progress of the sync"},
-			{Name: "Created At", Type: "date", Description: "Creation timestamp of the sync"},
+			{Name: "Age", Type: "date", Description: "Creation timestamp of the sync"},
 		}
 	}
 
@@ -183,13 +183,21 @@ func (*syncStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 				phase += "(" + strings.Join(faileds, ",") + ")"
 			}
 		}
+
+		var progress string
+		if sync.Status.Progress == sync.Spec.Total {
+			progress = humanize.IBytes(uint64(sync.Spec.Total))
+		} else {
+			progress = fmt.Sprintf("%s/%s", humanize.IBytes(uint64(sync.Status.Progress)), humanize.IBytes(uint64(sync.Spec.Total)))
+		}
+
 		table.Rows = append(table.Rows, metav1.TableRow{
 			Cells: []interface{}{
 				sync.Name,
 				sync.Spec.HandlerName,
 				phase,
-				fmt.Sprintf("%d/%d", sync.Status.Progress, sync.Spec.Total),
-				sync.CreationTimestamp.Time.UTC().Format(time.RFC3339),
+				progress,
+				time.Since(sync.CreationTimestamp.Time).Truncate(time.Second).String(),
 			},
 			Object: runtime.RawExtension{Object: obj},
 		})

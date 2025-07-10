@@ -4,6 +4,7 @@ go 1.24.3
 
 require (
 	github.com/aws/aws-sdk-go v1.55.7
+	github.com/dustin/go-humanize v1.0.1
 	github.com/spf13/cobra v1.8.1
 	github.com/wzshiming/ioswmr v0.0.0-20250120111738-c884d3ebe493
 	github.com/wzshiming/sss v0.0.0-20250702072007-df8bb6eecdb2

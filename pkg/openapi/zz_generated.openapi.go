@@ -235,10 +235,9 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							},
 						},
 					},
-					"weight": {
+					"priority": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Weight represents the relative importance of this blob when multiple blobs exist.",
-							Default:     0,
+							Description: "Priority represents the relative importance of this blob when multiple blobs exist.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -251,9 +250,23 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "int64",
 						},
 					},
+					"minimumChunkSize": {
+						SchemaProps: spec.SchemaProps{
+							Description: "MinimumChunkSize represents the minimum size of each chunk when splitting the blob.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
 					"chunkSize": {
 						SchemaProps: spec.SchemaProps{
 							Description: "ChunkSize represents the size of each chunk when splitting the blob.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"chunkCount": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ChunksNumber represents the total number of chunks that the blob will be split into.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -265,24 +278,16 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "",
 						},
 					},
-					"pendingSize": {
+					"maximumParallelism": {
 						SchemaProps: spec.SchemaProps{
-							Description: "PendingSize is the maximum number of pending syncs allowed for this blob.",
-							Default:     2,
-							Type:        []string{"integer"},
-							Format:      "int64",
-						},
-					},
-					"runningSize": {
-						SchemaProps: spec.SchemaProps{
-							Description: "RunningSize is the maximum number of running syncs allowed for this blob.",
+							Description: "MaximumParallelism is the maximum number of syncs allowed for this blob.",
 							Default:     2,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
 					},
 				},
-				Required: []string{"handlerName", "source", "destination", "weight", "total"},
+				Required: []string{"handlerName", "source", "destination", "total"},
 			},
 		},
 	}
@@ -305,6 +310,27 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 					"progress": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Progress is the progress of the blob.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"pendingChunks": {
+						SchemaProps: spec.SchemaProps{
+							Description: "PendingChunks is the number of pending chunks for this blob.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"runningChunks": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RunningChunks is the number of running chunks for this blob.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"succeededChunks": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SucceededChunks is the number of succeeded chunks for this blob.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -645,9 +671,9 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 							},
 						},
 					},
-					"weight": {
+					"priority": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Weight represents the relative importance of this sync when multiple syncs exist.",
+							Description: "Priority represents the relative importance of this sync when multiple syncs exist.",
 							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
@@ -661,9 +687,16 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 							Format:      "int64",
 						},
 					},
-					"partNumber": {
+					"chunkIndex": {
 						SchemaProps: spec.SchemaProps{
-							Description: "PartNumber represents the chunk number in a larger chunked operation. 0 means not chunked, >0 means the part number (1-based index).",
+							Description: "ChunkIndex represents the part number in a multipart upload operation. 0 means not part of a multipart upload, >0 means the part number (1-based index).",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"chunksNumber": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ChunksNumber represents the total number of chunks that the sync is part of in a multipart operation.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -683,7 +716,7 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 						},
 					},
 				},
-				Required: []string{"handlerName", "source", "destination", "weight", "total"},
+				Required: []string{"handlerName", "source", "destination", "priority", "total"},
 			},
 		},
 		Dependencies: []string{

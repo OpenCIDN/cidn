@@ -42,7 +42,7 @@ type HeadRunner struct {
 	client       versioned.Interface
 	blobInformer informers.BlobInformer
 	httpClient   *http.Client
-	workqueue    workqueue.TypedRateLimitingInterface[string]
+	workqueue    workqueue.TypedDelayingInterface[string]
 }
 
 // NewHeadRunner creates a new HeadRunner instance
@@ -56,7 +56,7 @@ func NewHeadRunner(
 		client:       clientset,
 		blobInformer: sharedInformerFactory.Task().V1alpha1().Blobs(),
 		httpClient:   http.DefaultClient,
-		workqueue:    workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+		workqueue:    workqueue.NewTypedDelayingQueue[string](),
 	}
 	r.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
@@ -104,13 +104,12 @@ func (r *HeadRunner) processNextItem(ctx context.Context) bool {
 	defer r.workqueue.Done(key)
 
 	err := r.processBlob(ctx, key)
-	if err == nil {
-		r.workqueue.Forget(key)
-		return true
+	if err != nil {
+		r.workqueue.AddAfter(key, 10*time.Second)
+
+		klog.Errorf("Error processing blob %q: %v", key, err)
 	}
 
-	klog.Errorf("Error processing blob %q: %v", key, err)
-	r.workqueue.AddRateLimited(key)
 	return true
 }
 

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -37,7 +38,7 @@ type ReleaseSyncController struct {
 	handlerName  string
 	client       versioned.Interface
 	syncInformer informers.SyncInformer
-	workqueue    workqueue.TypedRateLimitingInterface[string]
+	workqueue    workqueue.TypedDelayingInterface[string]
 	lastSeen     map[string]time.Time
 	lastSeenMut  sync.RWMutex
 }
@@ -51,7 +52,7 @@ func NewReleaseSyncController(
 		handlerName:  handlerName,
 		client:       client,
 		syncInformer: sharedInformerFactory.Task().V1alpha1().Syncs(),
-		workqueue:    workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
+		workqueue:    workqueue.NewTypedDelayingQueue[string](),
 		lastSeen:     map[string]time.Time{},
 	}
 	c.syncInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -121,11 +122,12 @@ func (c *ReleaseSyncController) processNextItem(ctx context.Context) bool {
 	err := c.syncHandler(ctx, key)
 	if err != nil {
 		c.workqueue.AddAfter(key, 10*time.Second)
-		klog.Errorf("error syncing '%s': %v, requeuing", key, err)
+		if !errors.Is(err, errNotEnoughTime) {
+			klog.Errorf("error release sync syncing '%s': %v, requeuing", key, err)
+		}
 		return true
 	}
 
-	c.workqueue.Forget(key)
 	return true
 }
 
@@ -136,8 +138,6 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, key string) err
 		return nil
 	}
 
-	klog.Infof("processing sync %q", name)
-
 	sync, err := c.syncInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -146,7 +146,8 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, key string) err
 		return err
 	}
 
-	if sync.Status.Phase != v1alpha1.SyncPhaseRunning || sync.Spec.HandlerName == "" {
+	if sync.Status.Phase != v1alpha1.SyncPhaseRunning ||
+		sync.Spec.HandlerName == "" {
 		return nil
 	}
 
@@ -158,9 +159,15 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, key string) err
 		return nil
 	}
 
-	if time.Since(lastSeenTime) < 10*time.Second {
-		return fmt.Errorf("not enough time: %s", key)
+	// if sync.Status.Progress == sync.Spec.Total {
+	// 	if time.Since(lastSeenTime) < 600*time.Second {
+	// 		return fmt.Errorf("%w: %s", errNotEnoughTime, key)
+	// 	}
+	// } else {
+	if time.Since(lastSeenTime) < 60*time.Second {
+		return fmt.Errorf("%w: %s", errNotEnoughTime, key)
 	}
+	// }
 
 	// Reset to pending and clear handler name
 	newSync := sync.DeepCopy()
