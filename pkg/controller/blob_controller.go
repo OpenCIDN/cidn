@@ -63,6 +63,14 @@ func NewBlobController(
 	}
 }
 
+func (c *BlobController) Shutdown(ctx context.Context) error {
+	err := c.blobHoldController.Shutdown(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *BlobController) Start(ctx context.Context) error {
 	err := c.blobHoldController.Start(ctx)
 	if err != nil {

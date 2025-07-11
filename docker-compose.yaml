@@ -99,7 +99,7 @@ services:
     volumes:
     - ./kubeconfig.local.yaml:/kubeconfig.local.yaml:ro
     deploy:
-      replicas: 3
+      replicas: 16
     networks:
       runner-tier: {}
   webui:
@@ -125,7 +125,7 @@ services:
     restart: unless-stopped
     image: m.daocloud.io/docker.io/nginx:alpine
     volumes:
-    - ./static:/usr/share/nginx/html:ro
+    - ./tests/testdata:/usr/share/nginx/html:ro
     configs:
     - source: nginx-test-config
       target: /etc/nginx/conf.d/default.conf
@@ -138,7 +138,7 @@ configs:
       server {
         listen 80;
         location / {
-          limit_rate 1m;
+          limit_rate 100m;
           root   /usr/share/nginx/html;
           index  index.html index.htm;
         }

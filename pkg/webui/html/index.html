@@ -287,7 +287,6 @@
             color: var(--color-alert-error);
             margin: 20px 0;
         }
-
     </style>
 </head>
 
@@ -403,7 +402,7 @@
             // Calculate speed and remaining time if this is a running item
             let speed = 0;
             let remainingTime = 0;
-            if (data.phase === 'Running' && data.runningChunks >= 1) {
+            if (data.phase === 'Running') {
                 const now = Date.now();
                 if (progressData[data.name]) {
                     const prev = progressData[data.name];
@@ -415,7 +414,7 @@
                         remainingTime = Math.round(remainingBytes / (progressDiff / timeDiff));
                     }
                 }
-                progressData[data.name] = { progress, time: now };
+                progressData[data.name] = { progress: progress, time: now };
             }
 
             const header = `

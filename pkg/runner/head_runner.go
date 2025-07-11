@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -31,6 +32,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/versions"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -81,6 +83,62 @@ func NewHeadRunner(
 	})
 
 	return r
+}
+
+func (r *HeadRunner) Release(ctx context.Context) error {
+	blobs, err := r.blobInformer.Lister().List(labels.Everything())
+	if err != nil {
+		return fmt.Errorf("failed to list blobs: %w", err)
+	}
+
+	var wg sync.WaitGroup
+
+	for _, blob := range blobs {
+		if blob.Spec.HandlerName != r.handlerName {
+			continue
+		}
+
+		if blob.Status.Phase != v1alpha1.BlobPhasePending && blob.Status.Phase != v1alpha1.BlobPhaseRunning {
+			continue
+		}
+
+		wg.Add(1)
+		go func(b *v1alpha1.Blob) {
+			defer wg.Done()
+
+			blobCopy := b.DeepCopy()
+			blobCopy.Spec.HandlerName = ""
+			blobCopy.Status.Phase = v1alpha1.BlobPhasePending
+			blobCopy.Status.Conditions = nil
+			_, err := r.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
+			if err != nil {
+				if apierrors.IsConflict(err) {
+					latest, getErr := r.client.TaskV1alpha1().Blobs().Get(ctx, blobCopy.Name, metav1.GetOptions{})
+					if getErr != nil {
+						klog.Errorf("failed to get latest blob %s: %v", blobCopy.Name, getErr)
+						return
+					}
+					latest.Spec.HandlerName = ""
+					latest.Status.Phase = v1alpha1.BlobPhasePending
+					latest.Status.Conditions = nil
+					_, err = r.client.TaskV1alpha1().Blobs().Update(ctx, latest, metav1.UpdateOptions{})
+					if err != nil {
+						klog.Errorf("failed to update blob %s: %v", latest.Name, err)
+						return
+					}
+				}
+				klog.Errorf("failed to release blob %s: %v", b.Name, err)
+			}
+		}(blob)
+	}
+
+	wg.Wait()
+
+	return nil
+}
+
+func (r *HeadRunner) Shutdown(ctx context.Context) error {
+	return r.Release(ctx)
 }
 
 // Start starts the head runner
@@ -162,7 +220,7 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 				LastTransitionTime: metav1.Now(),
 			})
 		}
-		_, err = r.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
+		_, err = r.client.TaskV1alpha1().Blobs().Update(context.Background(), blobCopy, metav1.UpdateOptions{})
 		return err
 	}
 
@@ -174,7 +232,7 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 		blobCopy.Spec.ChunkSize = 0
 	}
 
-	_, err = r.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
+	_, err = r.client.TaskV1alpha1().Blobs().Update(context.Background(), blobCopy, metav1.UpdateOptions{})
 	return err
 }
 

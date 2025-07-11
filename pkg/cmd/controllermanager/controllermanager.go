@@ -27,6 +27,7 @@ import (
 	"github.com/wzshiming/sss"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 )
 
 type flagpole struct {
@@ -68,7 +69,10 @@ func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
 				return fmt.Errorf("error creating s3 client: %v", err)
 			}
 
-			ctr, err := controller.NewControllerManager("controller-"+ident, clientset, s3)
+			ident = "controller-" + ident
+			klog.Infof("Starting controller with identity: %s", ident)
+
+			ctr, err := controller.NewControllerManager(ident, clientset, s3)
 			if err != nil {
 				return fmt.Errorf("error creating controller: %v", err)
 			}
@@ -79,7 +83,8 @@ func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
 			}
 
 			<-ctx.Done()
-			return nil
+
+			return ctr.Shutdown(context.Background())
 		},
 	}
 

@@ -61,6 +61,15 @@ func NewControllerManager(handlerName string, client *versioned.Clientset, s3 *s
 	}, nil
 }
 
+func (c *ControllerManager) Shutdown(ctx context.Context) error {
+	err := c.blobController.Shutdown(ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *ControllerManager) Start(ctx context.Context) error {
 	err := c.blobController.Start(ctx)
 	if err != nil {
@@ -77,6 +86,6 @@ func (c *ControllerManager) Start(ctx context.Context) error {
 		return err
 	}
 
-	c.sharedInformerFactory.Start(ctx.Done())
+	c.sharedInformerFactory.Start(make(<-chan struct{}))
 	return nil
 }

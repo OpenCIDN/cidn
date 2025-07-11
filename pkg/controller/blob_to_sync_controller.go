@@ -136,13 +136,7 @@ func (c *BlobToSyncController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *BlobToSyncController) syncHandler(ctx context.Context, key string) error {
-	_, name, err := cache.SplitMetaNamespaceKey(key)
-	if err != nil {
-		klog.Errorf("invalid resource key: %s", key)
-		return nil
-	}
-
+func (c *BlobToSyncController) syncHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		return err

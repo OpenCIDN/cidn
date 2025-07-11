@@ -131,13 +131,7 @@ func (c *ReleaseSyncController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *ReleaseSyncController) syncHandler(ctx context.Context, key string) error {
-	_, name, err := cache.SplitMetaNamespaceKey(key)
-	if err != nil {
-		klog.Errorf("invalid resource key: %s", key)
-		return nil
-	}
-
+func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) error {
 	sync, err := c.syncInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -152,22 +146,16 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, key string) err
 	}
 
 	c.lastSeenMut.RLock()
-	lastSeenTime, ok := c.lastSeen[key]
+	lastSeenTime, ok := c.lastSeen[name]
 	c.lastSeenMut.RUnlock()
 
 	if !ok {
 		return nil
 	}
 
-	// if sync.Status.Progress == sync.Spec.Total {
-	// 	if time.Since(lastSeenTime) < 600*time.Second {
-	// 		return fmt.Errorf("%w: %s", errNotEnoughTime, key)
-	// 	}
-	// } else {
 	if time.Since(lastSeenTime) < 60*time.Second {
-		return fmt.Errorf("%w: %s", errNotEnoughTime, key)
+		return fmt.Errorf("%w: %s", errNotEnoughTime, name)
 	}
-	// }
 
 	// Reset to pending and clear handler name
 	newSync := sync.DeepCopy()

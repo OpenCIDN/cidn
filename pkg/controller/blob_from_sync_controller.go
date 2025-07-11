@@ -122,13 +122,7 @@ func (c *BlobFromSyncController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *BlobFromSyncController) syncHandler(ctx context.Context, key string) error {
-	_, name, err := cache.SplitMetaNamespaceKey(key)
-	if err != nil {
-		klog.Errorf("invalid resource key: %s", key)
-		return nil
-	}
-
+func (c *BlobFromSyncController) syncHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		return err
@@ -155,17 +149,17 @@ func (c *BlobFromSyncController) syncHandler(ctx context.Context, key string) er
 
 	c.lastSeenMut.Lock()
 	defer c.lastSeenMut.Unlock()
-	lastTime, ok := c.lastSeen[key]
+	lastTime, ok := c.lastSeen[name]
 	if ok &&
 		oldBlob.Status.Phase == v1alpha1.BlobPhaseRunning &&
 		blob.Status.Phase == v1alpha1.BlobPhaseRunning &&
 		blob.Status.Progress != blob.Spec.Total &&
 		blob.Status.SucceededChunks != blob.Spec.ChunksNumber &&
-		time.Since(lastTime) < time.Second {
+		time.Since(lastTime) < 1*time.Second {
 		return nil
 	}
 
-	c.lastSeen[key] = time.Now()
+	c.lastSeen[name] = time.Now()
 
 	_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
 	if err != nil {

@@ -41,6 +41,20 @@ func NewRunner(handlerName string, client versioned.Interface) *Runner {
 	}
 }
 
+// Shutdown stops the runner
+func (r *Runner) Shutdown(ctx context.Context) error {
+	err := r.sync.Release(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = r.head.Release(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // Start starts the runner
 func (r *Runner) Start(ctx context.Context) error {
 	err := r.sync.Start(ctx)
@@ -52,6 +66,6 @@ func (r *Runner) Start(ctx context.Context) error {
 		return err
 	}
 
-	r.sharedInformerFactory.Start(ctx.Done())
+	r.sharedInformerFactory.Start(make(<-chan struct{}))
 	return nil
 }

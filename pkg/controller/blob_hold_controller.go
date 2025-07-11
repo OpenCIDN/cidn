@@ -20,13 +20,16 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -75,8 +78,63 @@ func NewBlobHoldController(
 	return c
 }
 
-func (c *BlobHoldController) Start(ctx context.Context) error {
+func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
+	blobs, err := c.blobInformer.Lister().List(labels.Everything())
+	if err != nil {
+		return fmt.Errorf("failed to list blobs: %w", err)
+	}
 
+	var wg sync.WaitGroup
+
+	for _, blob := range blobs {
+		if blob.Spec.HandlerName != c.handlerName {
+			continue
+		}
+
+		if blob.Status.Phase != v1alpha1.BlobPhasePending && blob.Status.Phase != v1alpha1.BlobPhaseRunning {
+			continue
+		}
+
+		wg.Add(1)
+		go func(b *v1alpha1.Blob) {
+			defer wg.Done()
+
+			blobCopy := b.DeepCopy()
+			blobCopy.Spec.HandlerName = ""
+			blobCopy.Status.Phase = v1alpha1.BlobPhasePending
+			blobCopy.Status.Conditions = nil
+			_, err := c.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
+			if err != nil {
+				if apierrors.IsConflict(err) {
+					latest, getErr := c.client.TaskV1alpha1().Blobs().Get(ctx, blobCopy.Name, metav1.GetOptions{})
+					if getErr != nil {
+						klog.Errorf("failed to get latest blob %s: %v", blobCopy.Name, getErr)
+						return
+					}
+					latest.Spec.HandlerName = ""
+					latest.Status.Phase = v1alpha1.BlobPhasePending
+					latest.Status.Conditions = nil
+					_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, latest, metav1.UpdateOptions{})
+					if err != nil {
+						klog.Errorf("failed to update blob %s: %v", latest.Name, err)
+						return
+					}
+				}
+				klog.Errorf("failed to release blob %s: %v", b.Name, err)
+			}
+		}(blob)
+	}
+
+	wg.Wait()
+
+	return nil
+}
+
+func (c *BlobHoldController) Shutdown(ctx context.Context) error {
+	return c.ReleaseAll(ctx)
+}
+
+func (c *BlobHoldController) Start(ctx context.Context) error {
 	go c.runWorker(ctx)
 	return nil
 }
@@ -103,13 +161,7 @@ func (c *BlobHoldController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *BlobHoldController) syncHandler(ctx context.Context, key string) error {
-	_, name, err := cache.SplitMetaNamespaceKey(key)
-	if err != nil {
-		klog.Errorf("invalid resource key: %s", key)
-		return nil
-	}
-
+func (c *BlobHoldController) syncHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		return err

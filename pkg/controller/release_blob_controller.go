@@ -133,13 +133,7 @@ func (c *ReleaseBlobController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *ReleaseBlobController) syncHandler(ctx context.Context, key string) error {
-	_, name, err := cache.SplitMetaNamespaceKey(key)
-	if err != nil {
-		klog.Errorf("invalid resource key: %s", key)
-		return nil
-	}
-
+func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -154,22 +148,17 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, key string) err
 	}
 
 	c.lastSeenMut.RLock()
-	lastSeenTime, ok := c.lastSeen[key]
+	lastSeenTime, ok := c.lastSeen[name]
 	c.lastSeenMut.RUnlock()
 
 	if !ok {
 		return nil
 	}
 
-	// if blob.Status.Progress == blob.Spec.Total {
-	// 	if time.Since(lastSeenTime) < 1800*time.Second {
-	// 		return fmt.Errorf("%w: %s", errNotEnoughTime, key)
-	// 	}
-	// } else {
-	if time.Since(lastSeenTime) < 60*time.Second {
-		return fmt.Errorf("%w: %s", errNotEnoughTime, key)
+	if time.Since(lastSeenTime) < 90*time.Second {
+		return fmt.Errorf("%w: %s", errNotEnoughTime, name)
 	}
-	// }
+
 	// Reset to pending and clear handler name
 	newBlob := blob.DeepCopy()
 	newBlob.Status.Phase = v1alpha1.BlobPhasePending

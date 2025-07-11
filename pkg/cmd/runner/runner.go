@@ -27,6 +27,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 )
 
 type flagpole struct {
@@ -62,8 +63,10 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 				return fmt.Errorf("error creating clientset: %v", err)
 			}
 
-			// Create runner
-			runner := runner.NewRunner("runner-"+ident, clientset)
+			ident = "runner-" + ident
+			klog.Infof("Starting runner with identity: %s", ident)
+
+			runner := runner.NewRunner(ident, clientset)
 
 			err = runner.Start(ctx)
 			if err != nil {
@@ -71,7 +74,7 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 			}
 
 			<-ctx.Done()
-			return nil
+			return runner.Shutdown(context.Background())
 		},
 	}
 

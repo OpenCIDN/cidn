@@ -24,8 +24,6 @@ import (
 	"io/fs"
 	"net/http"
 	"reflect"
-	"strings"
-	"unicode"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
@@ -74,7 +72,8 @@ func NewHandler(client versioned.Interface) http.Handler {
 				if !ok {
 					return
 				}
-				sendUpdate("ADDED", blob, updates)
+				event := createEvent("ADDED", blob)
+				updates <- event
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
 				oldBlob, ok := oldObj.(*v1alpha1.Blob)
@@ -91,14 +90,16 @@ func NewHandler(client versioned.Interface) http.Handler {
 					return
 				}
 
-				sendUpdate("MODIFIED", newBlob, updates)
+				event := createEvent("MODIFIED", newBlob)
+				updates <- event
 			},
 			DeleteFunc: func(obj interface{}) {
 				blob, ok := obj.(*v1alpha1.Blob)
 				if !ok {
 					return
 				}
-				sendUpdate("DELETED", blob, updates)
+				event := createEvent("DELETED", blob)
+				updates <- event
 			},
 		})
 		if err != nil {
@@ -127,35 +128,18 @@ func NewHandler(client versioned.Interface) http.Handler {
 	return mux
 }
 
-func sendUpdate(eventType string, blob *v1alpha1.Blob, updates chan<- Event) {
+func createEvent(eventType string, blob *v1alpha1.Blob) Event {
 	event := Event{
 		Type: eventType,
-		ID:   formatNameToID(blob.Name),
+		ID:   string(blob.UID),
 	}
 
 	if eventType != "DELETED" {
-		data, err := json.Marshal(cleanBlobForWebUI(blob))
-		if err != nil {
-			fmt.Printf("Error marshaling sync event: %v\n", err)
-			return
-		}
+		data, _ := json.Marshal(cleanBlobForWebUI(blob))
 		event.Data = data
 	}
 
-	updates <- event
-}
-
-func formatNameToID(name string) string {
-	id := strings.Builder{}
-	for _, r := range name {
-		if unicode.IsLetter(r) {
-			id.WriteRune(r)
-		} else {
-			id.WriteRune('-')
-		}
-	}
-
-	return id.String()
+	return event
 }
 
 type cleanedBlob struct {

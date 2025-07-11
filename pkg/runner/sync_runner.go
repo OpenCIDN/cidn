@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -30,6 +31,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -88,6 +90,63 @@ func (r *SyncRunner) enqueueSync() {
 	}
 }
 
+// Release releases the current held sync
+func (r *SyncRunner) Release(ctx context.Context) error {
+	syncs, err := r.syncInformer.Lister().List(labels.Everything())
+	if err != nil {
+		return fmt.Errorf("failed to list blobs: %w", err)
+	}
+
+	var wg sync.WaitGroup
+
+	for _, sync := range syncs {
+		if sync.Spec.HandlerName != r.handlerName {
+			continue
+		}
+
+		if sync.Status.Phase != v1alpha1.SyncPhasePending && sync.Status.Phase != v1alpha1.SyncPhaseRunning {
+			continue
+		}
+
+		klog.Infof("Releasing sync %s (current phase: %s)", sync.Name, sync.Status.Phase)
+		wg.Add(1)
+		go func(s *v1alpha1.Sync) {
+			defer wg.Done()
+
+			syncCopy := s.DeepCopy()
+			syncCopy.Spec.HandlerName = ""
+			syncCopy.Status.Phase = v1alpha1.SyncPhasePending
+			syncCopy.Status.Conditions = nil
+			_, err := r.client.TaskV1alpha1().Syncs().Update(ctx, syncCopy, metav1.UpdateOptions{})
+			if err != nil {
+				if apierrors.IsConflict(err) {
+					latest, getErr := r.client.TaskV1alpha1().Syncs().Get(ctx, syncCopy.Name, metav1.GetOptions{})
+					if getErr != nil {
+						klog.Errorf("failed to get latest sync %s: %v", syncCopy.Name, getErr)
+						return
+					}
+					latest.Spec.HandlerName = ""
+					latest.Status.Phase = v1alpha1.SyncPhasePending
+					latest.Status.Conditions = nil
+					_, err = r.client.TaskV1alpha1().Syncs().Update(ctx, latest, metav1.UpdateOptions{})
+					if err != nil {
+						klog.Errorf("failed to update sync %s: %v", latest.Name, err)
+						return
+					}
+				}
+				klog.Errorf("failed to release sync %s: %v", s.Name, err)
+			}
+		}(sync)
+	}
+
+	return nil
+}
+
+// Shutdown stops the runner
+func (r *SyncRunner) Shutdown(ctx context.Context) error {
+	return r.Release(ctx)
+}
+
 // Run starts the runner
 func (r *SyncRunner) Start(ctx context.Context) error {
 	go r.runWorker(ctx)
@@ -101,6 +160,9 @@ func (r *SyncRunner) runWorker(ctx context.Context) {
 }
 
 func (r *SyncRunner) processNextItem(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	sync, err := r.getPending(context.Background())
 	if err != nil {
 		select {
@@ -115,12 +177,27 @@ func (r *SyncRunner) processNextItem(ctx context.Context) bool {
 		return true
 	}
 
+	klog.Infof("Processing sync %s (handler: %s)", sync.Name, sync.Spec.HandlerName)
+	defer klog.Infof("Finished processing sync %s", sync.Name)
 	// Process the sync
-	r.process(ctx, sync.DeepCopy())
+	r.process(ctx, sync.Name)
 	return true
 }
 
+func (r *SyncRunner) updateSync(ctx context.Context, sync *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+	now := metav1.Now()
+	sync.Status.LastTime = &now
+	return r.client.TaskV1alpha1().Syncs().Update(ctx, sync, metav1.UpdateOptions{})
+}
+
 func (r *SyncRunner) handleProcessErrorWithReason(ctx context.Context, name string, errMsg error, reason string) {
+	if errors.Is(errMsg, context.Canceled) {
+		err := r.Release(ctx)
+		if err != nil {
+			klog.Errorf("Error releasing sync: %v", err)
+		}
+		return
+	}
 	sync, err := r.syncInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -151,9 +228,9 @@ func (r *SyncRunner) handleProcessErrorWithReason(ctx context.Context, name stri
 			LastTransitionTime: metav1.Now(),
 		})
 	}
-	_, updateErr := r.client.TaskV1alpha1().Syncs().Update(ctx, sync, metav1.UpdateOptions{})
-	if updateErr != nil {
-		klog.Errorf("Error updating sync to failed state: %v", updateErr)
+	_, err = r.updateSync(ctx, sync)
+	if err != nil {
+		klog.Errorf("Error updating sync to failed state: %v", err)
 	}
 }
 
@@ -190,7 +267,21 @@ func (r *SyncRunner) buildRequest(ctx context.Context, syncHTTP *v1alpha1.SyncHT
 	return req, nil
 }
 
-func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync) {
+func (r *SyncRunner) getSync(name string) (*v1alpha1.Sync, error) {
+	sync, err := r.syncInformer.Lister().Get(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return sync, nil
+}
+
+func (r *SyncRunner) process(ctx context.Context, name string) {
+	sync, err := r.getSync(name)
+	if err != nil {
+		r.handleProcessError(ctx, sync.Name, err)
+		return
+	}
 
 	srcReq, err := r.buildRequest(ctx, &sync.Spec.Source, nil)
 	if err != nil {
@@ -307,66 +398,49 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync) {
 
 	dur := time.Second
 	ticker := time.NewTicker(time.Second)
-	tickDone := make(chan struct{})
 
 	go func() {
 		defer func() {
 			gcancel()
-			close(tickDone)
 		}()
-		for {
-			select {
-			case _, ok := <-tickDone:
-				if ok {
+		for range ticker.C {
+			cacheSync, err := r.getSync(sync.Name)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
 					return
 				}
-			case <-ticker.C:
-				cacheSync, err := r.syncInformer.Lister().Get(sync.Name)
-				if err != nil {
-					if apierrors.IsNotFound(err) {
-						return
-					}
-					klog.Warningf("error getting sync: %v", err)
-					continue
-				}
-
-				if cacheSync.UID != sync.UID {
-					return
-				}
-
-				sync = cacheSync.DeepCopy()
-
-				updateProgress(sync, sr, drs)
-
-				newSync, err := r.client.TaskV1alpha1().Syncs().Update(ctx, sync, metav1.UpdateOptions{})
-				if err != nil {
-					klog.Warningf("error updating sync: %v", err)
-					continue
-				}
-				sync = newSync
-
-				dur = time.Second + time.Duration(rand.Intn(100))*time.Millisecond
-				ticker.Reset(dur)
+				klog.Warningf("error getting sync: %v", err)
+				continue
 			}
+
+			if cacheSync.UID != sync.UID {
+				return
+			}
+
+			sync := cacheSync.DeepCopy()
+
+			updateProgress(sync, sr, drs)
+
+			_, err = r.updateSync(ctx, sync)
+			if err != nil {
+				klog.Warningf("error updating sync: %v", err)
+				continue
+			}
+
+			dur = time.Second + time.Duration(rand.Intn(100))*time.Millisecond
+			ticker.Reset(dur)
 		}
 	}()
 
 	err = g.Wait()
 	ticker.Stop()
 
-	select {
-	case tickDone <- struct{}{}:
-		<-tickDone
-	case <-ctx.Done():
-		return
-	}
-
 	if err != nil {
 		r.handleProcessError(ctx, sync.Name, err)
 		return
 	}
 
-	cacheSync, err := r.syncInformer.Lister().Get(sync.Name)
+	cacheSync, err := r.getSync(sync.Name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return
@@ -387,9 +461,9 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync) {
 
 	if sync.Spec.Sha256PartialPreviousName == "" {
 		sync.Status.Phase = v1alpha1.SyncPhaseSucceeded
-		_, err := r.client.TaskV1alpha1().Syncs().Update(ctx, sync, metav1.UpdateOptions{})
+		_, err := r.updateSync(ctx, sync)
 		if err != nil {
-			r.handleProcessError(ctx, sync.Name, err)
+			klog.Errorf("Error updating sync to succeeded state: %v", err)
 			return
 		}
 		return
@@ -404,7 +478,7 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync) {
 		return
 	}
 
-	psync, err := r.syncInformer.Lister().Get(sync.Spec.Sha256PartialPreviousName)
+	psync, err := r.getSync(sync.Spec.Sha256PartialPreviousName)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			r.handleProcessError(ctx, sync.Name, err)
@@ -428,9 +502,9 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync) {
 		return
 	}
 
-	sync, err = r.client.TaskV1alpha1().Syncs().Update(ctx, sync, metav1.UpdateOptions{})
+	sync, err = r.updateSync(ctx, sync)
 	if err != nil {
-		r.handleProcessError(ctx, sync.Name, err)
+		klog.Errorf("Error updating sync: %v", err)
 		return
 	}
 
@@ -444,9 +518,17 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync) {
 			// TODO: Optimize to use push notifications in the future
 			time.Sleep(time.Second)
 
-			psync, err := r.syncInformer.Lister().Get(sync.Spec.Sha256PartialPreviousName)
+			psync, err := r.getSync(sync.Spec.Sha256PartialPreviousName)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
+					sync, err := r.getSync(sync.Name)
+					if err != nil {
+						r.handleProcessError(ctx, sync.Name, err)
+						return
+					}
+
+					klog.Infof("Partial sync %q not found, waiting for it to be created", sync.Spec.Sha256PartialPreviousName)
+					r.updateSync(ctx, sync)
 					continue
 				}
 				r.handleProcessError(ctx, sync.Name, err)
@@ -454,6 +536,14 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync) {
 			}
 
 			if psync.Status.Phase != v1alpha1.SyncPhaseSucceeded {
+				sync, err := r.getSync(sync.Name)
+				if err != nil {
+					r.handleProcessError(ctx, sync.Name, err)
+					return
+				}
+
+				klog.Infof("Partial sync %q is not yet succeeded (current phase: %s), waiting...", sync.Spec.Sha256PartialPreviousName, psync.Status.Phase)
+				r.updateSync(ctx, sync)
 				continue
 			}
 
@@ -462,6 +552,12 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync) {
 				if err != nil {
 					r.handleProcessErrorWithReason(ctx, sync.Name, err, "MissingSha256PartialData")
 				}
+				return
+			}
+
+			sync, err := r.getSync(sync.Name)
+			if err != nil {
+				r.handleProcessError(ctx, sync.Name, err)
 				return
 			}
 
@@ -520,8 +616,11 @@ func (r *SyncRunner) processSha256(ctx context.Context, sync *v1alpha1.Sync, swm
 	}
 
 	sync.Status.Phase = v1alpha1.SyncPhaseSucceeded
-	_, err := r.client.TaskV1alpha1().Syncs().Update(ctx, sync, metav1.UpdateOptions{})
-	return err
+	_, err := r.updateSync(ctx, sync)
+	if err != nil {
+		klog.Errorf("Error updating sync after sha256 processing: %v", err)
+	}
+	return nil
 }
 
 func (r *SyncRunner) getPending(ctx context.Context) (*v1alpha1.Sync, error) {
@@ -534,7 +633,7 @@ func (r *SyncRunner) getPending(ctx context.Context) (*v1alpha1.Sync, error) {
 		sync.Spec.HandlerName = r.handlerName
 		sync.Status.Phase = v1alpha1.SyncPhaseRunning
 
-		sync, err := r.client.TaskV1alpha1().Syncs().Update(ctx, sync, metav1.UpdateOptions{})
+		sync, err := r.updateSync(ctx, sync)
 		if err != nil {
 			if apierrors.IsConflict(err) {
 				// Someone else got the sync first, try next one
