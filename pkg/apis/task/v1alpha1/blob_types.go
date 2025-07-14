@@ -121,6 +121,9 @@ type BlobSpec struct {
 	// Sha256 is the sha256 checksum of the blob content being verified.
 	Sha256 string `json:"sha256,omitempty"`
 
+	// Etag is the ETag of the blob content being verified.
+	Etag string `json:"etag,omitempty"`
+
 	// MaximumParallelism is the maximum number of syncs allowed for this blob.
 	// +default=2
 	MaximumParallelism int64 `json:"maximumParallelism,omitempty"`

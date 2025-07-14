@@ -226,6 +226,14 @@ func (c *BlobToSyncController) createOneSync(ctx context.Context, blob *v1alpha1
 			StatusCode: http.StatusOK,
 		},
 	}
+
+	if blob.Spec.Etag != "" {
+		if sync.Spec.Source.Response.Headers == nil {
+			sync.Spec.Source.Response.Headers = map[string]string{}
+		}
+		sync.Spec.Source.Response.Headers["Etag"] = blob.Spec.Etag
+	}
+
 	for _, dst := range blob.Spec.Destination {
 		d, err := c.s3.SignPut(dst, c.expires)
 		if err != nil {
@@ -393,6 +401,13 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 			Response: v1alpha1.SyncHTTPResponse{
 				StatusCode: http.StatusPartialContent,
 			},
+		}
+
+		if blob.Spec.Etag != "" {
+			if sync.Spec.Source.Response.Headers == nil {
+				sync.Spec.Source.Response.Headers = map[string]string{}
+			}
+			sync.Spec.Source.Response.Headers["Etag"] = blob.Spec.Etag
 		}
 
 		for j, dst := range blob.Spec.Destination {

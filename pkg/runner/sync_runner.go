@@ -318,6 +318,15 @@ func (r *SyncRunner) process(ctx context.Context, name string) {
 		return
 	}
 
+	for k, v := range sync.Spec.Source.Response.Headers {
+		respVal := srcResp.Header.Get(k)
+		if respVal != v {
+			err := fmt.Errorf("header %s mismatch: got %s, want %s", k, respVal, v)
+			r.handleProcessErrorWithReason(ctx, sync.Name, err, "HeaderMismatch")
+			return
+		}
+	}
+
 	var cleanup func()
 	f, err := os.CreateTemp("", "")
 	if err == nil {

@@ -278,6 +278,13 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "",
 						},
 					},
+					"etag": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Etag is the ETag of the blob content being verified.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 					"maximumParallelism": {
 						SchemaProps: spec.SchemaProps{
 							Description: "MaximumParallelism is the maximum number of syncs allowed for this blob.",
@@ -577,6 +584,22 @@ func schema_pkg_apis_task_v1alpha1_SyncHTTPResponse(ref common.ReferenceCallback
 							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int32",
+						},
+					},
+					"headers": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Headers contains the HTTP headers from the response that should be validated",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
 						},
 					},
 				},

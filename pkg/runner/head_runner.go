@@ -226,6 +226,7 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 
 	blobCopy := blob.DeepCopy()
 	blobCopy.Spec.Total = fi.Size
+	blobCopy.Spec.Etag = fi.Etag
 	blobCopy.Spec.HandlerName = ""
 
 	if !fi.Range {
@@ -274,6 +275,7 @@ func httpStat(url string, client *http.Client, headers map[string]string) (*http
 		Size:    size,
 		ModTime: lastModified,
 		Range:   resp.Header.Get("Accept-Ranges") == "bytes",
+		Etag:    resp.Header.Get("Etag"),
 	}, nil
 }
 
@@ -281,4 +283,5 @@ type httpFileInfo struct {
 	Size    int64
 	ModTime time.Time
 	Range   bool
+	Etag    string
 }

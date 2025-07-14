@@ -118,6 +118,9 @@ type SyncHTTPRequest struct {
 type SyncHTTPResponse struct {
 	// StatusCode is the expected HTTP status code
 	StatusCode int `json:"statusCode"`
+
+	// Headers contains the HTTP headers from the response that should be validated
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // SyncHTTP defines the HTTP request/response configuration for Sync
