@@ -35,11 +35,16 @@ var files = []string{
 	"5mib",
 	"50mib",
 	"100mib",
+	"512mib",
 	"1gib",
 	"2gib",
 	"3gib",
 	"4gib",
 	"5gib",
+	"6gib",
+	"7gib",
+	"8gib",
+	"9gib",
 	"10gib",
 }
 
