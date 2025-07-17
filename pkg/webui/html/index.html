@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Blob sync queue</title>
+    <title>CIDN</title>
     <style>
         :root {
             --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -287,14 +287,25 @@
             color: var(--color-alert-error);
             margin: 20px 0;
         }
+
+        .anchor-link {
+            margin-left: 0.5rem;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .data-item:hover .anchor-link {
+            opacity: 1;
+        }
+
+        .data-item-highlighted {
+            outline: 2px solid var(--color-status-progress);
+            outline-offset: 2px;
+        }
     </style>
 </head>
 
 <body>
-    <header class="page-header">
-        <h1>Blob sync queue</h1>
-    </header>
-
     <div id="error" style="display: none;"></div>
     <div class="status-group">
         <h2 class="status-title processing" onclick="toggleContainer('processing-container')">Processing</h2>
@@ -362,79 +373,87 @@
             'Succeeded': 'completed',
             'Failed': 'failed'
         };
+
+        const clearDataItem = (event) => {
+            const elementId = `${event.lastEventId}`;
+            const element = document.getElementById(elementId);
+
+            if (element) {
+                element.remove();
+            }
+            return;
+        }
+
+        const dataItem = elementId => {
+            const element = document.createElement('div');
+            element.id = elementId;
+            element.className = 'data-item';
+            element.style.animation = 'item-entrance 0.3s';
+            return element;
+        };
+
         const renderDataItem = (event) => {
-            const elementId = `item-${event.lastEventId}`;
-
-            let element = document.getElementById(elementId);
-            if (!element && event.type !== 'DELETED') {
-                element = document.createElement('div');
-                element.id = elementId;
-                element.className = 'data-item';
-                element.style.animation = 'item-entrance 0.3s';
-            }
-
-            if (event.type === 'DELETED') {
-                if (element) {
-                    element.remove();
-                }
-                return;
-            }
-
+            const elementId = `${event.lastEventId}`;
+            const element = document.getElementById(elementId) || dataItem(elementId);
             const data = JSON.parse(event.data);
-
             const targetContainer = containers[statusMap[data.phase]];
 
             if (element.parentNode !== targetContainer) {
                 element.remove();
             }
 
-            element.innerHTML = generateItemContent(data);
+            element.innerHTML = generateItemContent(data, elementId);
             if (!element.isConnected) {
                 targetContainer.prepend(element);
             }
         };
 
-        const generateItemContent = (data) => {
+        const generateItemContent = (data, elementId) => {
             const name = data.name;
             const size = data.total || 0;
             const progress = data.progress || 0;
             const error = data.errors ? data.errors.join('\n') : '';
 
-            // Calculate speed and remaining time if this is a running item
-            let speed = 0;
-            let remainingTime = 0;
-            if (data.phase === 'Running') {
-                const now = Date.now();
-                if (progressData[data.name]) {
-                    const prev = progressData[data.name];
-                    const timeDiff = (now - prev.time) / 1000; // in seconds
-                    const progressDiff = progress - prev.progress;
-                    if (timeDiff > 0 && progressDiff > 0) {
-                        speed = progressDiff / timeDiff;
-                        const remainingBytes = size - progress;
-                        remainingTime = Math.round(remainingBytes / (progressDiff / timeDiff));
-                    }
-                }
-                progressData[data.name] = { progress: progress, time: now };
-            }
-
             const header = `
                 <div class="data-header">
                     ${name}
+                    <a href="#${elementId}" class="anchor-link">#</a>
                 </div>
             `;
 
             switch (data.phase) {
-                case 'Pending':
-                    return `${header}${highlightBytes(size)}`;
                 case 'Running': {
-                    let progressPercent = size > 0 ? (progress / size) * 100 : 0;
-                    if (progressPercent > 99.99 && size != progress) {
-                        progressPercent = 99.99;
+                    // Calculate speed and remaining time if this is a running item
+                    let speed = 0;
+                    let remainingTime = 0;
+                    if (data.phase === 'Running') {
+                        const now = Date.now();
+                        if (progressData[data.name]) {
+                            const prev = progressData[data.name];
+                            const timeDiff = (now - prev.time) / 1000; // in seconds
+                            const progressDiff = progress - prev.progress;
+                            if (timeDiff > 0 && progressDiff > 0) {
+                                speed = progressDiff / timeDiff;
+                                remainingTime = (size - progress) / speed;
+                                if (prev.remainingTime) {
+                                    remainingTime = (remainingTime * 9 + prev.remainingTime) / 10;
+                                }
+                                remainingTime = Math.round(remainingTime);
+                            }
+                        }
+                        progressData[data.name] = {
+                            progress: progress,
+                            remainingTime: remainingTime,
+                            time: now,
+                        };
                     }
 
-                    return `
-                        ${header}
+                    let progressPercent = size > 0 ? (progress / size) * 100 : 0;
+                    if (progressPercent > 99 && size != progress) {
+                        progressPercent = 99;
+                    }
+
+                    return `${header}
                         <div class="progress-text">
                             ${highlightProgress(progress, size)} 
                             ${highlightSpeed(speed, remainingTime)} 
@@ -442,11 +461,8 @@
                         </div>
                         <div class="progress-container">
                             <div class="progress-bar" style="width: ${progressPercent}%"></div>
-                        </div>
-                    `;
+                        </div>`;
                 }
-                case 'Succeeded':
-                    return `${header}${highlightBytes(size)}`;
                 case 'Failed':
                     return `${header}${highlightError(escapeHtml(error))}`;
                 default:
@@ -472,6 +488,36 @@
             title.classList.toggle('collapsed');
         };
 
+        const checkAndExpandTargetContainer = () => {
+            const hash = window.location.hash;
+            if (!hash) return;
+
+            document.querySelectorAll('.data-item-highlighted').forEach(el => {
+                el.classList.remove('data-item-highlighted');
+            });
+
+            const targetElement = document.getElementById(hash.substring(1));
+            if (!targetElement) return;
+
+
+            targetElement.classList.add('data-item-highlighted');
+
+            const container = targetElement.closest('.status-container');
+            if (!container) return;
+
+            if (container.style.display === 'none') {
+                container.style.display = 'block';
+                const title = container.previousElementSibling;
+                title.classList.remove('collapsed');
+            }
+
+            setTimeout(() => {
+                targetElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 1000);
+        };
+
+        window.addEventListener('hashchange', checkAndExpandTargetContainer);
+
         const showError = message => {
             const errorDiv = document.getElementById('error');
             errorDiv.style.display = 'block';
@@ -480,29 +526,39 @@
 
         const startStream = async () => {
             try {
-                const eventSource = new EventSource('/api/blobs');
+                const eventSource = new EventSource('/api/events');
 
-                eventSource.addEventListener('ADDED', (event) => {
+                eventSource.addEventListener('ADD', (event) => {
                     try {
                         renderDataItem(event);
                     } catch (e) {
                         console.error('Error parsing event data:', e);
                         showError(`Error parsing event data: ${e.message}`);
                     }
+
+                    const hash = window.location.hash;
+                    if (hash && event.lastEventId == hash.substring(1)) {
+                        checkAndExpandTargetContainer();
+                    };
                 });
 
-                eventSource.addEventListener('MODIFIED', (event) => {
+                eventSource.addEventListener('UPDATE', (event) => {
                     try {
                         renderDataItem(event);
                     } catch (e) {
                         console.error('Error parsing event data:', e);
                         showError(`Error parsing event data: ${e.message}`);
                     }
+
+                    const hash = window.location.hash;
+                    if (hash && event.lastEventId == hash.substring(1)) {
+                        checkAndExpandTargetContainer();
+                    };
                 });
 
-                eventSource.addEventListener('DELETED', (event) => {
+                eventSource.addEventListener('DELETE', (event) => {
                     try {
-                        renderDataItem(event);
+                        clearDataItem(event);
                     } catch (e) {
                         console.error('Error parsing event data:', e);
                         showError(`Error parsing event data: ${e.message}`);
@@ -541,7 +597,11 @@
                 const itemCount = container.children.length;
                 const title = container.previousElementSibling;
                 const titleText = title.textContent.split('[')[0].trim();
-                title.textContent = `${titleText} [${itemCount}]`;
+                if (itemCount) {
+                    title.textContent = `${titleText} [${itemCount}]`;
+                } else {
+                    title.textContent = titleText;
+                }
             });
             observer.observe(container, { childList: true });
         });

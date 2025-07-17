@@ -68,7 +68,7 @@ func NewHandler(client versioned.Interface) http.Handler {
 	informer := blobInformer.Informer()
 	go informer.RunWithContext(context.Background())
 
-	mux.HandleFunc("/api/blobs", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		// Set headers for Server-Sent Events
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -90,7 +90,7 @@ func NewHandler(client versioned.Interface) http.Handler {
 				if !ok {
 					return
 				}
-				event := createEvent("ADDED", blob)
+				event := createEvent("ADD", blob)
 				updates <- event
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
@@ -110,7 +110,13 @@ func NewHandler(client versioned.Interface) http.Handler {
 
 				mut.Lock()
 				defer mut.Unlock()
-				updateBuffer[string(newBlob.UID)] = createEvent("MODIFIED", newBlob)
+				if oldBlob.Status.Phase == newBlob.Status.Phase {
+					updateBuffer[string(newBlob.UID)] = createEvent("UPDATE", newBlob)
+				} else {
+					delete(updateBuffer, string(newBlob.UID))
+					event := createEvent("UPDATE", newBlob)
+					updates <- event
+				}
 			},
 			DeleteFunc: func(obj interface{}) {
 				blob, ok := obj.(*v1alpha1.Blob)
@@ -121,7 +127,7 @@ func NewHandler(client versioned.Interface) http.Handler {
 				mut.Lock()
 				defer mut.Unlock()
 				delete(updateBuffer, string(blob.UID))
-				event := createEvent("DELETED", blob)
+				event := createEvent("DELETE", blob)
 				updates <- event
 			},
 		})
@@ -174,7 +180,7 @@ func createEvent(eventType string, blob *v1alpha1.Blob) Event {
 		Type: eventType,
 		ID:   string(blob.UID),
 	}
-	if eventType != "DELETED" {
+	if eventType != "DELETE" {
 		data, _ := json.Marshal(cleanBlobForWebUI(blob))
 		event.Data = data
 	}
@@ -186,7 +192,7 @@ func createEvent(eventType string, blob *v1alpha1.Blob) Event {
 type cleanedBlob struct {
 	Name string `json:"name"`
 
-	Priority     int64 `json:"priority"`
+	Priority     int64 `json:"priority,omitempty"`
 	Total        int64 `json:"total"`
 	ChunksNumber int64 `json:"chunksNumber"`
 
