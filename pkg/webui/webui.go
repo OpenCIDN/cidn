@@ -201,6 +201,7 @@ type cleanedBlob struct {
 	PendingChunks   int64              `json:"pendingChunks,omitempty"`
 	RunningChunks   int64              `json:"runningChunks,omitempty"`
 	SucceededChunks int64              `json:"succeededChunks,omitempty"`
+	FailedChunks    int64              `json:"failedChunks,omitempty"`
 
 	Errors []string `json:"errors,omitempty"`
 }
@@ -222,10 +223,12 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 	cleaned.PendingChunks = blob.Status.PendingChunks
 	cleaned.RunningChunks = blob.Status.RunningChunks
 	cleaned.SucceededChunks = blob.Status.SucceededChunks
+	cleaned.FailedChunks = blob.Status.FailedChunks
 
 	if cleaned.Phase == v1alpha1.BlobPhaseRunning &&
 		cleaned.Progress == 0 &&
 		cleaned.RunningChunks == 0 &&
+		cleaned.FailedChunks == 0 &&
 		cleaned.SucceededChunks == 0 {
 		cleaned.Phase = v1alpha1.BlobPhasePending
 	}
@@ -235,6 +238,10 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 		for _, condition := range blob.Status.Conditions {
 			if condition.Message != "" {
 				cleaned.Errors = append(cleaned.Errors, condition.Message)
+			} else if condition.Reason != "" {
+				cleaned.Errors = append(cleaned.Errors, condition.Reason)
+			} else if condition.Type != "" {
+				cleaned.Errors = append(cleaned.Errors, condition.Type)
 			}
 		}
 	}

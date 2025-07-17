@@ -19,7 +19,6 @@ package runner
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"sync"
@@ -29,6 +28,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	"github.com/OpenCIDN/cidn/pkg/versions"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,23 +62,14 @@ func NewHeadRunner(
 	}
 	r.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			key, err := cache.MetaNamespaceKeyFunc(obj)
-			if err != nil {
-				klog.Errorf("Couldn't get key for object %+v: %v", obj, err)
-				return
-			}
+			blob := obj.(*v1alpha1.Blob)
+			key := blob.Name
 			r.workqueue.Add(key)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			key, err := cache.MetaNamespaceKeyFunc(newObj)
-			if err != nil {
-				klog.Errorf("Couldn't get key for object %+v: %v", newObj, err)
-				return
-			}
+			blob := newObj.(*v1alpha1.Blob)
+			key := blob.Name
 			r.workqueue.Add(key)
-		},
-		DeleteFunc: func(obj interface{}) {
-			// No action needed on delete
 		},
 	})
 
@@ -172,12 +163,7 @@ func (r *HeadRunner) processNextItem(ctx context.Context) bool {
 }
 
 func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
-	_, name, err := cache.SplitMetaNamespaceKey(key)
-	if err != nil {
-		return fmt.Errorf("invalid resource key: %s", key)
-	}
-
-	blob, err := r.blobInformer.Lister().Get(name)
+	blob, err := r.blobInformer.Lister().Get(key)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
@@ -192,6 +178,7 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 
 		blobCopy := blob.DeepCopy()
 		blobCopy.Spec.HandlerName = r.handlerName
+		blobCopy.Status.Phase = v1alpha1.BlobPhaseRunning
 		_, err = r.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
 		return err
 	}
@@ -200,25 +187,30 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 		return nil
 	}
 
-	fi, err := httpStat(blob.Spec.Source, r.httpClient, nil)
+	fi, retryable, err := httpStat(blob.Spec.Source, r.httpClient, nil)
 	if err != nil {
 		blobCopy := blob.DeepCopy()
 		blobCopy.Status.Phase = v1alpha1.BlobPhaseFailed
-		hasHTTPStatFailed := false
-		for _, condition := range blobCopy.Status.Conditions {
-			if condition.Type == "HTTPHead" {
-				hasHTTPStatFailed = true
-				break
-			}
-		}
-		if !hasHTTPStatFailed {
-			blobCopy.Status.Conditions = append(blobCopy.Status.Conditions, v1alpha1.Condition{
+		blobCopy.Status.Conditions = v1alpha1.AppendConditions(blobCopy.Status.Conditions,
+			v1alpha1.Condition{
 				Type:               "HTTPHead",
 				Status:             v1alpha1.ConditionTrue,
 				Reason:             "HTTPHeadRequestFailed",
-				Message:            fmt.Sprintf("Failed to stat source URL: %v", err),
+				Message:            fmt.Sprintf("Failed to head source URL: %v", err),
 				LastTransitionTime: metav1.Now(),
-			})
+			},
+		)
+
+		if retryable {
+			blobCopy.Status.Conditions = v1alpha1.AppendConditions(blobCopy.Status.Conditions,
+				v1alpha1.Condition{
+					Type:               v1alpha1.ConditionTypeRetryable,
+					Status:             v1alpha1.ConditionTrue,
+					Reason:             "",
+					Message:            fmt.Sprintf("Retryable, Retry count: %d", blobCopy.Status.RetryCount),
+					LastTransitionTime: metav1.Now(),
+				},
+			)
 		}
 		_, err = r.client.TaskV1alpha1().Blobs().Update(context.Background(), blobCopy, metav1.UpdateOptions{})
 		return err
@@ -228,7 +220,7 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 	blobCopy.Spec.Total = fi.Size
 	blobCopy.Spec.Etag = fi.Etag
 	blobCopy.Spec.HandlerName = ""
-
+	blobCopy.Status.Phase = v1alpha1.BlobPhasePending
 	if !fi.Range {
 		blobCopy.Spec.ChunkSize = 0
 	}
@@ -237,10 +229,11 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 	return err
 }
 
-func httpStat(url string, client *http.Client, headers map[string]string) (*httpFileInfo, error) {
+func httpStat(url string, client *http.Client, headers map[string]string) (*httpFileInfo, bool, error) {
 	req, err := http.NewRequest(http.MethodHead, url, nil)
 	if err != nil {
-		return nil, err
+		retry, err := utils.IsNetWorkError(err)
+		return nil, retry, err
 	}
 
 	req.Header.Set("Accept", "*/*")
@@ -250,20 +243,23 @@ func httpStat(url string, client *http.Client, headers map[string]string) (*http
 	}
 
 	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
 	}
-	defer resp.Body.Close()
+
+	retry, err := utils.IsHTTPResponseError(resp, err)
+	if err != nil {
+		return nil, retry, err
+	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status code: %d, request: %+v, response: %+v, body: %s", resp.StatusCode, req, resp, string(body))
+		return nil, resp.StatusCode >= http.StatusInternalServerError, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	contentLength := resp.Header.Get("Content-Length")
 	size, err := strconv.ParseInt(contentLength, 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("invalid Content-Length: %v", err)
+		return nil, false, fmt.Errorf("invalid Content-Length: %v", err)
 	}
 
 	lastModified, err := http.ParseTime(resp.Header.Get("Last-Modified"))
@@ -276,7 +272,7 @@ func httpStat(url string, client *http.Client, headers map[string]string) (*http
 		ModTime: lastModified,
 		Range:   resp.Header.Get("Accept-Ranges") == "bytes",
 		Etag:    resp.Header.Get("Etag"),
-	}, nil
+	}, true, nil
 }
 
 type httpFileInfo struct {

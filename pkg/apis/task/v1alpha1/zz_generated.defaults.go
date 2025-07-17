@@ -31,6 +31,8 @@ import (
 func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&Blob{}, func(obj interface{}) { SetObjectDefaults_Blob(obj.(*Blob)) })
 	scheme.AddTypeDefaultingFunc(&BlobList{}, func(obj interface{}) { SetObjectDefaults_BlobList(obj.(*BlobList)) })
+	scheme.AddTypeDefaultingFunc(&Sync{}, func(obj interface{}) { SetObjectDefaults_Sync(obj.(*Sync)) })
+	scheme.AddTypeDefaultingFunc(&SyncList{}, func(obj interface{}) { SetObjectDefaults_SyncList(obj.(*SyncList)) })
 	return nil
 }
 
@@ -38,11 +40,27 @@ func SetObjectDefaults_Blob(in *Blob) {
 	if in.Spec.MaximumParallelism == 0 {
 		in.Spec.MaximumParallelism = 2
 	}
+	if in.Spec.RetryCount == 0 {
+		in.Spec.RetryCount = 2
+	}
 }
 
 func SetObjectDefaults_BlobList(in *BlobList) {
 	for i := range in.Items {
 		a := &in.Items[i]
 		SetObjectDefaults_Blob(a)
+	}
+}
+
+func SetObjectDefaults_Sync(in *Sync) {
+	if in.Spec.RetryCount == 0 {
+		in.Spec.RetryCount = 2
+	}
+}
+
+func SetObjectDefaults_SyncList(in *SyncList) {
+	for i := range in.Items {
+		a := &in.Items[i]
+		SetObjectDefaults_Sync(a)
 	}
 }

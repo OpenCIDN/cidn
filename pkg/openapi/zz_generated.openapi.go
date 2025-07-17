@@ -293,6 +293,14 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "int64",
 						},
 					},
+					"retryCount": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RetryCount is the number of times the sync has been retried.",
+							Default:     2,
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
 				},
 				Required: []string{"handlerName", "source", "destination", "total"},
 			},
@@ -342,6 +350,13 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 							Format:      "int64",
 						},
 					},
+					"failedChunks": {
+						SchemaProps: spec.SchemaProps{
+							Description: "FailedChunks is the number of failed chunks for this blob.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
 					"uploadIDs": {
 						SchemaProps: spec.SchemaProps{
 							Description: "UploadIDs holds the list of upload IDs for multipart uploads",
@@ -355,6 +370,13 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 									},
 								},
 							},
+						},
+					},
+					"retryCount": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RetryCount is the number of times the blob has been retried.",
+							Type:        []string{"integer"},
+							Format:      "int64",
 						},
 					},
 					"conditions": {
@@ -738,6 +760,14 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 							Format:      "",
 						},
 					},
+					"retryCount": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RetryCount is the number of times the sync has been retried.",
+							Default:     2,
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
 				},
 				Required: []string{"handlerName", "source", "destination", "priority", "total"},
 			},
@@ -817,6 +847,13 @@ func schema_pkg_apis_task_v1alpha1_SyncStatus(ref common.ReferenceCallback) comm
 									},
 								},
 							},
+						},
+					},
+					"retryCount": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RetryCount is the number of times the sync has been retried.",
+							Type:        []string{"integer"},
+							Format:      "int64",
 						},
 					},
 					"conditions": {

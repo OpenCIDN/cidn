@@ -79,8 +79,14 @@ type BlobStatus struct {
 	// SucceededChunks is the number of succeeded chunks for this blob.
 	SucceededChunks int64 `json:"succeededChunks,omitempty"`
 
+	// FailedChunks is the number of failed chunks for this blob.
+	FailedChunks int64 `json:"failedChunks,omitempty"`
+
 	// UploadIDs holds the list of upload IDs for multipart uploads
 	UploadIDs []string `json:"uploadIDs,omitempty"`
+
+	// RetryCount is the number of times the blob has been retried.
+	RetryCount int64 `json:"retryCount,omitempty"`
 
 	// Conditions holds conditions for the Blob.
 	// +patchMergeKey=type
@@ -127,6 +133,10 @@ type BlobSpec struct {
 	// MaximumParallelism is the maximum number of syncs allowed for this blob.
 	// +default=2
 	MaximumParallelism int64 `json:"maximumParallelism,omitempty"`
+
+	// RetryCount is the number of times the sync has been retried.
+	// +default=2
+	RetryCount int64 `json:"retryCount,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

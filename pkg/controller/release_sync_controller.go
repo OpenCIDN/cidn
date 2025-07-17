@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -81,11 +80,7 @@ func (c *ReleaseSyncController) cleanupSync(obj interface{}) {
 		return
 	}
 
-	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(blob)
-	if err != nil {
-		klog.Errorf("couldn't get key for blob %+v: %v", blob, err)
-		return
-	}
+	key := blob.Name
 
 	c.lastSeenMut.Lock()
 	defer c.lastSeenMut.Unlock()
@@ -98,15 +93,14 @@ func (c *ReleaseSyncController) enqueueSync(obj interface{}) {
 		return
 	}
 
-	if sync.Status.Phase != v1alpha1.SyncPhaseRunning && sync.Status.Phase != v1alpha1.SyncPhaseUnknown {
+	if sync.Status.Phase != v1alpha1.SyncPhaseRunning &&
+		sync.Status.Phase != v1alpha1.SyncPhaseUnknown &&
+		sync.Status.Phase != v1alpha1.SyncPhaseFailed {
 		return
 	}
 
-	key, err := cache.MetaNamespaceKeyFunc(sync)
-	if err != nil {
-		klog.Errorf("couldn't get key for sync %+v: %v", sync, err)
-		return
-	}
+	key := sync.Name
+
 	c.lastSeenMut.Lock()
 	c.lastSeen[key] = time.Now()
 	c.lastSeenMut.Unlock()
@@ -125,29 +119,29 @@ func (c *ReleaseSyncController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.syncHandler(ctx, key)
+	next, err := c.syncHandler(ctx, key)
 	if err != nil {
-		c.workqueue.AddAfter(key, 10*time.Second)
-		if !errors.Is(err, errNotEnoughTime) {
-			klog.Errorf("error release sync syncing '%s': %v, requeuing", key, err)
-		}
-		return true
+		klog.Errorf("error release sync syncing '%s': %v", key, err)
+	}
+
+	if next != 0 {
+		c.workqueue.AddAfter(key, next)
 	}
 
 	return true
 }
 
-func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) error {
+func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) (time.Duration, error) {
 	sync, err := c.syncInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil
+			return 0, nil
 		}
-		return err
+		return 0, err
 	}
 
 	if sync.Spec.HandlerName == "" {
-		return nil
+		return 0, nil
 	}
 
 	c.lastSeenMut.RLock()
@@ -155,12 +149,12 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) er
 	c.lastSeenMut.RUnlock()
 
 	if !ok {
-		return nil
+		return 0, nil
 	}
 	switch sync.Status.Phase {
 	case v1alpha1.SyncPhaseRunning:
 		if time.Since(lastSeenTime) < 30*time.Second {
-			return fmt.Errorf("%w: %s", errNotEnoughTime, name)
+			return 30*time.Second - time.Since(lastSeenTime), nil
 		}
 
 		newSync := sync.DeepCopy()
@@ -169,11 +163,11 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) er
 
 		_, err = c.client.TaskV1alpha1().Syncs().Update(ctx, newSync, metav1.UpdateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to update sync %s: %v", name, err)
+			return 10 * time.Second, fmt.Errorf("failed to update sync %s: %v", name, err)
 		}
 	case v1alpha1.SyncPhaseUnknown:
 		if time.Since(lastSeenTime) < 20*time.Second {
-			return fmt.Errorf("%w: %s", errNotEnoughTime, name)
+			return 20*time.Second - time.Since(lastSeenTime), nil
 		}
 
 		newSync := sync.DeepCopy()
@@ -183,9 +177,29 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) er
 
 		_, err = c.client.TaskV1alpha1().Syncs().Update(ctx, newSync, metav1.UpdateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to update sync %s: %v", name, err)
+			return 10 * time.Second, fmt.Errorf("failed to update sync %s: %v", name, err)
+		}
+	case v1alpha1.SyncPhaseFailed:
+		if time.Since(lastSeenTime) < time.Duration(sync.Status.RetryCount)*time.Second {
+			return time.Duration(sync.Status.RetryCount)*time.Second - time.Since(lastSeenTime), nil
+		}
+
+		if sync.Status.RetryCount < sync.Spec.RetryCount {
+			newSync := sync.DeepCopy()
+			if _, ok := v1alpha1.GetCondition(newSync.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
+				newSync.Status.Phase = v1alpha1.SyncPhasePending
+				newSync.Status.Conditions = nil
+				newSync.Status.RetryCount++
+				newSync.Spec.HandlerName = ""
+				klog.Infof("Transitioning sync %s from Failed to Pending phase and clearing handler", name)
+
+				_, err = c.client.TaskV1alpha1().Syncs().Update(ctx, newSync, metav1.UpdateOptions{})
+				if err != nil {
+					return 10 * time.Second, fmt.Errorf("failed to update sync %s: %v", name, err)
+				}
+			}
 		}
 	}
 
-	return nil
+	return 0, nil
 }

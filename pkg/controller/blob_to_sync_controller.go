@@ -66,20 +66,12 @@ func NewBlobToSyncController(
 	c.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			blob := obj.(*v1alpha1.Blob)
-			key, err := cache.MetaNamespaceKeyFunc(blob)
-			if err != nil {
-				klog.Errorf("couldn't get key for object %+v: %v", blob, err)
-				return
-			}
+			key := blob.Name
 			c.workqueue.Add(key)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			blob := newObj.(*v1alpha1.Blob)
-			key, err := cache.MetaNamespaceKeyFunc(blob)
-			if err != nil {
-				klog.Errorf("couldn't get key for object %+v: %v", blob, err)
-				return
-			}
+			key := blob.Name
 			c.workqueue.Add(key)
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -206,9 +198,10 @@ func (c *BlobToSyncController) createOneSync(ctx context.Context, blob *v1alpha1
 			},
 		},
 		Spec: v1alpha1.SyncSpec{
-			Total:    blob.Spec.Total,
-			Priority: blob.Spec.Priority,
-			Sha256:   blob.Spec.Sha256,
+			Total:      blob.Spec.Total,
+			Priority:   blob.Spec.Priority,
+			Sha256:     blob.Spec.Sha256,
+			RetryCount: blob.Spec.RetryCount - blob.Status.RetryCount,
 		},
 		Status: v1alpha1.SyncStatus{
 			Phase: v1alpha1.SyncPhasePending,
@@ -285,6 +278,7 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 		Spec: v1alpha1.SyncSpec{
 			Total:        end - start,
 			Priority:     blob.Spec.Priority,
+			RetryCount:   blob.Spec.RetryCount - blob.Status.RetryCount,
 			ChunkIndex:   num,
 			ChunksNumber: blob.Spec.ChunksNumber,
 		},
@@ -374,11 +368,7 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 		}
 	}
 
-	if failedCount != 0 {
-		return nil
-	}
-
-	toCreate := int(blob.Spec.MaximumParallelism) - (pendingCount + runningCount)
+	toCreate := int(blob.Spec.MaximumParallelism) - (pendingCount + runningCount + failedCount)
 	if toCreate <= 0 {
 		return nil
 	}

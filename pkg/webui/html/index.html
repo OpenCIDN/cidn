@@ -335,7 +335,15 @@
             const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
             const sizeClasses = ['size-unit-bytes', 'size-unit-kib', 'size-unit-mib', 'size-unit-gib', 'size-unit-tib', 'size-unit-pib'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return `<span class="${sizeClasses[i]}">${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}</span>`;
+
+            let b = parseFloat(bytes / k ** i);
+
+            if (i) {
+                b = b.toFixed(2);
+            } else {
+                b = b.toFixed(0);
+            }
+            return `<span class="${sizeClasses[i]}">${b} ${sizes[i]}</span>`;
         };
 
         const highlightError = error =>
@@ -352,16 +360,18 @@
 
         const highlightChunksInfo = data =>
             data && data.chunksNumber > 1 ?
-                `<span title="Chunks status: ⏳ idle, 💤 pending, 🚀 running, ✅ succeeded/total">
-                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) > 0 ? `⏳ ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0)}` : ''}
+                `<span title="Chunks status: ⏳ idle, 💤 pending, 🚀 running, ❌ failed, ✅ succeeded/total">
+                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0) > 0 ? `⏳ ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0)}` : ''}
                 ${(data.pendingChunks || 0) > 0 ? `💤 ${data.pendingChunks || 0}` : ''}
+                ${(data.failedChunks || 0) > 0 ? `❌ ${data.failedChunks || 0}` : ''}
                 🚀 ${data.runningChunks || 0}
                 ✅ ${data.succeededChunks || 0} / ${data.chunksNumber}
             </span>`
                 :
                 `<span title="This is a non-parallel task">
-                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) > 0 ? `⏳ ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0)}` : ''}
+                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0) > 0 ? `⏳ ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0)}` : ''}
                 ${(data.pendingChunks || 0) > 0 ? `💤 ${data.pendingChunks || 0}` : ''}
+                ${(data.failedChunks || 0) > 0 ? `❌ ${data.failedChunks || 0}` : ''}
                 🚀 ${data.runningChunks || 0}
             </span>`;
 
@@ -412,7 +422,7 @@
             const name = data.name;
             const size = data.total || 0;
             const progress = data.progress || 0;
-            const error = data.errors ? data.errors.join('\n') : '';
+            const errors = data.errors || [];
 
             const header = `
                 <div class="data-header">
@@ -464,10 +474,15 @@
                         </div>`;
                 }
                 case 'Failed':
-                    return `${header}${highlightError(escapeHtml(error))}`;
+                    return `${header}${highlightError(escapeErrors(errors))}`;
                 default:
                     return `${header}${highlightBytes(size)}`;
             }
+        };
+
+        const escapeErrors = errors => {
+            if (!errors || errors.length === 0) return '';
+            return errors.map(err => escapeHtml(err)).join('<br>');
         };
 
         const escapeHtml = unsafe => {

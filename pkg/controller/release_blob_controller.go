@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -81,11 +80,7 @@ func (c *ReleaseBlobController) cleanupBlob(obj interface{}) {
 		return
 	}
 
-	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(blob)
-	if err != nil {
-		klog.Errorf("couldn't get key for blob %+v: %v", blob, err)
-		return
-	}
+	key := blob.Name
 
 	c.lastSeenMut.Lock()
 	defer c.lastSeenMut.Unlock()
@@ -98,15 +93,13 @@ func (c *ReleaseBlobController) enqueueBlob(obj interface{}) {
 		return
 	}
 
-	if blob.Status.Phase != v1alpha1.BlobPhaseRunning && blob.Status.Phase != v1alpha1.BlobPhaseUnknown {
+	if blob.Status.Phase != v1alpha1.BlobPhaseRunning &&
+		blob.Status.Phase != v1alpha1.BlobPhaseUnknown &&
+		blob.Status.Phase != v1alpha1.BlobPhaseFailed {
 		return
 	}
 
-	key, err := cache.MetaNamespaceKeyFunc(blob)
-	if err != nil {
-		klog.Errorf("couldn't get key for blob %+v: %v", blob, err)
-		return
-	}
+	key := blob.Name
 
 	c.lastSeenMut.Lock()
 	c.lastSeen[key] = time.Now()
@@ -126,29 +119,29 @@ func (c *ReleaseBlobController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.syncHandler(ctx, key)
+	next, err := c.syncHandler(ctx, key)
 	if err != nil {
-		c.workqueue.AddAfter(key, 10*time.Second)
-		if !errors.Is(err, errNotEnoughTime) {
-			klog.Errorf("error release blob syncing '%s': %v, requeuing", key, err)
-		}
-		return true
+		klog.Errorf("error release blob syncing '%s': %v", key, err)
+	}
+
+	if next != 0 {
+		c.workqueue.AddAfter(key, next)
 	}
 
 	return true
 }
 
-func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) error {
+func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) (time.Duration, error) {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil
+			return 0, nil
 		}
-		return err
+		return 0, err
 	}
 
 	if blob.Spec.HandlerName == "" {
-		return nil
+		return 0, nil
 	}
 
 	c.lastSeenMut.RLock()
@@ -156,13 +149,13 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) er
 	c.lastSeenMut.RUnlock()
 
 	if !ok {
-		return nil
+		return 0, nil
 	}
 
 	switch blob.Status.Phase {
 	case v1alpha1.BlobPhaseRunning:
 		if time.Since(lastSeenTime) < 40*time.Second {
-			return fmt.Errorf("%w: %s", errNotEnoughTime, name)
+			return 40*time.Second - time.Since(lastSeenTime), nil
 		}
 
 		newBlob := blob.DeepCopy()
@@ -171,11 +164,11 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) er
 
 		_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, newBlob, metav1.UpdateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to update blob %s: %v", name, err)
+			return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
 		}
 	case v1alpha1.BlobPhaseUnknown:
 		if time.Since(lastSeenTime) < 20*time.Second {
-			return fmt.Errorf("%w: %s", errNotEnoughTime, name)
+			return 20*time.Second - time.Since(lastSeenTime), nil
 		}
 
 		newBlob := blob.DeepCopy()
@@ -185,10 +178,28 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) er
 
 		_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, newBlob, metav1.UpdateOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to update blob %s: %v", name, err)
+			return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
+		}
+	case v1alpha1.BlobPhaseFailed:
+		if time.Since(lastSeenTime) < time.Duration(blob.Status.RetryCount)*time.Second {
+			return time.Duration(blob.Status.RetryCount)*time.Second - time.Since(lastSeenTime), nil
+		}
+
+		if blob.Status.RetryCount < blob.Spec.RetryCount {
+			newBlob := blob.DeepCopy()
+			if _, ok := v1alpha1.GetCondition(newBlob.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
+				newBlob.Status.Phase = v1alpha1.BlobPhasePending
+				newBlob.Status.Conditions = nil
+				newBlob.Status.RetryCount++
+				newBlob.Spec.HandlerName = ""
+				klog.Infof("Transitioning blob %s from Failed to Pending phase and clearing handler", name)
+
+				_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, newBlob, metav1.UpdateOptions{})
+				if err != nil {
+					return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
+				}
+			}
 		}
 	}
-	return nil
+	return 0, nil
 }
-
-var errNotEnoughTime = fmt.Errorf("not enough time")

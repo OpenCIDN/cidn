@@ -215,8 +215,12 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 		if blob.Status.Phase == v1alpha1.BlobPhaseFailed {
 			faileds := []string{}
 			for _, condition := range blob.Status.Conditions {
-				if condition.Status == v1alpha1.ConditionTrue && condition.Reason != "" {
-					faileds = append(faileds, condition.Reason)
+				if condition.Status == v1alpha1.ConditionTrue {
+					if condition.Reason != "" {
+						faileds = append(faileds, condition.Reason)
+					} else if condition.Type != "" {
+						faileds = append(faileds, condition.Type)
+					}
 				}
 			}
 			if len(faileds) > 0 {

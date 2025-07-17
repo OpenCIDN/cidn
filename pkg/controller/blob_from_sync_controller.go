@@ -169,17 +169,13 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
 			blob.Status.Progress = sync.Status.Progress
 		case v1alpha1.SyncPhaseFailed:
-			blob.Status.Phase = v1alpha1.BlobPhaseFailed
-			for _, condition := range sync.Status.Conditions {
-				if condition.Status == v1alpha1.ConditionTrue {
-					blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
-						Type:               condition.Type,
-						Status:             condition.Status,
-						Reason:             condition.Reason,
-						Message:            condition.Message,
-						LastTransitionTime: condition.LastTransitionTime,
-					})
-				}
+			if sync.Status.RetryCount >= sync.Spec.RetryCount {
+				blob.Status.RetryCount = sync.Status.RetryCount
+				blob.Status.Phase = v1alpha1.BlobPhaseFailed
+				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, sync.Status.Conditions...)
+			} else {
+				blob.Status.Phase = v1alpha1.BlobPhaseRunning
+				blob.Status.Progress = sync.Status.Progress
 			}
 		case v1alpha1.SyncPhaseRunning, v1alpha1.SyncPhaseUnknown, v1alpha1.SyncPhasePending:
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
@@ -188,7 +184,7 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 		return nil
 	}
 
-	var succeededCount, failedCount, pendingCount, runningCount int64
+	var succeededCount, failedCount, pendingCount, runningCount, retryCount int64
 	var progress int64
 	for _, sync := range syncs {
 		switch sync.Status.Phase {
@@ -201,6 +197,8 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 		case v1alpha1.SyncPhaseRunning:
 			runningCount++
 		}
+
+		retryCount += sync.Status.RetryCount
 		progress += sync.Status.Progress
 	}
 
@@ -208,23 +206,19 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 	blob.Status.PendingChunks = pendingCount
 	blob.Status.RunningChunks = runningCount
 	blob.Status.SucceededChunks = succeededCount
+	blob.Status.FailedChunks = failedCount
 
 	if failedCount != 0 {
-		blob.Status.Phase = v1alpha1.BlobPhaseFailed
-		for _, sync := range syncs {
-			if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
-				for _, condition := range sync.Status.Conditions {
-					if condition.Status == v1alpha1.ConditionTrue {
-						blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
-							Type:               condition.Type,
-							Status:             condition.Status,
-							Reason:             condition.Reason,
-							Message:            condition.Message,
-							LastTransitionTime: condition.LastTransitionTime,
-						})
-					}
+		if retryCount >= blob.Spec.RetryCount {
+			blob.Status.RetryCount = blob.Spec.RetryCount
+			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			for _, sync := range syncs {
+				if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
+					blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, sync.Status.Conditions...)
 				}
 			}
+		} else {
+			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 		}
 		return nil
 	}

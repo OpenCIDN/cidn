@@ -85,6 +85,9 @@ type SyncStatus struct {
 	// Etag is the ETag of the resource snapshot being verified.
 	Etags []string `json:"etags,omitempty"`
 
+	// RetryCount is the number of times the sync has been retried.
+	RetryCount int64 `json:"retryCount,omitempty"`
+
 	// Conditions holds conditions for the Sync.
 	// +patchMergeKey=type
 	// +patchStrategy=merge
@@ -161,6 +164,10 @@ type SyncSpec struct {
 
 	// Sha256 is the expected SHA256 hash of the complete content
 	Sha256 string `json:"sha256,omitempty"`
+
+	// RetryCount is the number of times the sync has been retried.
+	// +default=2
+	RetryCount int64 `json:"retryCount,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

@@ -135,9 +135,21 @@ services:
 configs:
   nginx-test-config:
     content: |-
+      split_clients "$${remote_addr}" $$error_page {
+        2%      1;
+        4%      2;
+        *       0;
+      }
+
       server {
         listen 80;
         location / {
+          if ($$error_page = 1) {
+            return 500;
+          }
+          if ($$error_page = 2) {
+            return 444;
+          }
           limit_rate 10m;
           root   /usr/share/nginx/html;
           index  index.html index.htm;

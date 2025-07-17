@@ -175,8 +175,12 @@ func (*syncStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 		if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
 			faileds := []string{}
 			for _, condition := range sync.Status.Conditions {
-				if condition.Status == v1alpha1.ConditionTrue && condition.Reason != "" {
-					faileds = append(faileds, condition.Reason)
+				if condition.Status == v1alpha1.ConditionTrue {
+					if condition.Reason != "" {
+						faileds = append(faileds, condition.Reason)
+					} else if condition.Type != "" {
+						faileds = append(faileds, condition.Type)
+					}
 				}
 			}
 			if len(faileds) > 0 {

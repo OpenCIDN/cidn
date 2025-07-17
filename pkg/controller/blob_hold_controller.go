@@ -57,20 +57,12 @@ func NewBlobHoldController(
 	c.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			blob := obj.(*v1alpha1.Blob)
-			key, err := cache.MetaNamespaceKeyFunc(blob)
-			if err != nil {
-				klog.Errorf("couldn't get key for object %+v: %v", blob, err)
-				return
-			}
+			key := blob.Name
 			c.workqueue.Add(key)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			blob := newObj.(*v1alpha1.Blob)
-			key, err := cache.MetaNamespaceKeyFunc(blob)
-			if err != nil {
-				klog.Errorf("couldn't get key for object %+v: %v", blob, err)
-				return
-			}
+			key := blob.Name
 			c.workqueue.Add(key)
 		},
 	})
