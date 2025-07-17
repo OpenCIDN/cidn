@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -31,6 +30,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/wzshiming/sss"
 	"golang.org/x/sync/errgroup"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
@@ -45,8 +45,6 @@ type BlobFromSyncController struct {
 	blobInformer informers.BlobInformer
 	syncInformer informers.SyncInformer
 	workqueue    workqueue.TypedDelayingInterface[string]
-	lastSeen     map[string]time.Time
-	lastSeenMut  sync.RWMutex
 }
 
 func NewBlobFromSyncController(
@@ -62,7 +60,6 @@ func NewBlobFromSyncController(
 		syncInformer: sharedInformerFactory.Task().V1alpha1().Syncs(),
 		client:       client,
 		workqueue:    workqueue.NewTypedDelayingQueue[string](),
-		lastSeen:     map[string]time.Time{},
 	}
 
 	c.syncInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -125,6 +122,9 @@ func (c *BlobFromSyncController) processNextItem(ctx context.Context) bool {
 func (c *BlobFromSyncController) syncHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
 		return err
 	}
 
@@ -132,34 +132,14 @@ func (c *BlobFromSyncController) syncHandler(ctx context.Context, name string) e
 		return nil
 	}
 
-	if blob.Status.Phase != v1alpha1.BlobPhaseRunning {
+	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded {
 		return nil
 	}
-
-	oldBlob := blob.DeepCopy()
 
 	err = c.updateBlobStatusFromSyncs(ctx, blob)
 	if err != nil {
-		_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
-		if err != nil {
-			klog.Errorf("failed to update blob status: %v", err)
-		}
 		return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
 	}
-
-	c.lastSeenMut.Lock()
-	defer c.lastSeenMut.Unlock()
-	lastTime, ok := c.lastSeen[name]
-	if ok &&
-		oldBlob.Status.Phase == v1alpha1.BlobPhaseRunning &&
-		blob.Status.Phase == v1alpha1.BlobPhaseRunning &&
-		blob.Status.Progress != blob.Spec.Total &&
-		blob.Status.SucceededChunks != blob.Spec.ChunksNumber &&
-		time.Since(lastTime) < 1*time.Second {
-		return nil
-	}
-
-	c.lastSeen[name] = time.Now()
 
 	_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
 	if err != nil {
@@ -178,28 +158,58 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 		return fmt.Errorf("failed to list syncs: %w", err)
 	}
 
-	var succeeded, failed, pending, running int64
+	if blob.Spec.ChunksNumber == 1 {
+		if len(syncs) == 0 {
+			blob.Status.Phase = v1alpha1.BlobPhaseRunning
+			return nil
+		}
+		sync := syncs[0]
+		switch sync.Status.Phase {
+		case v1alpha1.SyncPhaseSucceeded:
+			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			blob.Status.Progress = sync.Status.Progress
+		case v1alpha1.SyncPhaseFailed:
+			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			for _, condition := range sync.Status.Conditions {
+				if condition.Status == v1alpha1.ConditionTrue {
+					blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
+						Type:               condition.Type,
+						Status:             condition.Status,
+						Reason:             condition.Reason,
+						Message:            condition.Message,
+						LastTransitionTime: condition.LastTransitionTime,
+					})
+				}
+			}
+		case v1alpha1.SyncPhaseRunning, v1alpha1.SyncPhaseUnknown, v1alpha1.SyncPhasePending:
+			blob.Status.Phase = v1alpha1.BlobPhaseRunning
+			blob.Status.Progress = sync.Status.Progress
+		}
+		return nil
+	}
+
+	var succeededCount, failedCount, pendingCount, runningCount int64
 	var progress int64
 	for _, sync := range syncs {
 		switch sync.Status.Phase {
 		case v1alpha1.SyncPhaseSucceeded:
-			succeeded++
+			succeededCount++
 		case v1alpha1.SyncPhaseFailed:
-			failed++
+			failedCount++
 		case v1alpha1.SyncPhasePending:
-			pending++
+			pendingCount++
 		case v1alpha1.SyncPhaseRunning:
-			running++
+			runningCount++
 		}
 		progress += sync.Status.Progress
 	}
 
 	blob.Status.Progress = progress
-	blob.Status.PendingChunks = pending
-	blob.Status.RunningChunks = running
-	blob.Status.SucceededChunks = succeeded
+	blob.Status.PendingChunks = pendingCount
+	blob.Status.RunningChunks = runningCount
+	blob.Status.SucceededChunks = succeededCount
 
-	if failed != 0 {
+	if failedCount != 0 {
 		blob.Status.Phase = v1alpha1.BlobPhaseFailed
 		for _, sync := range syncs {
 			if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
@@ -216,10 +226,10 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 				}
 			}
 		}
-		return fmt.Errorf("one or more syncs failed")
+		return nil
 	}
 
-	if blob.Spec.ChunksNumber != succeeded {
+	if blob.Spec.ChunksNumber != succeededCount {
 		blob.Status.Phase = v1alpha1.BlobPhaseRunning
 		return nil
 	}

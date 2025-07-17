@@ -1,7 +1,27 @@
+/*
+Copyright 2025 The OpenCIDN Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package main
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -12,74 +32,111 @@ import (
 var files = []string{
 	"1b",
 	"5kib",
-	"5mib - 1b",
 	"5mib",
-	"5mib + 1b",
+	"50mib",
+	"100mib",
 	"1gib",
-	"5gib - 1b",
+	"2gib",
+	"3gib",
+	"4gib",
 	"5gib",
-	"5gib + 1b",
+	"10gib",
 }
 
 func parseSizeExpression(expr string) (uint64, error) {
-	if strings.Contains(expr, "+") || strings.Contains(expr, "-") {
-		parts := strings.Fields(expr)
-		if len(parts) != 3 {
-			return 0, fmt.Errorf("invalid size expression: %s", expr)
-		}
-
-		left, err := humanize.ParseBytes(parts[0])
-		if err != nil {
-			return 0, err
-		}
-
-		right, err := humanize.ParseBytes(parts[2])
-		if err != nil {
-			return 0, err
-		}
-
-		switch parts[1] {
-		case "+":
-			return left + right, nil
-		case "-":
-			return left - right, nil
-		default:
-			return 0, fmt.Errorf("invalid operator: %s", parts[1])
-		}
-	}
 	return humanize.ParseBytes(expr)
 }
 
-func formatFilename(file string) string {
-	replacer := strings.NewReplacer(
-		" ", ".",
-		"+", "plus",
-		"-", "minus",
-	)
-	return replacer.Replace(file)
+func buildBlob(sha256 string, source string, destination string) string {
+	return fmt.Sprintf(
+		`apiVersion: task.opencidn.daocloud.io/v1alpha1
+kind: Blob
+metadata:
+  name: blob-%s
+spec:
+  minimumChunkSize: 268435456
+  maximumParallelism: 2
+  sha256: %s
+  source: http://nginx-test/%s
+  destination:
+  - blob-%s
+---
+`, destination, sha256, source, destination)
 }
 
+var randReader = rand.Reader
+
 func main() {
+	b, err := os.Create("blob.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer b.Close()
+
 	for _, file := range files {
 		size, err := parseSizeExpression(file)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		f, err := os.Create(formatFilename(file) + ".raw")
+		src := file + ".rand"
+		f, err := os.Create(src)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		err = f.Truncate(int64(size))
+		hash := sha256.New()
+		n, err := io.CopyN(f, io.TeeReader(randReader, hash), int64(size))
 		if err != nil {
 			f.Close()
 			log.Fatal(err)
+		}
+		if n != int64(size) {
+			f.Close()
+			log.Fatalf("expected to write %d bytes, but wrote %d bytes", size, n)
 		}
 
 		err = f.Close()
 		if err != nil {
 			log.Fatal(err)
+		}
+
+		_, err = b.WriteString(buildBlob(hex.EncodeToString(hash.Sum(nil)), src, file))
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	// Remove any .rand files not in our files list
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".rand") {
+			continue
+		}
+
+		base := strings.TrimSuffix(name, ".rand")
+		found := false
+		for _, f := range files {
+			if f == base {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			err := os.Remove(name)
+			if err != nil {
+				log.Printf("Failed to remove %s: %v", name, err)
+			}
 		}
 	}
 }

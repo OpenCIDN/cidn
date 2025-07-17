@@ -21,14 +21,12 @@ import (
 	"crypto/sha256"
 	"encoding"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"hash"
 	"io"
 	"math/rand"
 	"net/http"
 	"os"
-	"reflect"
 	"sort"
 	"strconv"
 	"sync"
@@ -163,7 +161,7 @@ func (r *SyncRunner) processNextItem(ctx context.Context) bool {
 	if ctx.Err() != nil {
 		return false
 	}
-	sync, err := r.getPending(context.Background())
+	s, err := r.getPending(context.Background())
 	if err != nil {
 		select {
 		case <-r.signal:
@@ -173,73 +171,26 @@ func (r *SyncRunner) processNextItem(ctx context.Context) bool {
 		return true
 	}
 
-	if sync.Spec.HandlerName != r.handlerName {
+	if s.Spec.HandlerName != r.handlerName {
 		return true
 	}
 
-	klog.Infof("Processing sync %s (handler: %s)", sync.Name, sync.Spec.HandlerName)
-	defer klog.Infof("Finished processing sync %s", sync.Name)
-	// Process the sync
-	r.process(ctx, sync.Name)
+	continues := make(chan struct{})
+
+	go r.process(context.Background(), s.DeepCopy(), continues)
+	continues <- struct{}{}
+	close(continues)
+
 	return true
 }
 
 func (r *SyncRunner) updateSync(ctx context.Context, sync *v1alpha1.Sync) (*v1alpha1.Sync, error) {
-	now := metav1.Now()
-	sync.Status.LastTime = &now
 	return r.client.TaskV1alpha1().Syncs().Update(ctx, sync, metav1.UpdateOptions{})
-}
-
-func (r *SyncRunner) handleProcessErrorWithReason(ctx context.Context, name string, errMsg error, reason string) {
-	if errors.Is(errMsg, context.Canceled) {
-		err := r.Release(ctx)
-		if err != nil {
-			klog.Errorf("Error releasing sync: %v", err)
-		}
-		return
-	}
-	sync, err := r.syncInformer.Lister().Get(name)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			klog.Errorf("Sync %q not found", name)
-			return
-		}
-		klog.Errorf("Error getting sync %q: %v", name, err)
-		return
-	}
-
-	const typ = "Process"
-
-	sync.Status.Progress = sync.Spec.Total
-	sync.Status.Phase = v1alpha1.SyncPhaseFailed
-	hasProcessCondition := false
-	for _, condition := range sync.Status.Conditions {
-		if condition.Type == typ {
-			hasProcessCondition = true
-			break
-		}
-	}
-	if !hasProcessCondition {
-		sync.Status.Conditions = append(sync.Status.Conditions, v1alpha1.Condition{
-			Type:               typ,
-			Reason:             reason,
-			Status:             v1alpha1.ConditionTrue,
-			Message:            errMsg.Error(),
-			LastTransitionTime: metav1.Now(),
-		})
-	}
-	_, err = r.updateSync(ctx, sync)
-	if err != nil {
-		klog.Errorf("Error updating sync to failed state: %v", err)
-	}
-}
-
-func (r *SyncRunner) handleProcessError(ctx context.Context, name string, err error) {
-	r.handleProcessErrorWithReason(ctx, name, err, "ProcessFailed")
 }
 
 // buildRequest constructs an HTTP request from SyncHTTP configuration
 func (r *SyncRunner) buildRequest(ctx context.Context, syncHTTP *v1alpha1.SyncHTTP, body io.Reader) (*http.Request, error) {
+
 	req, err := http.NewRequestWithContext(ctx, syncHTTP.Request.Method, syncHTTP.Request.URL, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -273,363 +224,370 @@ func (r *SyncRunner) getSync(name string) (*v1alpha1.Sync, error) {
 		return nil, err
 	}
 
-	return sync, nil
+	return sync.DeepCopy(), nil
 }
 
-func (r *SyncRunner) process(ctx context.Context, name string) {
-	sync, err := r.getSync(name)
-	if err != nil {
-		r.handleProcessError(ctx, sync.Name, err)
-		return
-	}
-
+func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *state) io.ReadCloser {
 	srcReq, err := r.buildRequest(ctx, &sync.Spec.Source, nil)
 	if err != nil {
-		r.handleProcessError(ctx, sync.Name, err)
-		return
+		s.handleProcessError(err)
+		return nil
 	}
 
 	srcResp, err := r.httpClient.Do(srcReq)
 	if err != nil {
-		r.handleProcessError(ctx, sync.Name, err)
-		return
+		s.handleProcessError(err)
+		return nil
 	}
-
-	defer srcResp.Body.Close()
 
 	if sync.Spec.Source.Response.StatusCode != 0 {
 		if srcResp.StatusCode != sync.Spec.Source.Response.StatusCode {
 			err := fmt.Errorf("unexpected status code from source: got %d, want %d",
 				srcResp.StatusCode, sync.Spec.Source.Response.StatusCode)
-			r.handleProcessError(ctx, sync.Name, err)
-			return
+			s.handleProcessError(err)
+			return nil
 		}
 	} else {
 		if srcResp.StatusCode >= http.StatusMultipleChoices {
 			err := fmt.Errorf("source returned error status code: %d", srcResp.StatusCode)
-			r.handleProcessError(ctx, sync.Name, err)
-			return
+			s.handleProcessError(err)
+			return nil
 		}
 	}
 
 	if srcResp.ContentLength != sync.Spec.Total {
 		err := fmt.Errorf("content length mismatch: got %d, want %d", srcResp.ContentLength, sync.Spec.Total)
-		r.handleProcessErrorWithReason(ctx, sync.Name, err, "ContentLengthMismatch")
-		return
+		s.handleProcessErrorWithReason(err, "ContentLengthMismatch")
+		return nil
 	}
 
 	for k, v := range sync.Spec.Source.Response.Headers {
 		respVal := srcResp.Header.Get(k)
 		if respVal != v {
 			err := fmt.Errorf("header %s mismatch: got %s, want %s", k, respVal, v)
-			r.handleProcessErrorWithReason(ctx, sync.Name, err, "HeaderMismatch")
-			return
+			s.handleProcessErrorWithReason(err, "HeaderMismatch")
+			return nil
 		}
 	}
 
-	var cleanup func()
-	f, err := os.CreateTemp("", "")
+	return srcResp.Body
+}
+
+func (r *SyncRunner) destinationRequest(ctx context.Context, dest *v1alpha1.SyncHTTP, dr io.Reader) (string, error) {
+	destReq, err := r.buildRequest(ctx, dest, dr)
+	if err != nil {
+		return "", err
+	}
+
+	destResp, err := r.httpClient.Do(destReq)
+	if err != nil {
+		return "", err
+	}
+	defer destResp.Body.Close()
+
+	if dest.Response.StatusCode != 0 {
+		if destResp.StatusCode != dest.Response.StatusCode {
+			return "", fmt.Errorf("unexpected status code from destination: got %d, want %d",
+				destResp.StatusCode, dest.Response.StatusCode)
+		}
+	} else {
+		if destResp.StatusCode >= http.StatusMultipleChoices {
+			body, err := io.ReadAll(destResp.Body)
+			if err != nil {
+				return "", fmt.Errorf("destination returned error status code: %d (failed to read response body: %v)", destResp.StatusCode, err)
+			}
+			return "", fmt.Errorf("destination returned error status code: %d, body: %s", destResp.StatusCode, string(body))
+		}
+	}
+
+	etag := destResp.Header.Get("ETag")
+	if uetag, err := strconv.Unquote(etag); err == nil && uetag != "" {
+		etag = uetag
+	}
+
+	if etag == "" {
+		return "", fmt.Errorf("empty ETag received from destination")
+	}
+
+	return etag, nil
+}
+
+func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues <-chan struct{}) {
+	klog.Infof("Processing sync %s (handler: %s)", sync.Name, sync.Spec.HandlerName)
+	defer klog.Infof("Finish processing sync %s", sync.Name)
+	defer func() { <-continues }()
+
+	s := newState(sync)
+
+	var gsr *ReadCount
+	var gdrs []*ReadCount
+	ctx, cancel := context.WithCancel(ctx)
+	stopProgress := r.startProgressUpdater(ctx, func() {
+		cancel()
+		<-continues
+	}, s, &gsr, &gdrs)
+	defer stopProgress()
+
+	body := r.sourceRequest(ctx, sync, s)
+	if body == nil {
+		return
+	}
+
+	f, err := os.CreateTemp("", "cidn-sync")
 	if err == nil {
 		defer func() {
-			cleanup()
-		}()
-
-		cleanup = func() {
 			f.Close()
 			os.Remove(f.Name())
-		}
+		}()
 	}
 
 	swmr := ioswmr.NewSWMR(f)
 
-	g, gctx := errgroup.WithContext(ctx)
+	g, _ := errgroup.WithContext(ctx)
 
-	gctx, gcancel := context.WithCancel(gctx)
-
-	sr := NewReadCount(gctx, srcResp.Body)
+	sr := NewReadCount(ctx, body)
 	g.Go(func() error {
 		_, err := io.Copy(swmr, sr)
 		if err != nil {
 			return err
 		}
-
 		return swmr.Close()
 	})
 
 	etags := make([]string, len(sync.Spec.Destination))
-
-	drs := []*ReadCount{}
-
+	drs := make([]*ReadCount, 0, len(sync.Spec.Destination))
 	for i, dest := range sync.Spec.Destination {
 		dest := dest
 		i := i
-		dr := NewReadCount(gctx, swmr.NewReader())
+		dr := NewReadCount(ctx, swmr.NewReader())
 		drs = append(drs, dr)
 		g.Go(func() error {
-			destReq, err := r.buildRequest(ctx, &dest, dr)
+			etag, err := r.destinationRequest(ctx, &dest, dr)
 			if err != nil {
 				return err
-			}
-
-			destResp, err := r.httpClient.Do(destReq)
-			if err != nil {
-				return err
-			}
-			defer destResp.Body.Close()
-
-			if dest.Response.StatusCode != 0 {
-				if destResp.StatusCode != dest.Response.StatusCode {
-					return fmt.Errorf("unexpected status code from destination: got %d, want %d",
-						destResp.StatusCode, dest.Response.StatusCode)
-				}
-			} else {
-				if destResp.StatusCode >= http.StatusMultipleChoices {
-					body, err := io.ReadAll(destResp.Body)
-					if err != nil {
-						return fmt.Errorf("destination returned error status code: %d (failed to read response body: %v)", destResp.StatusCode, err)
-					}
-					return fmt.Errorf("destination returned error status code: %d, body: %s", destResp.StatusCode, string(body))
-				}
-			}
-
-			etag := destResp.Header.Get("ETag")
-			if uetag, err := strconv.Unquote(etag); err == nil && uetag != "" {
-				etag = uetag
-			}
-
-			if etag == "" {
-				return fmt.Errorf("empty ETag received from destination")
 			}
 			etags[i] = etag
 			return nil
 		})
 	}
 
-	dur := time.Second
-	ticker := time.NewTicker(time.Second)
+	s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+		gsr = sr
+		gdrs = drs
 
-	go func() {
-		defer func() {
-			gcancel()
-		}()
-		for range ticker.C {
-			cacheSync, err := r.getSync(sync.Name)
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					return
-				}
-				klog.Warningf("error getting sync: %v", err)
-				continue
-			}
-
-			if cacheSync.UID != sync.UID {
-				return
-			}
-
-			sync := cacheSync.DeepCopy()
-
-			updateProgress(sync, sr, drs)
-
-			_, err = r.updateSync(ctx, sync)
-			if err != nil {
-				klog.Warningf("error updating sync: %v", err)
-				continue
-			}
-
-			dur = time.Second + time.Duration(rand.Intn(100))*time.Millisecond
-			ticker.Reset(dur)
-		}
-	}()
+		return ss, nil
+	})
 
 	err = g.Wait()
-	ticker.Stop()
-
 	if err != nil {
-		r.handleProcessError(ctx, sync.Name, err)
+		s.handleProcessError(err)
 		return
 	}
 
-	cacheSync, err := r.getSync(sync.Name)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return
+	r.handleSha256AndFinalize(ctx, sync, s, swmr, etags, continues)
+}
+
+func (r *SyncRunner) startProgressUpdater(ctx context.Context, cancel func(), s *state, gsr **ReadCount, gdrs *[]*ReadCount) func() {
+	syncFunc := func() {
+		s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+
+			if *gsr != nil {
+				updateProgress(&ss.Status, &ss.Spec, *gsr, *gdrs)
+			}
+			klog.Infof("Updating progress for sync %s (%s)", ss.Name, ss.Status.Phase)
+
+			newSync, err := r.updateSync(ctx, ss)
+			if err != nil {
+				if !apierrors.IsConflict(err) {
+					klog.Warningf("Failed to update sync %s: %v", ss.Name, err)
+					return ss, nil
+				}
+				newSync, err = r.getSync(ss.Name)
+				if err != nil {
+					if apierrors.IsNotFound(err) {
+						cancel()
+						klog.Warningf("Sync %s not found, may have been deleted", ss.Name)
+						return ss, nil
+					}
+					klog.Warningf("Failed to get sync %s: %v", ss.Name, err)
+					return ss, nil
+				}
+
+				if newSync.Spec.HandlerName != r.handlerName {
+					cancel()
+					klog.Warningf("Sync %s has been acquired by another handler %s", ss.Name, newSync.Spec.HandlerName)
+					return ss, nil
+				}
+				newSync.Status = ss.Status
+				newSync, err = r.updateSync(ctx, newSync)
+				if err != nil {
+					klog.Warningf("Failed to update sync %s after retry: %v", ss.Name, err)
+					return ss, nil
+				}
+			}
+			return newSync, nil
+		})
+	}
+
+	dur := time.Second
+	ticker := time.NewTicker(dur)
+	stop := make(chan struct{})
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				syncFunc()
+				dur = time.Second + time.Duration(rand.Intn(100))*time.Millisecond
+				ticker.Reset(dur)
+			case <-stop:
+				syncFunc()
+				return
+			case <-ctx.Done():
+				return
+			}
 		}
-		klog.Warningf("error getting sync: %v", err)
-		return
-	}
+	}()
+	return func() { close(stop) }
+}
 
-	if cacheSync.UID != sync.UID {
-		return
-	}
-
-	sync = cacheSync.DeepCopy()
-
-	sync.Status.Etags = etags
-
-	updateProgress(sync, sr, drs)
-
+func (r *SyncRunner) handleSha256AndFinalize(ctx context.Context, sync *v1alpha1.Sync, s *state, swmr ioswmr.SWMR, etags []string, continues <-chan struct{}) {
 	if sync.Spec.Sha256PartialPreviousName == "" {
-		sync.Status.Phase = v1alpha1.SyncPhaseSucceeded
-		_, err := r.updateSync(ctx, sync)
-		if err != nil {
-			klog.Errorf("Error updating sync to succeeded state: %v", err)
-			return
-		}
+		s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+			ss.Status.Etags = etags
+			ss.Status.Phase = v1alpha1.SyncPhaseSucceeded
+			return ss, nil
+		})
 		return
 	}
-
 	if sync.Spec.Sha256PartialPreviousName == "-" {
-		err := r.processSha256(ctx, sync, swmr, nil)
-		if err != nil {
-			r.handleProcessError(ctx, sync.Name, err)
-			return
-		}
+		s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+			var err error
+			ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, nil, swmr.NewReader())
+			if err != nil {
+				return nil, err
+			}
+			ss.Status.Etags = etags
+			ss.Status.Phase = v1alpha1.SyncPhaseSucceeded
+			return ss, nil
+		})
 		return
 	}
-
 	psync, err := r.getSync(sync.Spec.Sha256PartialPreviousName)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			r.handleProcessError(ctx, sync.Name, err)
+			s.handleProcessError(err)
 			return
 		}
-	}
-	if psync != nil && psync.Status.Phase == v1alpha1.SyncPhaseSucceeded {
-		if len(psync.Status.Sha256Partial) == 0 {
-			err := fmt.Errorf("partial sync %q has no sha256 partial data", sync.Spec.Sha256PartialPreviousName)
-			if err != nil {
-				r.handleProcessErrorWithReason(ctx, sync.Name, err, "MissingSha256PartialData")
-			}
-			return
-		}
-
-		err := r.processSha256(ctx, sync, swmr, psync.Status.Sha256Partial)
-		if err != nil {
-			r.handleProcessErrorWithReason(ctx, sync.Name, err, "Sha256ProcessingFailed")
-			return
-		}
-		return
-	}
-
-	sync, err = r.updateSync(ctx, sync)
-	if err != nil {
-		klog.Errorf("Error updating sync: %v", err)
-		return
-	}
-
-	ocleanup := cleanup
-	cleanup = func() {}
-
-	go func() {
-		defer ocleanup()
-
-		for {
-			// TODO: Optimize to use push notifications in the future
-			time.Sleep(time.Second)
-
-			psync, err := r.getSync(sync.Spec.Sha256PartialPreviousName)
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					sync, err := r.getSync(sync.Name)
-					if err != nil {
-						r.handleProcessError(ctx, sync.Name, err)
-						return
-					}
-
-					klog.Infof("Partial sync %q not found, waiting for it to be created", sync.Spec.Sha256PartialPreviousName)
-					r.updateSync(ctx, sync)
-					continue
-				}
-				r.handleProcessError(ctx, sync.Name, err)
-				return
-			}
-
-			if psync.Status.Phase != v1alpha1.SyncPhaseSucceeded {
-				sync, err := r.getSync(sync.Name)
-				if err != nil {
-					r.handleProcessError(ctx, sync.Name, err)
-					return
-				}
-
-				klog.Infof("Partial sync %q is not yet succeeded (current phase: %s), waiting...", sync.Spec.Sha256PartialPreviousName, psync.Status.Phase)
-				r.updateSync(ctx, sync)
-				continue
-			}
-
+	} else {
+		if psync.Status.Phase == v1alpha1.SyncPhaseSucceeded {
 			if len(psync.Status.Sha256Partial) == 0 {
 				err := fmt.Errorf("partial sync %q has no sha256 partial data", sync.Spec.Sha256PartialPreviousName)
+				s.handleProcessErrorWithReason(err, "MissingSha256PartialData")
+				return
+			}
+			s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+				var err error
+				ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, psync.Status.Sha256Partial, swmr.NewReader())
 				if err != nil {
-					r.handleProcessErrorWithReason(ctx, sync.Name, err, "MissingSha256PartialData")
+					return nil, err
 				}
-				return
-			}
-
-			sync, err := r.getSync(sync.Name)
-			if err != nil {
-				r.handleProcessError(ctx, sync.Name, err)
-				return
-			}
-
-			err = r.processSha256(ctx, sync, swmr, psync.Status.Sha256Partial)
-			if err != nil {
-				r.handleProcessErrorWithReason(ctx, sync.Name, err, "Sha256ProcessingFailed")
-			}
+				ss.Status.Etags = etags
+				ss.Status.Phase = v1alpha1.SyncPhaseSucceeded
+				return ss, nil
+			})
 			return
 		}
-	}()
+	}
+
+	<-continues
+	r.waitForPartialSync(ctx, sync, s, swmr, etags)
 }
 
-func updateProgress(sync *v1alpha1.Sync, sr *ReadCount, drs []*ReadCount) {
+func (r *SyncRunner) waitForPartialSync(ctx context.Context, sync *v1alpha1.Sync, s *state, swmr ioswmr.SWMR, etags []string) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		klog.Infof("Waiting processing sync %s", sync.Name)
+		time.Sleep(time.Second)
+		psync, err := r.getSync(sync.Spec.Sha256PartialPreviousName)
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				s.handleProcessError(err)
+				return
+			}
+			klog.Infof("Partial sync %q not found, waiting for it to be created", sync.Spec.Sha256PartialPreviousName)
+			continue
+		}
+		if psync.Status.Phase != v1alpha1.SyncPhaseSucceeded {
+			klog.Infof("Partial sync %q is not yet succeeded (current phase: %s), waiting...", sync.Spec.Sha256PartialPreviousName, psync.Status.Phase)
+			continue
+		}
+		if len(psync.Status.Sha256Partial) == 0 {
+			err := fmt.Errorf("partial sync %q has no sha256 partial data", sync.Spec.Sha256PartialPreviousName)
+			s.handleProcessErrorWithReason(err, "MissingSha256PartialData")
+			return
+		}
+		s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+			var err error
+			ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, psync.Status.Sha256Partial, swmr.NewReader())
+			if err != nil {
+				return nil, err
+			}
+			ss.Status.Etags = etags
+			ss.Status.Phase = v1alpha1.SyncPhaseSucceeded
+			return ss, nil
+		})
+		return
+	}
+}
+
+func updateProgress(status *v1alpha1.SyncStatus, spec *v1alpha1.SyncSpec, sr *ReadCount, drs []*ReadCount) {
 	var progress int64
 	sourceProgress := sr.Count()
 
 	progress += sourceProgress
 
-	destinationProgresses := make([]int64, 0, len(sync.Spec.Destination))
+	destinationProgresses := make([]int64, 0, len(spec.Destination))
 	for _, dr := range drs {
 		destinationProgress := dr.Count()
 		progress += destinationProgress
 		destinationProgresses = append(destinationProgresses, destinationProgress)
 	}
 
-	sync.Status.Progress = progress / int64(len(sync.Spec.Destination)+1)
-	sync.Status.SourceProgress = sourceProgress
-	sync.Status.DestinationProgresses = destinationProgresses
+	status.Progress = progress / int64(len(spec.Destination)+1)
+	status.SourceProgress = sourceProgress
+	status.DestinationProgresses = destinationProgresses
 }
 
-func (r *SyncRunner) processSha256(ctx context.Context, sync *v1alpha1.Sync, swmr ioswmr.SWMR, sha256Partial []byte) error {
-	s := newSha256()
+func updateSha256(sha256 string, sha256Partial []byte, reader io.Reader) (string, []byte, error) {
+	hash := newSha256()
 
 	if len(sha256Partial) > 0 {
-		err := s.UnmarshalBinary(sha256Partial)
+		err := hash.UnmarshalBinary(sha256Partial)
 		if err != nil {
-			return err
+			return "", nil, err
 		}
 	}
 
-	if _, err := io.Copy(s, swmr.NewReader()); err != nil {
-		return err
+	if _, err := io.Copy(hash, reader); err != nil {
+		return "", nil, err
 	}
 
-	if sync.Spec.Sha256 == "" {
-		data, err := s.MarshalBinary()
+	if sha256 == "" {
+		data, err := hash.MarshalBinary()
 		if err != nil {
-			return err
+			return "", nil, err
 		}
-		sync.Status.Sha256Partial = data
-	} else {
-		sync.Status.Sha256 = hex.EncodeToString(s.Sum(nil))
-		if sync.Spec.Sha256 != sync.Status.Sha256 {
-			return fmt.Errorf("sha256 mismatch: expected %s, got %s", sync.Spec.Sha256, sync.Status.Sha256)
-		}
+		return "", data, nil
+	}
+	gotSha256 := hex.EncodeToString(hash.Sum(nil))
+	if sha256 != gotSha256 {
+		return "", nil, fmt.Errorf("sha256 mismatch: expected %s, got %s", sha256, gotSha256)
 	}
 
-	sync.Status.Phase = v1alpha1.SyncPhaseSucceeded
-	_, err := r.updateSync(ctx, sync)
-	if err != nil {
-		klog.Errorf("Error updating sync after sha256 processing: %v", err)
-	}
-	return nil
+	return sha256, nil, nil
 }
 
 func (r *SyncRunner) getPending(ctx context.Context) (*v1alpha1.Sync, error) {
@@ -687,15 +645,6 @@ func (r *SyncRunner) getPendingList() ([]*v1alpha1.Sync, error) {
 			return a.Spec.Priority > b.Spec.Priority
 		}
 
-		ca := a.Spec.ChunksNumber - a.Spec.ChunkIndex
-		cb := b.Spec.ChunksNumber - b.Spec.ChunkIndex
-		if ca != cb {
-			if reflect.DeepEqual(a.Labels, b.Labels) {
-				return ca > cb
-			}
-			return ca < cb
-		}
-
 		return a.CreationTimestamp.Before(&b.CreationTimestamp)
 	})
 
@@ -710,4 +659,66 @@ type hashEncoding interface {
 
 func newSha256() hashEncoding {
 	return sha256.New().(hashEncoding)
+}
+
+type state struct {
+	ss  *v1alpha1.Sync
+	mut sync.Mutex
+}
+
+func newState(s *v1alpha1.Sync) *state {
+	return &state{
+		ss: s.DeepCopy(),
+	}
+}
+
+func (s *state) Update(fun func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error)) {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	status, err := fun(s.ss.DeepCopy())
+	if err != nil {
+		handleProcessError(&s.ss.Status, err)
+	} else {
+		s.ss = status.DeepCopy()
+	}
+}
+
+func handleProcessErrorWithReason(ss *v1alpha1.SyncStatus, err error, reason string) {
+	const typ = "Process"
+	ss.Phase = v1alpha1.SyncPhaseFailed
+	hasProcessCondition := false
+	for _, condition := range ss.Conditions {
+		if condition.Type == typ {
+			hasProcessCondition = true
+			break
+		}
+	}
+	if !hasProcessCondition {
+		ss.Conditions = append(ss.Conditions, v1alpha1.Condition{
+			Type:               typ,
+			Reason:             reason,
+			Status:             v1alpha1.ConditionTrue,
+			Message:            err.Error(),
+			LastTransitionTime: metav1.Now(),
+		})
+	}
+}
+
+func handleProcessError(ss *v1alpha1.SyncStatus, err error) {
+	handleProcessErrorWithReason(ss, err, "ProcessFailed")
+}
+
+func (s *state) handleProcessErrorWithReason(err error, reason string) {
+	s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+		handleProcessErrorWithReason(&ss.Status, err, reason)
+		return ss, nil
+	})
+}
+
+func (s *state) handleProcessError(err error) {
+	s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+		handleProcessError(&ss.Status, err)
+		return ss, nil
+	})
 }

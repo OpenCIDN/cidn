@@ -21,9 +21,12 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"reflect"
+	"sync"
+	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
@@ -34,12 +37,20 @@ import (
 //go:embed html/*
 var embedFS embed.FS
 
+// Event represents a server-sent event for the WebUI
 type Event struct {
 	ID   string
 	Type string
 	Data []byte
 }
 
+// WriteTo writes the event in Server-Sent Events format to the provided writer
+func (e *Event) WriteTo(w io.Writer) (int64, error) {
+	n, err := fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Type, e.Data)
+	return int64(n), err
+}
+
+// NewHandler returns an http.Handler serving the WebUI and API endpoints
 func NewHandler(client versioned.Interface) http.Handler {
 	sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
 	mux := http.NewServeMux()
@@ -56,15 +67,22 @@ func NewHandler(client versioned.Interface) http.Handler {
 	blobInformer := sharedInformerFactory.Task().V1alpha1().Blobs()
 	informer := blobInformer.Informer()
 	go informer.RunWithContext(context.Background())
+
 	mux.HandleFunc("/api/blobs", func(w http.ResponseWriter, r *http.Request) {
 		// Set headers for Server-Sent Events
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		// Create a channel to receive updates
-		updates := make(chan Event)
+		// Channel for direct updates
+		updates := make(chan Event, 8)
 		defer close(updates)
+
+		// Buffer for aggregated updates
+		var mut sync.Mutex
+		updateBuffer := make(map[string]Event)
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
 
 		resourceEventHandlerRegistration, err := informer.AddEventHandler(&cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
@@ -90,14 +108,19 @@ func NewHandler(client versioned.Interface) http.Handler {
 					return
 				}
 
-				event := createEvent("MODIFIED", newBlob)
-				updates <- event
+				mut.Lock()
+				defer mut.Unlock()
+				updateBuffer[string(newBlob.UID)] = createEvent("MODIFIED", newBlob)
 			},
 			DeleteFunc: func(obj interface{}) {
 				blob, ok := obj.(*v1alpha1.Blob)
 				if !ok {
 					return
 				}
+
+				mut.Lock()
+				defer mut.Unlock()
+				delete(updateBuffer, string(blob.UID))
 				event := createEvent("DELETED", blob)
 				updates <- event
 			},
@@ -108,12 +131,29 @@ func NewHandler(client versioned.Interface) http.Handler {
 		}
 
 		defer informer.RemoveEventHandler(resourceEventHandlerRegistration)
+
 		// Stream updates to client
 		flusher := w.(http.Flusher)
 		for {
 			select {
-			case data := <-updates:
-				_, err := fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", data.ID, data.Type, data.Data)
+			case <-ticker.C:
+				func() {
+					mut.Lock()
+					defer mut.Unlock()
+					if len(updateBuffer) != 0 {
+						for _, event := range updateBuffer {
+							_, err := event.WriteTo(w)
+							if err != nil {
+								fmt.Printf("Error writing event: %v\n", err)
+								return
+							}
+						}
+						flusher.Flush()
+						clear(updateBuffer)
+					}
+				}()
+			case event := <-updates:
+				_, err := event.WriteTo(w)
 				if err != nil {
 					fmt.Printf("Error writing event: %v\n", err)
 					return
@@ -128,20 +168,21 @@ func NewHandler(client versioned.Interface) http.Handler {
 	return mux
 }
 
+// createEvent constructs an Event for a given blob and event type
 func createEvent(eventType string, blob *v1alpha1.Blob) Event {
 	event := Event{
 		Type: eventType,
 		ID:   string(blob.UID),
 	}
-
 	if eventType != "DELETED" {
 		data, _ := json.Marshal(cleanBlobForWebUI(blob))
 		event.Data = data
 	}
-
 	return event
 }
 
+// cleanedBlob is a reduced view of Blob for the WebUI
+// Only relevant fields are exposed
 type cleanedBlob struct {
 	Name string `json:"name"`
 
@@ -158,6 +199,7 @@ type cleanedBlob struct {
 	Errors []string `json:"errors,omitempty"`
 }
 
+// cleanBlobForWebUI extracts and normalizes fields for the WebUI
 func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 	cleaned := &cleanedBlob{}
 

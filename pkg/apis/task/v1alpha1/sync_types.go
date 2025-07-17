@@ -91,10 +91,6 @@ type SyncStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
-
-	// LastTime is the timestamp when the sync was last performed
-	// +optional
-	LastTime *metav1.Time `json:"lastTime,omitempty"`
 }
 
 // SyncHTTPRequest defines the HTTP request parameters for Sync

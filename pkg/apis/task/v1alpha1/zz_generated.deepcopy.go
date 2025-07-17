@@ -326,10 +326,6 @@ func (in *SyncStatus) DeepCopyInto(out *SyncStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.LastTime != nil {
-		in, out := &in.LastTime, &out.LastTime
-		*out = (*in).DeepCopy()
-	}
 	return
 }
 

@@ -94,19 +94,24 @@ func (c *ReleaseBlobController) cleanupBlob(obj interface{}) {
 
 func (c *ReleaseBlobController) enqueueBlob(obj interface{}) {
 	blob := obj.(*v1alpha1.Blob)
-	if blob.Status.Phase == v1alpha1.BlobPhaseRunning && blob.Spec.HandlerName != "" {
-		key, err := cache.MetaNamespaceKeyFunc(blob)
-		if err != nil {
-			klog.Errorf("couldn't get key for blob %+v: %v", blob, err)
-			return
-		}
-
-		c.lastSeenMut.Lock()
-		c.lastSeen[key] = time.Now()
-		c.lastSeenMut.Unlock()
-
-		c.workqueue.AddAfter(key, 10*time.Second)
+	if blob.Spec.HandlerName == "" {
+		return
 	}
+
+	if blob.Status.Phase != v1alpha1.BlobPhaseRunning && blob.Status.Phase != v1alpha1.BlobPhaseUnknown {
+		return
+	}
+
+	key, err := cache.MetaNamespaceKeyFunc(blob)
+	if err != nil {
+		klog.Errorf("couldn't get key for blob %+v: %v", blob, err)
+		return
+	}
+
+	c.lastSeenMut.Lock()
+	c.lastSeen[key] = time.Now()
+	c.lastSeenMut.Unlock()
+	c.workqueue.AddAfter(key, 10*time.Second)
 }
 
 func (c *ReleaseBlobController) runWorker(ctx context.Context) {
@@ -142,8 +147,7 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) er
 		return err
 	}
 
-	if blob.Status.Phase != v1alpha1.BlobPhaseRunning ||
-		blob.Spec.HandlerName == "" {
+	if blob.Spec.HandlerName == "" {
 		return nil
 	}
 
@@ -155,20 +159,35 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) er
 		return nil
 	}
 
-	if time.Since(lastSeenTime) < 90*time.Second {
-		return fmt.Errorf("%w: %s", errNotEnoughTime, name)
+	switch blob.Status.Phase {
+	case v1alpha1.BlobPhaseRunning:
+		if time.Since(lastSeenTime) < 40*time.Second {
+			return fmt.Errorf("%w: %s", errNotEnoughTime, name)
+		}
+
+		newBlob := blob.DeepCopy()
+		newBlob.Status.Phase = v1alpha1.BlobPhaseUnknown
+		klog.Infof("Transitioning blob %s from Running to Unknown phase", name)
+
+		_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, newBlob, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update blob %s: %v", name, err)
+		}
+	case v1alpha1.BlobPhaseUnknown:
+		if time.Since(lastSeenTime) < 20*time.Second {
+			return fmt.Errorf("%w: %s", errNotEnoughTime, name)
+		}
+
+		newBlob := blob.DeepCopy()
+		newBlob.Status.Phase = v1alpha1.BlobPhasePending
+		newBlob.Spec.HandlerName = ""
+		klog.Infof("Transitioning blob %s from Unknown to Pending phase and clearing handler", name)
+
+		_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, newBlob, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update blob %s: %v", name, err)
+		}
 	}
-
-	// Reset to pending and clear handler name
-	newBlob := blob.DeepCopy()
-	newBlob.Status.Phase = v1alpha1.BlobPhasePending
-	newBlob.Spec.HandlerName = ""
-
-	_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, newBlob, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to update blob %s: %v", name, err)
-	}
-
 	return nil
 }
 

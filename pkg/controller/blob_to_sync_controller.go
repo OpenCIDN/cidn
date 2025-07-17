@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/rand"
 	"net/http"
 	"time"
@@ -139,6 +138,9 @@ func (c *BlobToSyncController) processNextItem(ctx context.Context) bool {
 func (c *BlobToSyncController) syncHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
 		return err
 	}
 
@@ -146,7 +148,7 @@ func (c *BlobToSyncController) syncHandler(ctx context.Context, name string) err
 		return nil
 	}
 
-	if blob.Status.Phase != v1alpha1.BlobPhaseRunning {
+	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded {
 		return nil
 	}
 
@@ -262,8 +264,88 @@ func (c *BlobToSyncController) createOneSync(ctx context.Context, blob *v1alpha1
 	return nil
 }
 
+func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, start, end int64, lastName string, uploadIDs []string) (*v1alpha1.Sync, error) {
+	apiVersion := v1alpha1.GroupVersion.String()
+	sync := &v1alpha1.Sync{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				BlobNameLabel: blob.Name,
+				BlobUIDLabel:  string(blob.UID),
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: apiVersion,
+					Kind:       v1alpha1.BlobKind,
+					Name:       blob.Name,
+					UID:        blob.UID,
+				},
+			},
+		},
+		Spec: v1alpha1.SyncSpec{
+			Total:        end - start,
+			Priority:     blob.Spec.Priority,
+			ChunkIndex:   num,
+			ChunksNumber: blob.Spec.ChunksNumber,
+		},
+		Status: v1alpha1.SyncStatus{
+			Phase: v1alpha1.SyncPhasePending,
+		},
+	}
+
+	if blob.Spec.Sha256 != "" {
+		sync.Spec.Sha256PartialPreviousName = lastName
+	}
+
+	if num == blob.Spec.ChunksNumber && blob.Spec.Sha256 != "" {
+		sync.Spec.Sha256 = blob.Spec.Sha256
+	}
+
+	sync.Spec.Source = v1alpha1.SyncHTTP{
+		Request: v1alpha1.SyncHTTPRequest{
+			Method: http.MethodGet,
+			URL:    blob.Spec.Source,
+			Headers: map[string]string{
+				"Range": fmt.Sprintf("bytes=%d-%d", start, end-1),
+			},
+		},
+		Response: v1alpha1.SyncHTTPResponse{
+			StatusCode: http.StatusPartialContent,
+		},
+	}
+
+	if blob.Spec.Etag != "" {
+		if sync.Spec.Source.Response.Headers == nil {
+			sync.Spec.Source.Response.Headers = map[string]string{}
+		}
+		sync.Spec.Source.Response.Headers["Etag"] = blob.Spec.Etag
+	}
+
+	for j, dst := range blob.Spec.Destination {
+		mp := c.s3.GetMultipartWithUploadID(dst, uploadIDs[j])
+		partURL, err := mp.SignUploadPart(num, c.expires)
+		if err != nil {
+			return nil, err
+		}
+
+		sync.Spec.Destination = append(sync.Spec.Destination, v1alpha1.SyncHTTP{
+			Request: v1alpha1.SyncHTTPRequest{
+				Method: http.MethodPut,
+				URL:    partURL,
+				Headers: map[string]string{
+					"Content-Length": fmt.Sprintf("%d", end-start),
+				},
+			},
+			Response: v1alpha1.SyncHTTPResponse{
+				StatusCode: http.StatusOK,
+			},
+		})
+	}
+
+	return sync, nil
+}
+
 func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.Blob) error {
-	// Get current syncs from informer cache
 	syncs, err := c.syncInformer.Lister().List(labels.SelectorFromSet(labels.Set{
 		BlobNameLabel: blob.Name,
 	}))
@@ -271,13 +353,11 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 		return err
 	}
 
-	// Count pending and running syncs
 	pendingCount := 0
 	runningCount := 0
 	failedCount := 0
 	for _, sync := range syncs {
 		if sync.Labels[BlobUIDLabel] != string(blob.UID) {
-			// Delete mismatched sync
 			if err := c.client.TaskV1alpha1().Syncs().Delete(ctx, sync.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
 				return fmt.Errorf("failed to delete existing sync: %v", err)
 			}
@@ -292,15 +372,12 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 		case v1alpha1.SyncPhaseFailed:
 			failedCount++
 		}
-
 	}
 
-	// Only create new syncs if we have room
 	if failedCount != 0 {
 		return nil
 	}
 
-	// Calculate how many new syncs we can create
 	toCreate := int(blob.Spec.MaximumParallelism) - (pendingCount + runningCount)
 	if toCreate <= 0 {
 		return nil
@@ -308,9 +385,6 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 
 	if uploadIDs := blob.Status.UploadIDs; len(uploadIDs) == 0 {
 		for _, dst := range blob.Spec.Destination {
-			// TODO: When testing with minio, creating multipart uploads with the same path
-			// may sometimes return success but actually fail to create the part.
-			// This appears to be a minio-specific issue.
 			mp, err := c.s3.GetMultipart(ctx, dst)
 			if err != nil {
 				mp, err = c.s3.NewMultipart(ctx, dst)
@@ -320,16 +394,12 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 			}
 			uploadIDs = append(uploadIDs, mp.UploadID())
 		}
-
 		blob.Status.UploadIDs = uploadIDs
 	}
 
 	created := 0
-
-	apiVersion := v1alpha1.GroupVersion.String()
-
-	p0 := int(math.Log10(float64(blob.Spec.ChunksNumber+1)) + 1)
-	s0 := int(math.Log10(float64(blob.Spec.Total)) + 1)
+	p0 := decimalStringLength(blob.Spec.ChunksNumber)
+	s0 := hexStringLength(blob.Spec.Total)
 	lastName := "-"
 
 	g, _ := errgroup.WithContext(ctx)
@@ -342,94 +412,18 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 		}
 
 		num := i + 1
-		name := fmt.Sprintf("%s.%0*d.%0*d-%0*d", blob.Name, p0, num, s0, start, s0, end)
+		name := fmt.Sprintf("%s.%0*d.%0*x-%0*x", blob.Name, p0, num, s0, start, s0, end)
 
-		sync, err := c.syncInformer.Lister().Get(name)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return err
-			}
-			// Not found - we'll create new sync below
-		} else {
+		if _, err := c.syncInformer.Lister().Get(name); err == nil {
 			lastName = name
 			continue
+		} else if !apierrors.IsNotFound(err) {
+			return err
 		}
 
-		sync = &v1alpha1.Sync{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-				Labels: map[string]string{
-					BlobNameLabel: blob.Name,
-					BlobUIDLabel:  string(blob.UID),
-				},
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						APIVersion: apiVersion,
-						Kind:       v1alpha1.BlobKind,
-						Name:       blob.Name,
-						UID:        blob.UID,
-					},
-				},
-			},
-			Spec: v1alpha1.SyncSpec{
-				Total:        end - start,
-				Priority:     blob.Spec.Priority,
-				ChunkIndex:   num,
-				ChunksNumber: blob.Spec.ChunksNumber,
-			},
-			Status: v1alpha1.SyncStatus{
-				Phase: v1alpha1.SyncPhasePending,
-			},
-		}
-
-		if blob.Spec.Sha256 != "" {
-			sync.Spec.Sha256PartialPreviousName = lastName
-		}
-
-		if num == blob.Spec.ChunksNumber && blob.Spec.Sha256 != "" {
-			sync.Spec.Sha256 = blob.Spec.Sha256
-		}
-
-		sync.Spec.Source = v1alpha1.SyncHTTP{
-			Request: v1alpha1.SyncHTTPRequest{
-				Method: http.MethodGet,
-				URL:    blob.Spec.Source,
-				Headers: map[string]string{
-					"Range": fmt.Sprintf("bytes=%d-%d", start, end-1),
-				},
-			},
-			Response: v1alpha1.SyncHTTPResponse{
-				StatusCode: http.StatusPartialContent,
-			},
-		}
-
-		if blob.Spec.Etag != "" {
-			if sync.Spec.Source.Response.Headers == nil {
-				sync.Spec.Source.Response.Headers = map[string]string{}
-			}
-			sync.Spec.Source.Response.Headers["Etag"] = blob.Spec.Etag
-		}
-
-		for j, dst := range blob.Spec.Destination {
-			mp := c.s3.GetMultipartWithUploadID(dst, blob.Status.UploadIDs[j])
-
-			partURL, err := mp.SignUploadPart(num, c.expires)
-			if err != nil {
-				return err
-			}
-
-			sync.Spec.Destination = append(sync.Spec.Destination, v1alpha1.SyncHTTP{
-				Request: v1alpha1.SyncHTTPRequest{
-					Method: http.MethodPut,
-					URL:    partURL,
-					Headers: map[string]string{
-						"Content-Length": fmt.Sprintf("%d", end-start),
-					},
-				},
-				Response: v1alpha1.SyncHTTPResponse{
-					StatusCode: http.StatusOK,
-				},
-			})
+		sync, err := c.buildSync(blob, name, num, start, end, lastName, blob.Status.UploadIDs)
+		if err != nil {
+			return err
 		}
 
 		g.Go(func() error {
@@ -458,10 +452,5 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 		lastName = name
 	}
 
-	err = g.Wait()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return g.Wait()
 }

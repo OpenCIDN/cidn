@@ -116,7 +116,7 @@ type BlobSpec struct {
 	ChunkSize int64 `json:"chunkSize,omitempty"`
 
 	// ChunksNumber represents the total number of chunks that the blob will be split into.
-	ChunksNumber int64 `json:"chunkCount,omitempty"`
+	ChunksNumber int64 `json:"chunksNumber,omitempty"`
 
 	// Sha256 is the sha256 checksum of the blob content being verified.
 	Sha256 string `json:"sha256,omitempty"`

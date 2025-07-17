@@ -94,17 +94,23 @@ func (c *ReleaseSyncController) cleanupSync(obj interface{}) {
 
 func (c *ReleaseSyncController) enqueueSync(obj interface{}) {
 	sync := obj.(*v1alpha1.Sync)
-	if sync.Status.Phase == v1alpha1.SyncPhaseRunning && sync.Spec.HandlerName != "" {
-		key, err := cache.MetaNamespaceKeyFunc(sync)
-		if err != nil {
-			klog.Errorf("couldn't get key for sync %+v: %v", sync, err)
-			return
-		}
-		c.lastSeenMut.Lock()
-		c.lastSeen[key] = time.Now()
-		c.lastSeenMut.Unlock()
-		c.workqueue.AddAfter(key, 10*time.Second)
+	if sync.Spec.HandlerName == "" {
+		return
 	}
+
+	if sync.Status.Phase != v1alpha1.SyncPhaseRunning && sync.Status.Phase != v1alpha1.SyncPhaseUnknown {
+		return
+	}
+
+	key, err := cache.MetaNamespaceKeyFunc(sync)
+	if err != nil {
+		klog.Errorf("couldn't get key for sync %+v: %v", sync, err)
+		return
+	}
+	c.lastSeenMut.Lock()
+	c.lastSeen[key] = time.Now()
+	c.lastSeenMut.Unlock()
+	c.workqueue.AddAfter(key, 10*time.Second)
 }
 
 func (c *ReleaseSyncController) runWorker(ctx context.Context) {
@@ -140,8 +146,7 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) er
 		return err
 	}
 
-	if sync.Status.Phase != v1alpha1.SyncPhaseRunning ||
-		sync.Spec.HandlerName == "" {
+	if sync.Spec.HandlerName == "" {
 		return nil
 	}
 
@@ -152,19 +157,34 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) er
 	if !ok {
 		return nil
 	}
+	switch sync.Status.Phase {
+	case v1alpha1.SyncPhaseRunning:
+		if time.Since(lastSeenTime) < 30*time.Second {
+			return fmt.Errorf("%w: %s", errNotEnoughTime, name)
+		}
 
-	if time.Since(lastSeenTime) < 60*time.Second {
-		return fmt.Errorf("%w: %s", errNotEnoughTime, name)
-	}
+		newSync := sync.DeepCopy()
+		newSync.Status.Phase = v1alpha1.SyncPhaseUnknown
+		klog.Infof("Transitioning sync %s from Running to Unknown phase", name)
 
-	// Reset to pending and clear handler name
-	newSync := sync.DeepCopy()
-	newSync.Status.Phase = v1alpha1.SyncPhasePending
-	newSync.Spec.HandlerName = ""
+		_, err = c.client.TaskV1alpha1().Syncs().Update(ctx, newSync, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update sync %s: %v", name, err)
+		}
+	case v1alpha1.SyncPhaseUnknown:
+		if time.Since(lastSeenTime) < 20*time.Second {
+			return fmt.Errorf("%w: %s", errNotEnoughTime, name)
+		}
 
-	_, err = c.client.TaskV1alpha1().Syncs().Update(ctx, newSync, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to update sync %s: %v", name, err)
+		newSync := sync.DeepCopy()
+		newSync.Status.Phase = v1alpha1.SyncPhasePending
+		newSync.Spec.HandlerName = ""
+		klog.Infof("Transitioning sync %s from Unknown to Pending phase and clearing handler", name)
+
+		_, err = c.client.TaskV1alpha1().Syncs().Update(ctx, newSync, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update sync %s: %v", name, err)
+		}
 	}
 
 	return nil

@@ -264,7 +264,7 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "int64",
 						},
 					},
-					"chunkCount": {
+					"chunksNumber": {
 						SchemaProps: spec.SchemaProps{
 							Description: "ChunksNumber represents the total number of chunks that the blob will be split into.",
 							Type:        []string{"integer"},
@@ -843,17 +843,11 @@ func schema_pkg_apis_task_v1alpha1_SyncStatus(ref common.ReferenceCallback) comm
 							},
 						},
 					},
-					"lastTime": {
-						SchemaProps: spec.SchemaProps{
-							Description: "LastTime is the timestamp when the sync was last performed",
-							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
-						},
-					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition", "k8s.io/apimachinery/pkg/apis/meta/v1.Time"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"},
 	}
 }
 

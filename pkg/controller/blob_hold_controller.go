@@ -164,6 +164,9 @@ func (c *BlobHoldController) processNextItem(ctx context.Context) bool {
 func (c *BlobHoldController) syncHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
 		return err
 	}
 
@@ -174,7 +177,8 @@ func (c *BlobHoldController) syncHandler(ctx context.Context, name string) error
 	if blob.Spec.Total == 0 {
 		return nil
 	}
-	if blob.Status.Phase != v1alpha1.BlobPhasePending {
+
+	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded {
 		return nil
 	}
 

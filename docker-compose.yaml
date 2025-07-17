@@ -99,7 +99,7 @@ services:
     volumes:
     - ./kubeconfig.local.yaml:/kubeconfig.local.yaml:ro
     deploy:
-      replicas: 16
+      replicas: 8
     networks:
       runner-tier: {}
   webui:
@@ -138,7 +138,7 @@ configs:
       server {
         listen 80;
         location / {
-          limit_rate 100m;
+          limit_rate 10m;
           root   /usr/share/nginx/html;
           index  index.html index.htm;
         }

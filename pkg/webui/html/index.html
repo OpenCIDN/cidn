@@ -334,29 +334,30 @@
             `<span title="Progress in bytes">${highlightBytes(progress)} / ${highlightBytes(total)}</span>`;
 
         const highlightSpeed = (speed, remainingTime) =>
-            speed ? `<span title="Estimated remaining time, Download speed">
+            speed ? `<span title="🕒 Estimated remaining time, ⬇️ Download speed">
                 🕒 ${formatRemainingTime(remainingTime)}
                 ⬇️ ${highlightBytes(speed)} / s
                 </span>` : '<span></span>';
 
         const highlightChunksInfo = data =>
             data && data.chunksNumber > 1 ?
-                `<span title="Chunks status: 💤 idle, ⏳ pending, 🚀 running, ✅ succeeded/total">
-                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) > 0 ? `💤 ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0)}` : ''}
-                ${(data.pendingChunks || 0) > 0 ? `⏳ ${data.pendingChunks || 0}` : ''}
+                `<span title="Chunks status: ⏳ idle, 💤 pending, 🚀 running, ✅ succeeded/total">
+                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) > 0 ? `⏳ ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0)}` : ''}
+                ${(data.pendingChunks || 0) > 0 ? `💤 ${data.pendingChunks || 0}` : ''}
                 🚀 ${data.runningChunks || 0}
                 ✅ ${data.succeededChunks || 0} / ${data.chunksNumber}
             </span>`
                 :
                 `<span title="This is a non-parallel task">
-                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) > 0 ? `💤 ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0)}` : ''}
-                ${(data.pendingChunks || 0) > 0 ? `⏳ ${data.pendingChunks || 0}` : ''}
+                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) > 0 ? `⏳ ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0)}` : ''}
+                ${(data.pendingChunks || 0) > 0 ? `💤 ${data.pendingChunks || 0}` : ''}
                 🚀 ${data.runningChunks || 0}
             </span>`;
 
         const progressData = {};
         const statusMap = {
             'Pending': 'pending',
+            'Unknown': 'pending',
             'Running': 'processing',
             'Succeeded': 'completed',
             'Failed': 'failed'
@@ -449,7 +450,7 @@
                 case 'Failed':
                     return `${header}${highlightError(escapeHtml(error))}`;
                 default:
-                    return 'Unknown';
+                    return `${header}${highlightBytes(size)}`;
             }
         };
 
