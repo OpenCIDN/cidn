@@ -135,7 +135,7 @@ type BlobSpec struct {
 	MaximumParallelism int64 `json:"maximumParallelism,omitempty"`
 
 	// RetryCount is the number of times the sync has been retried.
-	// +default=2
+	// +default=5
 	RetryCount int64 `json:"retryCount,omitempty"`
 }
 

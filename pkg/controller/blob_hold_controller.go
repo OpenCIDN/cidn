@@ -83,7 +83,7 @@ func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
 			continue
 		}
 
-		if blob.Status.Phase != v1alpha1.BlobPhasePending && blob.Status.Phase != v1alpha1.BlobPhaseRunning {
+		if blob.Status.Phase != v1alpha1.BlobPhasePending && blob.Status.Phase != v1alpha1.BlobPhaseRunning && blob.Status.Phase != v1alpha1.BlobPhaseUnknown {
 			continue
 		}
 

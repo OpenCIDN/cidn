@@ -1,6 +1,8 @@
 services:
   minio:
     restart: unless-stopped
+    stop_signal: SIGINT
+    stop_grace_period: 3s
     image: m.daocloud.io/quay.io/minio/minio:RELEASE.2025-05-24T17-08-30Z
     entrypoint:
     - sh
@@ -29,6 +31,8 @@ services:
     - cache-data:/data
   etcd:
     restart: unless-stopped
+    stop_signal: SIGINT
+    stop_grace_period: 3s
     image: m.daocloud.io/quay.io/coreos/etcd:v3.6.1
     command:
     - /usr/local/bin/etcd
@@ -47,6 +51,8 @@ services:
     - db-data:/var/lib/etcd
   apiserver:
     restart: unless-stopped
+    stop_signal: SIGINT
+    stop_grace_period: 3s
     build:
       context: .
       dockerfile: images/apiserver/Dockerfile
@@ -63,6 +69,8 @@ services:
       runner-tier: {}
   controller-manager:
     restart: unless-stopped
+    stop_signal: SIGINT
+    stop_grace_period: 10s
     build:
       context: .
       dockerfile: images/controller-manager/Dockerfile
@@ -80,6 +88,8 @@ services:
       controller-tier: {}
   runner:
     restart: unless-stopped
+    stop_signal: SIGINT
+    stop_grace_period: 10s
     build:
       context: .
       dockerfile: images/runner/Dockerfile
@@ -123,6 +133,8 @@ services:
       controller-tier: {}
   nginx-test:
     restart: unless-stopped
+    stop_signal: SIGINT
+    stop_grace_period: 3s
     image: m.daocloud.io/docker.io/nginx:alpine
     volumes:
     - ./tests/testdata:/usr/share/nginx/html:ro
@@ -135,19 +147,13 @@ services:
 configs:
   nginx-test-config:
     content: |-
-      split_clients "$${remote_addr}" $$error_page {
-        2%      1;
-        4%      2;
-        *       0;
-      }
-
       server {
         listen 80;
         location / {
-          if ($$error_page = 1) {
+          if ($$request_id ~* "[1]$$") {
             return 500;
           }
-          if ($$error_page = 2) {
+          if ($$request_id ~* "[2]$$") {
             return 444;
           }
           limit_rate 10m;

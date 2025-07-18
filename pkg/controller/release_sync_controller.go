@@ -104,7 +104,7 @@ func (c *ReleaseSyncController) enqueueSync(obj interface{}) {
 	c.lastSeenMut.Lock()
 	c.lastSeen[key] = time.Now()
 	c.lastSeenMut.Unlock()
-	c.workqueue.AddAfter(key, 10*time.Second)
+	c.workqueue.Add(key)
 }
 
 func (c *ReleaseSyncController) runWorker(ctx context.Context) {
@@ -200,6 +200,5 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) (t
 			}
 		}
 	}
-
 	return 0, nil
 }

@@ -173,9 +173,13 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 				blob.Status.RetryCount = sync.Status.RetryCount
 				blob.Status.Phase = v1alpha1.BlobPhaseFailed
 				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, sync.Status.Conditions...)
-			} else {
+			} else if _, ok := v1alpha1.GetCondition(sync.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
 				blob.Status.Phase = v1alpha1.BlobPhaseRunning
 				blob.Status.Progress = sync.Status.Progress
+			} else {
+				blob.Status.RetryCount = sync.Status.RetryCount
+				blob.Status.Phase = v1alpha1.BlobPhaseFailed
+				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, sync.Status.Conditions...)
 			}
 		case v1alpha1.SyncPhaseRunning, v1alpha1.SyncPhaseUnknown, v1alpha1.SyncPhasePending:
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
@@ -218,7 +222,26 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 				}
 			}
 		} else {
-			blob.Status.Phase = v1alpha1.BlobPhaseRunning
+			hasNonRetryableFailure := false
+			for _, sync := range syncs {
+				if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
+					if _, ok := v1alpha1.GetCondition(sync.Status.Conditions, v1alpha1.ConditionTypeRetryable); !ok {
+						hasNonRetryableFailure = true
+						break
+					}
+				}
+			}
+			if hasNonRetryableFailure {
+				blob.Status.RetryCount = blob.Spec.RetryCount
+				blob.Status.Phase = v1alpha1.BlobPhaseFailed
+				for _, sync := range syncs {
+					if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
+						blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, sync.Status.Conditions...)
+					}
+				}
+			} else {
+				blob.Status.Phase = v1alpha1.BlobPhaseRunning
+			}
 		}
 		return nil
 	}

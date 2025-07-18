@@ -253,7 +253,7 @@ func httpStat(url string, client *http.Client, headers map[string]string) (*http
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, resp.StatusCode >= http.StatusInternalServerError, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, false, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	contentLength := resp.Header.Get("Content-Length")
@@ -272,7 +272,7 @@ func httpStat(url string, client *http.Client, headers map[string]string) (*http
 		ModTime: lastModified,
 		Range:   resp.Header.Get("Accept-Ranges") == "bytes",
 		Etag:    resp.Header.Get("Etag"),
-	}, true, nil
+	}, false, nil
 }
 
 type httpFileInfo struct {

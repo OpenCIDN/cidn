@@ -14,6 +14,11 @@
             --color-status-error: #D32F2D;
             --color-status-success: #388E3C;
 
+            --color-icon-progress: #1565C0;
+            --color-icon-waiting: #FF8F00;
+            --color-icon-error: #B71C1C;
+            --color-icon-success: #2E7D32;
+
             --color-text-secondary: #555;
 
             --color-bg-surface: #f0f4f8;
@@ -50,6 +55,11 @@
                 --color-status-waiting: #FFE082;
                 --color-status-error: #FF8A80;
                 --color-status-success: #81C784;
+
+                --color-icon-progress: #1E88E5;
+                --color-icon-waiting: #FFB300;
+                --color-icon-error: #D32F2D;
+                --color-icon-success: #388E3C;
 
                 --color-text-secondary: #aaa;
 
@@ -212,6 +222,34 @@
             background: var(--color-status-success);
         }
 
+        .status-group {
+            margin: 0;
+        }
+
+        .status-block {
+            margin: 1.5rem 0;
+            border-radius: 0.5rem;
+            box-shadow: var(--shadow-sm);
+            background: var(--color-bg-primary);
+            overflow: hidden;
+        }
+
+        .status-title {
+            border-radius: 0.5rem 0.5rem 0 0;
+            margin: 0;
+        }
+
+        .status-status-item-count {
+            margin-right: auto;
+        }
+
+        .status-container {
+            border-radius: 0 0 0.5rem 0.5rem;
+            margin: 0;
+            box-shadow: none;
+            background: transparent;
+        }
+
         .data-item {
             padding: 0.75rem;
             margin: 0.5rem 0;
@@ -258,7 +296,6 @@
         .progress-bar {
             height: 100%;
             background: linear-gradient(90deg, var(--color-status-progress), var(--color-status-progress));
-            transition: width 0.3s ease-out;
             position: relative;
         }
 
@@ -292,6 +329,8 @@
             margin-left: 0.5rem;
             opacity: 0;
             transition: opacity 0.2s ease;
+            font-weight: bold;
+            font-size: 1.5em;
         }
 
         .data-item:hover .anchor-link {
@@ -299,26 +338,101 @@
         }
 
         .data-item-highlighted {
-            outline: 2px solid var(--color-status-progress);
+            outline: 2px solid var(--color-text-secondary);
             outline-offset: 2px;
         }
     </style>
 </head>
 
 <body>
+    <svg style="display:none;">
+        <symbol id="icon-idle" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" stroke="var(--color-text-secondary)" stroke-width="2" fill="none" />
+            <circle cx="12" cy="12" r="5" stroke="var(--color-text-secondary)" stroke-width="2"
+                fill="var(--color-text-secondary)" />
+        </symbol>
+        <symbol id="icon-pending" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" stroke="var(--color-icon-waiting)" stroke-width="2" fill="none" />
+            <path d="M12 8v4m0 4h.01" stroke="var(--color-icon-waiting)" stroke-width="2" stroke-linecap="round"
+                fill="none" />
+        </symbol>
+        <symbol id="icon-running" viewBox="0 0 24 24">
+            <g>
+                <path
+                    d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"
+                    stroke="var(--color-icon-progress)" stroke-width="2" fill="none" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="2s"
+                        repeatCount="indefinite" />
+                </path>
+            </g>
+        </symbol>
+        <symbol id="icon-failed" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" stroke="var(--color-icon-error)" stroke-width="2" fill="none" />
+            <line x1="9" y1="9" x2="15" y2="15" stroke="var(--color-icon-error)" stroke-width="2" />
+            <line x1="15" y1="9" x2="9" y2="15" stroke="var(--color-icon-error)" stroke-width="2" />
+        </symbol>
+        <symbol id="icon-succeeded" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" stroke="var(--color-icon-success)" stroke-width="2" fill="none" />
+            <polyline points="9 12 12 15 16 10" stroke="var(--color-icon-success)" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </symbol>
+        <symbol id="icon-clock" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" stroke="var(--color-icon-waiting)" stroke-width="2" fill="none" />
+            <g>
+                <line x1="12" y1="12" x2="12" y2="6" stroke="var(--color-icon-waiting)" stroke-width="2">
+                    <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="5s"
+                        repeatCount="indefinite" />
+                </line>
+            </g>
+            <line x1="12" y1="12" x2="12" y2="4" stroke="var(--color-icon-waiting)" stroke-width="2" />
+        </symbol>
+        <symbol id="icon-download" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="var(--color-info-speed)" stroke-width="2"
+                fill="none" stroke-linecap="round" stroke-linejoin="round" />
+            <polyline points="7 10 12 15 17 10" stroke="var(--color-info-speed)" stroke-width="2" fill="none"
+                stroke-linecap="round" stroke-linejoin="round" />
+            <line x1="12" y1="15" x2="12" y2="3" stroke="var(--color-info-speed)" stroke-width="2" />
+        </symbol>
+    </svg>
     <div id="error" style="display: none;"></div>
     <div class="status-group">
-        <h2 class="status-title processing" onclick="toggleContainer('processing-container')">Processing</h2>
-        <div id="processing-container" class="status-container"></div>
-
-        <h2 class="status-title pending" onclick="toggleContainer('pending-container')">Pending</h2>
-        <div id="pending-container" class="status-container"></div>
-
-        <h2 class="status-title failed collapsed" onclick="toggleContainer('failed-container')">Failed</h2>
-        <div id="failed-container" class="status-container" style="display: none;"></div>
-
-        <h2 class="status-title completed collapsed" onclick="toggleContainer('completed-container')">Completed</h2>
-        <div id="completed-container" class="status-container" style="display: none;"></div>
+        <div class="status-block">
+            <h2 class="status-title processing" onclick="toggleContainer('processing-container')">
+                <svg width="16" height="16">
+                    <use xlink:href="#icon-running"></use>
+                </svg>
+                Processing <span class="status-status-item-count">[0]</span>
+            </h2>
+            <div id="processing-container" class="status-container"></div>
+        </div>
+        <div class="status-block">
+            <h2 class="status-title pending" onclick="toggleContainer('pending-container')">
+                <svg width="16" height="16">
+                    <use xlink:href="#icon-pending"></use>
+                </svg>
+                Pending <span class="status-status-item-count">[0]</span>
+            </h2>
+            <div id="pending-container" class="status-container" style="display: none;"></div>
+        </div>
+        <div class="status-block">
+            <h2 class="status-title failed collapsed" onclick="toggleContainer('failed-container')">
+                <svg width="16" height="16">
+                    <use xlink:href="#icon-failed"></use>
+                </svg>
+                Failed <span class="status-status-item-count">[0]</span>
+            </h2>
+            <div id="failed-container" class="status-container" style="display: none;"></div>
+        </div>
+        <div class="status-block">
+            <h2 class="status-title completed collapsed" onclick="toggleContainer('completed-container')">
+                <svg width="16" height="16">
+                    <use xlink:href="#icon-succeeded"></use>
+                </svg>
+                Completed <span class="status-status-item-count">[0]</span>
+            </h2>
+            <div id="completed-container" class="status-container" style="display: none;"></div>
+        </div>
     </div>
 
     <script>
@@ -353,27 +467,22 @@
             `<span title="Progress in bytes">${highlightBytes(progress)} / ${highlightBytes(total)}</span>`;
 
         const highlightSpeed = (speed, remainingTime) =>
-            speed ? `<span title="🕒 Estimated remaining time, ⬇️ Download speed">
-                🕒 ${formatRemainingTime(remainingTime)}
-                ⬇️ ${highlightBytes(speed)} / s
+            speed ? `<span title="Estimated remaining time, Download speed">
+                ${svgIcon('clock')} ${formatRemainingTime(remainingTime)}
+                ${svgIcon('download')} ${highlightBytes(speed)} / s
                 </span>` : '<span></span>';
 
+        const svgIcon = (name) =>
+            `<svg width="12" height="12" style="vertical-align:middle;"><use xlink:href="#icon-${name}"></use></svg>`;
+
         const highlightChunksInfo = data =>
-            data && data.chunksNumber > 1 ?
-                `<span title="Chunks status: ⏳ idle, 💤 pending, 🚀 running, ❌ failed, ✅ succeeded/total">
-                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0) > 0 ? `⏳ ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0)}` : ''}
-                ${(data.pendingChunks || 0) > 0 ? `💤 ${data.pendingChunks || 0}` : ''}
-                ${(data.failedChunks || 0) > 0 ? `❌ ${data.failedChunks || 0}` : ''}
-                🚀 ${data.runningChunks || 0}
-                ✅ ${data.succeededChunks || 0} / ${data.chunksNumber}
-            </span>`
+            `<span title="Chunks status: idle, pending, failed, running, succeeded / total">
+            ${data.chunksNumber > 8 ?
+                `${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0) > 0 ? `${svgIcon('idle')} ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0)}` : ''} ${(data.pendingChunks || 0) > 0 ? `${svgIcon('pending')} ${data.pendingChunks || 0}` : ''} ${(data.failedChunks || 0) > 0 ? `${svgIcon('failed')} ${data.failedChunks || 0}` : ''} ${(data.runningChunks || 0) > 0 ? `${svgIcon('running')} ${data.runningChunks || 0}` : ''} ${(data.succeededChunks || 0) > 0 ? `${svgIcon('succeeded')} ${data.succeededChunks || 0}` : ''}`
                 :
-                `<span title="This is a non-parallel task">
-                ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0) > 0 ? `⏳ ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0)}` : ''}
-                ${(data.pendingChunks || 0) > 0 ? `💤 ${data.pendingChunks || 0}` : ''}
-                ${(data.failedChunks || 0) > 0 ? `❌ ${data.failedChunks || 0}` : ''}
-                🚀 ${data.runningChunks || 0}
-            </span>`;
+                `${svgIcon('idle').repeat(data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0))}${svgIcon('pending').repeat(data.pendingChunks || 0)}${svgIcon('failed').repeat(data.failedChunks || 0)}${svgIcon('running').repeat(data.runningChunks || 0)}${svgIcon('succeeded').repeat(data.succeededChunks || 0)}`
+            } ${data.chunksNumber > 1 ? `/ ${data.chunksNumber}` : ''}
+            </span>`
 
         const progressData = {};
         const statusMap = {
@@ -469,14 +578,27 @@
                             ${highlightSpeed(speed, remainingTime)} 
                             ${highlightChunksInfo(data)}
                         </div>
-                        <div class="progress-container">
-                            <div class="progress-bar" style="width: ${progressPercent}%"></div>
-                        </div>`;
+                        <div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>`;
                 }
                 case 'Failed':
-                    return `${header}${highlightError(escapeErrors(errors))}`;
-                default:
-                    return `${header}${highlightBytes(size)}`;
+                    return `${header}
+                    ${highlightError(escapeErrors(errors))}
+                    <div class="progress-text">
+                        ${size ? highlightProgress(progress, size) : ''}
+                        ${data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks ? highlightChunksInfo(data) : ''}
+                    </div>`;
+                case 'Pending':
+                case 'Unknown':
+                    return `${header}
+                    <div class="progress-text">
+                        ${size ? highlightProgress(progress, size) : ''}
+                        ${data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks ? highlightChunksInfo(data) : ''}
+                    </div>`;
+                case 'Succeeded':
+                    return `${header}
+                    <div class="progress-text">
+                        ${highlightBytes(size)}
+                    </div>`;
             }
         };
 
@@ -537,6 +659,43 @@
             const errorDiv = document.getElementById('error');
             errorDiv.style.display = 'block';
             errorDiv.textContent = message;
+            setTimeout(() => {
+                const errorModal = document.createElement('div');
+                errorModal.style.position = 'fixed';
+                errorModal.style.top = '20%';
+                errorModal.style.left = '50%';
+                errorModal.style.transform = 'translateX(-50%)';
+                errorModal.style.backgroundColor = 'var(--color-alert-error)';
+                errorModal.style.color = 'white';
+                errorModal.style.padding = '20px';
+                errorModal.style.borderRadius = '5px';
+                errorModal.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+                errorModal.style.zIndex = '1000';
+                errorModal.style.textAlign = 'center';
+                errorModal.style.fontWeight = 'bold';
+                errorModal.innerHTML = `
+                    <div style="position: absolute; top: 5px; right: 5px; cursor: pointer;" onclick="this.parentNode.remove()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </div>
+                    ${message}
+                    <div style="display: flex; gap: 10px; justify-content: center; margin: 10px auto;">
+                        <button onclick="location.reload()" 
+                                style="background: white; 
+                                       color: var(--color-alert-error); 
+                                       border: none; 
+                                       padding: 8px 16px; 
+                                       border-radius: 4px; 
+                                       cursor: pointer;
+                                       margin: 0 auto;">
+                            Refresh Page
+                        </button>
+                    </div>
+                `;
+                document.body.appendChild(errorModal);
+            }, 100);
         };
 
         const startStream = async () => {
@@ -608,14 +767,12 @@
         });
 
         Object.values(containers).forEach(container => {
-            const observer = new MutationObserver(mutations => {
+            const observer = new MutationObserver(() => {
                 const itemCount = container.children.length;
                 const title = container.previousElementSibling;
-                const titleText = title.textContent.split('[')[0].trim();
-                if (itemCount) {
-                    title.textContent = `${titleText} [${itemCount}]`;
-                } else {
-                    title.textContent = titleText;
+                const countSpan = title.querySelector('.status-status-item-count');
+                if (countSpan) {
+                    countSpan.textContent = `[${itemCount}]`;
                 }
             });
             observer.observe(container, { childList: true });

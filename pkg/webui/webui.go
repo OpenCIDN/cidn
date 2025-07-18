@@ -24,7 +24,6 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"reflect"
 	"sync"
 	"time"
 
@@ -75,13 +74,13 @@ func NewHandler(client versioned.Interface) http.Handler {
 		w.Header().Set("Connection", "keep-alive")
 
 		// Channel for direct updates
-		updates := make(chan Event, 8)
+		updates := make(chan Event, 4)
 		defer close(updates)
 
 		// Buffer for aggregated updates
 		var mut sync.Mutex
 		updateBuffer := make(map[string]Event)
-		ticker := time.NewTicker(2 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 
 		resourceEventHandlerRegistration, err := informer.AddEventHandler(&cache.ResourceEventHandlerFuncs{
@@ -103,14 +102,13 @@ func NewHandler(client versioned.Interface) http.Handler {
 					return
 				}
 
-				if reflect.DeepEqual(oldBlob.Status, newBlob.Status) &&
-					reflect.DeepEqual(oldBlob.Spec, newBlob.Spec) {
-					return
-				}
-
 				mut.Lock()
 				defer mut.Unlock()
-				if oldBlob.Status.Phase == newBlob.Status.Phase {
+				if oldBlob.Status.Phase == newBlob.Status.Phase &&
+					oldBlob.Status.FailedChunks == newBlob.Status.FailedChunks &&
+					oldBlob.Status.PendingChunks == newBlob.Status.PendingChunks &&
+					oldBlob.Status.RunningChunks == newBlob.Status.RunningChunks &&
+					oldBlob.Status.SucceededChunks == newBlob.Status.SucceededChunks {
 					updateBuffer[string(newBlob.UID)] = createEvent("UPDATE", newBlob)
 				} else {
 					delete(updateBuffer, string(newBlob.UID))

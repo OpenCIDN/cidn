@@ -41,7 +41,7 @@ func SetObjectDefaults_Blob(in *Blob) {
 		in.Spec.MaximumParallelism = 2
 	}
 	if in.Spec.RetryCount == 0 {
-		in.Spec.RetryCount = 2
+		in.Spec.RetryCount = 5
 	}
 }
 
@@ -54,7 +54,7 @@ func SetObjectDefaults_BlobList(in *BlobList) {
 
 func SetObjectDefaults_Sync(in *Sync) {
 	if in.Spec.RetryCount == 0 {
-		in.Spec.RetryCount = 2
+		in.Spec.RetryCount = 5
 	}
 }
 

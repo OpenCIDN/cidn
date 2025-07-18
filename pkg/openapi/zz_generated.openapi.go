@@ -296,7 +296,7 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 					"retryCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "RetryCount is the number of times the sync has been retried.",
-							Default:     2,
+							Default:     5,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -763,7 +763,7 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 					"retryCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "RetryCount is the number of times the sync has been retried.",
-							Default:     2,
+							Default:     5,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},

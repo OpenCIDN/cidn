@@ -104,7 +104,7 @@ func (c *ReleaseBlobController) enqueueBlob(obj interface{}) {
 	c.lastSeenMut.Lock()
 	c.lastSeen[key] = time.Now()
 	c.lastSeenMut.Unlock()
-	c.workqueue.AddAfter(key, 10*time.Second)
+	c.workqueue.Add(key)
 }
 
 func (c *ReleaseBlobController) runWorker(ctx context.Context) {
@@ -179,26 +179,6 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) (t
 		_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, newBlob, metav1.UpdateOptions{})
 		if err != nil {
 			return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
-		}
-	case v1alpha1.BlobPhaseFailed:
-		if time.Since(lastSeenTime) < time.Duration(blob.Status.RetryCount)*time.Second {
-			return time.Duration(blob.Status.RetryCount)*time.Second - time.Since(lastSeenTime), nil
-		}
-
-		if blob.Status.RetryCount < blob.Spec.RetryCount {
-			newBlob := blob.DeepCopy()
-			if _, ok := v1alpha1.GetCondition(newBlob.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
-				newBlob.Status.Phase = v1alpha1.BlobPhasePending
-				newBlob.Status.Conditions = nil
-				newBlob.Status.RetryCount++
-				newBlob.Spec.HandlerName = ""
-				klog.Infof("Transitioning blob %s from Failed to Pending phase and clearing handler", name)
-
-				_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, newBlob, metav1.UpdateOptions{})
-				if err != nil {
-					return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
-				}
-			}
 		}
 	}
 	return 0, nil

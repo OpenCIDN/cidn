@@ -364,7 +364,7 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 		return
 	}
 
-	f, err := os.CreateTemp("", "cidn-sync")
+	f, err := os.CreateTemp("", "cidn-sync-")
 	if err == nil {
 		defer func() {
 			f.Close()
@@ -395,6 +395,7 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 		g.Go(func() error {
 			etag, err := r.destinationRequest(ctx, &dest, dr)
 			if err != nil {
+
 				return err
 			}
 			etags[i] = etag
@@ -411,12 +412,7 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 
 	err = g.Wait()
 	if err != nil {
-		retry, err := utils.IsNetWorkError(err)
-		if retry {
-			s.handleProcessErrorAndRetryable(err)
-		} else {
-			s.handleProcessError(err)
-		}
+		s.handleProcessErrorAndRetryable(err)
 		return
 	}
 
@@ -430,7 +426,6 @@ func (r *SyncRunner) startProgressUpdater(ctx context.Context, cancel func(), s 
 			if *gsr != nil {
 				updateProgress(&ss.Status, &ss.Spec, *gsr, *gdrs)
 			}
-			klog.Infof("Updating progress for sync %s (%s)", ss.Name, ss.Status.Phase)
 
 			newSync, err := r.updateSync(ctx, ss)
 			if err != nil {
@@ -545,7 +540,6 @@ func (r *SyncRunner) waitForPartialSync(ctx context.Context, sync *v1alpha1.Sync
 		if ctx.Err() != nil {
 			return
 		}
-		klog.Infof("Waiting processing sync %s", sync.Name)
 		time.Sleep(time.Second)
 		psync, err := r.getSync(sync.Spec.Sha256PartialPreviousName)
 		if err != nil {
@@ -553,11 +547,9 @@ func (r *SyncRunner) waitForPartialSync(ctx context.Context, sync *v1alpha1.Sync
 				s.handleProcessError(err)
 				return
 			}
-			klog.Infof("Partial sync %q not found, waiting for it to be created", sync.Spec.Sha256PartialPreviousName)
 			continue
 		}
 		if psync.Status.Phase != v1alpha1.SyncPhaseSucceeded {
-			klog.Infof("Partial sync %q is not yet succeeded (current phase: %s), waiting...", sync.Spec.Sha256PartialPreviousName, psync.Status.Phase)
 			continue
 		}
 		if len(psync.Status.Sha256Partial) == 0 {

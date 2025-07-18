@@ -140,7 +140,7 @@ func (c *BlobToSyncController) syncHandler(ctx context.Context, name string) err
 		return nil
 	}
 
-	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded {
+	if blob.Status.Phase != v1alpha1.BlobPhaseRunning && blob.Status.Phase != v1alpha1.BlobPhaseUnknown {
 		return nil
 	}
 
@@ -367,8 +367,11 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 			failedCount++
 		}
 	}
+	if failedCount != 0 {
+		return nil
+	}
 
-	toCreate := int(blob.Spec.MaximumParallelism) - (pendingCount + runningCount + failedCount)
+	toCreate := int(blob.Spec.MaximumParallelism) - (pendingCount + runningCount)
 	if toCreate <= 0 {
 		return nil
 	}

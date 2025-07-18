@@ -166,7 +166,7 @@ type SyncSpec struct {
 	Sha256 string `json:"sha256,omitempty"`
 
 	// RetryCount is the number of times the sync has been retried.
-	// +default=2
+	// +default=5
 	RetryCount int64 `json:"retryCount,omitempty"`
 }
 
