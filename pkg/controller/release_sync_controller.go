@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -180,8 +181,10 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) (t
 			return 10 * time.Second, fmt.Errorf("failed to update sync %s: %v", name, err)
 		}
 	case v1alpha1.SyncPhaseFailed:
-		if time.Since(lastSeenTime) < time.Duration(sync.Status.RetryCount)*time.Second {
-			return time.Duration(sync.Status.RetryCount)*time.Second - time.Since(lastSeenTime), nil
+		dur := time.Duration(math.Pow(2, float64(sync.Status.RetryCount))) * time.Second
+		sub := time.Since(lastSeenTime)
+		if sub < dur {
+			return dur - sub, nil
 		}
 
 		if sync.Status.RetryCount < sync.Spec.RetryCount {

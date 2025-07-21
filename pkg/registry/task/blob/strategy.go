@@ -193,7 +193,12 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 			table.ResourceVersion = m.GetResourceVersion()
 		}
 	}
-	if opt, ok := tableOptions.(*metav1.TableOptions); !ok || !opt.NoHeaders {
+
+	opt, ok := tableOptions.(*metav1.TableOptions)
+	if !ok {
+		opt = &metav1.TableOptions{}
+	}
+	if !opt.NoHeaders {
 		table.ColumnDefinitions = []metav1.TableColumnDefinition{
 			{Name: "Name", Type: "string", Format: "name", Description: "Name of the blob"},
 			{Name: "Handler", Type: "string", Description: "Handler for the blob"},
@@ -215,13 +220,7 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 		if blob.Status.Phase == v1alpha1.BlobPhaseFailed {
 			faileds := []string{}
 			for _, condition := range blob.Status.Conditions {
-				if condition.Status == v1alpha1.ConditionTrue {
-					if condition.Reason != "" {
-						faileds = append(faileds, condition.Reason)
-					} else if condition.Type != "" {
-						faileds = append(faileds, condition.Type)
-					}
-				}
+				faileds = append(faileds, condition.Type)
 			}
 			if len(faileds) > 0 {
 				phase += "(" + strings.Join(faileds, ",") + ")"
@@ -240,7 +239,7 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 			chunks = fmt.Sprintf("%d/%d", blob.Status.SucceededChunks, blob.Spec.ChunksNumber)
 		}
 
-		table.Rows = append(table.Rows, metav1.TableRow{
+		row := metav1.TableRow{
 			Cells: []interface{}{
 				blob.Name,
 				blob.Spec.HandlerName,
@@ -250,8 +249,19 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 				chunks,
 				time.Since(blob.CreationTimestamp.Time).Truncate(time.Second).String(),
 			},
-			Object: runtime.RawExtension{Object: blob},
-		})
+		}
+
+		switch opt.IncludeObject {
+		case metav1.IncludeMetadata, "":
+			partial := &metav1.PartialObjectMetadata{
+				ObjectMeta: blob.ObjectMeta,
+			}
+			row.Object = runtime.RawExtension{Object: partial}
+		case metav1.IncludeObject:
+			row.Object = runtime.RawExtension{Object: blob}
+		}
+
+		table.Rows = append(table.Rows, row)
 		return nil
 	}
 

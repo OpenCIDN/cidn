@@ -30,6 +30,7 @@ import (
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Blob":             schema_pkg_apis_task_v1alpha1_Blob(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobDestination":  schema_pkg_apis_task_v1alpha1_BlobDestination(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobList":         schema_pkg_apis_task_v1alpha1_BlobList(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobSpec":         schema_pkg_apis_task_v1alpha1_BlobSpec(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobStatus":       schema_pkg_apis_task_v1alpha1_BlobStatus(ref),
@@ -41,6 +42,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncList":         schema_pkg_apis_task_v1alpha1_SyncList(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncSpec":         schema_pkg_apis_task_v1alpha1_SyncSpec(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncStatus":       schema_pkg_apis_task_v1alpha1_SyncStatus(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtag":       schema_pkg_apis_task_v1alpha1_UploadEtag(ref),
 		"k8s.io/apimachinery/pkg/apis/meta/v1.APIGroup":                    schema_pkg_apis_meta_v1_APIGroup(ref),
 		"k8s.io/apimachinery/pkg/apis/meta/v1.APIGroupList":                schema_pkg_apis_meta_v1_APIGroupList(ref),
 		"k8s.io/apimachinery/pkg/apis/meta/v1.APIResource":                 schema_pkg_apis_meta_v1_APIResource(ref),
@@ -148,6 +150,36 @@ func schema_pkg_apis_task_v1alpha1_Blob(ref common.ReferenceCallback) common.Ope
 	}
 }
 
+func schema_pkg_apis_task_v1alpha1_BlobDestination(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BlobDestination defines the destination for a blob.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name is the name of the destination.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"path": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Path is the filesystem path where the blob should be stored.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"name", "path"},
+			},
+		},
+	}
+}
+
 func schema_pkg_apis_task_v1alpha1_BlobList(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -227,9 +259,8 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
-										Default: "",
-										Type:    []string{"string"},
-										Format:  "",
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobDestination"),
 									},
 								},
 							},
@@ -271,16 +302,16 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "int64",
 						},
 					},
-					"sha256": {
+					"contentSha256": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Sha256 is the sha256 checksum of the blob content being verified.",
+							Description: "ContentSha256 is the sha256 checksum of the blob content being verified.",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
-					"etag": {
+					"sourceEtag": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Etag is the ETag of the blob content being verified.",
+							Description: "SourceEtag is the ETag of the blob content being verified.",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -305,6 +336,8 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 				Required: []string{"handlerName", "source", "destination", "total"},
 			},
 		},
+		Dependencies: []string{
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobDestination"},
 	}
 }
 
@@ -372,6 +405,20 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 							},
 						},
 					},
+					"uploadEtags": {
+						SchemaProps: spec.SchemaProps{
+							Description: "UploadEtags holds the etags of uploaded parts for multipart uploads",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtag"),
+									},
+								},
+							},
+						},
+					},
 					"retryCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "RetryCount is the number of times the blob has been retried.",
@@ -407,7 +454,7 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtag"},
 	}
 }
 
@@ -426,29 +473,6 @@ func schema_pkg_apis_task_v1alpha1_Condition(ref common.ReferenceCallback) commo
 							Format:      "",
 						},
 					},
-					"status": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Status of the condition\n\nPossible enum values:\n - `\"False\"` means a resource is not in the condition.\n - `\"True\"` means a resource is in the condition.\n - `\"Unknown\"` means kubernetes can't decide if a resource is in the condition or not.",
-							Default:     "",
-							Type:        []string{"string"},
-							Format:      "",
-							Enum:        []interface{}{"False", "True", "Unknown"},
-						},
-					},
-					"lastTransitionTime": {
-						SchemaProps: spec.SchemaProps{
-							Description: "LastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.",
-							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
-						},
-					},
-					"reason": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.",
-							Default:     "",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
 					"message": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Message is a human readable message indicating details about the transition. This may be an empty string.",
@@ -458,11 +482,9 @@ func schema_pkg_apis_task_v1alpha1_Condition(ref common.ReferenceCallback) commo
 						},
 					},
 				},
-				Required: []string{"type", "status", "lastTransitionTime", "reason", "message"},
+				Required: []string{"type", "message"},
 			},
 		},
-		Dependencies: []string{
-			"k8s.io/apimachinery/pkg/apis/meta/v1.Time"},
 	}
 }
 
@@ -885,6 +907,39 @@ func schema_pkg_apis_task_v1alpha1_SyncStatus(ref common.ReferenceCallback) comm
 		},
 		Dependencies: []string{
 			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"},
+	}
+}
+
+func schema_pkg_apis_task_v1alpha1_UploadEtag(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "UploadEtag holds the etag information for uploaded parts of a multipart upload",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"size": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int64",
+						},
+					},
+					"etags": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 }
 

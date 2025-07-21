@@ -104,11 +104,7 @@ func NewHandler(client versioned.Interface) http.Handler {
 
 				mut.Lock()
 				defer mut.Unlock()
-				if oldBlob.Status.Phase == newBlob.Status.Phase &&
-					oldBlob.Status.FailedChunks == newBlob.Status.FailedChunks &&
-					oldBlob.Status.PendingChunks == newBlob.Status.PendingChunks &&
-					oldBlob.Status.RunningChunks == newBlob.Status.RunningChunks &&
-					oldBlob.Status.SucceededChunks == newBlob.Status.SucceededChunks {
+				if oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Spec.Total {
 					updateBuffer[string(newBlob.UID)] = createEvent("UPDATE", newBlob)
 				} else {
 					delete(updateBuffer, string(newBlob.UID))
@@ -234,13 +230,7 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 	if len(blob.Status.Conditions) > 0 {
 		cleaned.Errors = make([]string, 0, len(blob.Status.Conditions))
 		for _, condition := range blob.Status.Conditions {
-			if condition.Message != "" {
-				cleaned.Errors = append(cleaned.Errors, condition.Message)
-			} else if condition.Reason != "" {
-				cleaned.Errors = append(cleaned.Errors, condition.Reason)
-			} else if condition.Type != "" {
-				cleaned.Errors = append(cleaned.Errors, condition.Type)
-			}
+			cleaned.Errors = append(cleaned.Errors, fmt.Sprintf("%s: %s", condition.Type, condition.Message))
 		}
 	}
 

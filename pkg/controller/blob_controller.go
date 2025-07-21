@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	BlobNameLabel = v1alpha1.GroupName + "/blob-name"
-	BlobUIDLabel  = v1alpha1.GroupName + "/blob-uid"
+	BlobNameAnnotationKey = v1alpha1.GroupName + "/blob-name"
+	BlobUIDLabelKey       = v1alpha1.GroupName + "/blob-uid"
 )
 
 type BlobController struct {
@@ -38,7 +38,7 @@ type BlobController struct {
 
 func NewBlobController(
 	handlerName string,
-	s3 *sss.SSS,
+	s3 map[string]*sss.SSS,
 	client versioned.Interface,
 	sharedInformerFactory externalversions.SharedInformerFactory,
 ) *BlobController {

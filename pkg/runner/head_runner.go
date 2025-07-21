@@ -193,22 +193,16 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 		blobCopy.Status.Phase = v1alpha1.BlobPhaseFailed
 		blobCopy.Status.Conditions = v1alpha1.AppendConditions(blobCopy.Status.Conditions,
 			v1alpha1.Condition{
-				Type:               "HTTPHead",
-				Status:             v1alpha1.ConditionTrue,
-				Reason:             "HTTPHeadRequestFailed",
-				Message:            fmt.Sprintf("Failed to head source URL: %v", err),
-				LastTransitionTime: metav1.Now(),
+				Type:    "HTTPHead",
+				Message: fmt.Sprintf("Failed to head source URL: %v", err),
 			},
 		)
 
 		if retryable {
 			blobCopy.Status.Conditions = v1alpha1.AppendConditions(blobCopy.Status.Conditions,
 				v1alpha1.Condition{
-					Type:               v1alpha1.ConditionTypeRetryable,
-					Status:             v1alpha1.ConditionTrue,
-					Reason:             "",
-					Message:            fmt.Sprintf("Retryable, Retry count: %d", blobCopy.Status.RetryCount),
-					LastTransitionTime: metav1.Now(),
+					Type:    v1alpha1.ConditionTypeRetryable,
+					Message: fmt.Sprintf("Retryable, Retry count: %d", blobCopy.Status.RetryCount),
 				},
 			)
 		}
@@ -218,7 +212,7 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 
 	blobCopy := blob.DeepCopy()
 	blobCopy.Spec.Total = fi.Size
-	blobCopy.Spec.Etag = fi.Etag
+	blobCopy.Spec.SourceEtag = fi.Etag
 	blobCopy.Spec.HandlerName = ""
 	blobCopy.Status.Phase = v1alpha1.BlobPhasePending
 	if !fi.Range {

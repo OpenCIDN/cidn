@@ -155,7 +155,12 @@ func (*syncStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 			table.ResourceVersion = m.GetResourceVersion()
 		}
 	}
-	if opt, ok := tableOptions.(*metav1.TableOptions); !ok || !opt.NoHeaders {
+
+	opt, ok := tableOptions.(*metav1.TableOptions)
+	if !ok {
+		opt = &metav1.TableOptions{}
+	}
+	if !opt.NoHeaders {
 		table.ColumnDefinitions = []metav1.TableColumnDefinition{
 			{Name: "Name", Type: "string", Format: "name", Description: "Name of the sync"},
 			{Name: "Handler", Type: "string", Description: "Handler for the sync"},
@@ -175,13 +180,7 @@ func (*syncStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 		if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
 			faileds := []string{}
 			for _, condition := range sync.Status.Conditions {
-				if condition.Status == v1alpha1.ConditionTrue {
-					if condition.Reason != "" {
-						faileds = append(faileds, condition.Reason)
-					} else if condition.Type != "" {
-						faileds = append(faileds, condition.Type)
-					}
-				}
+				faileds = append(faileds, condition.Type)
 			}
 			if len(faileds) > 0 {
 				phase += "(" + strings.Join(faileds, ",") + ")"
@@ -195,7 +194,7 @@ func (*syncStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 			progress = fmt.Sprintf("%s/%s", humanize.IBytes(uint64(sync.Status.Progress)), humanize.IBytes(uint64(sync.Spec.Total)))
 		}
 
-		table.Rows = append(table.Rows, metav1.TableRow{
+		row := metav1.TableRow{
 			Cells: []interface{}{
 				sync.Name,
 				sync.Spec.HandlerName,
@@ -203,8 +202,19 @@ func (*syncStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 				progress,
 				time.Since(sync.CreationTimestamp.Time).Truncate(time.Second).String(),
 			},
-			Object: runtime.RawExtension{Object: obj},
-		})
+		}
+
+		switch opt.IncludeObject {
+		case metav1.IncludeMetadata, "":
+			partial := &metav1.PartialObjectMetadata{
+				ObjectMeta: sync.ObjectMeta,
+			}
+			row.Object = runtime.RawExtension{Object: partial}
+		case metav1.IncludeObject:
+			row.Object = runtime.RawExtension{Object: sync}
+		}
+
+		table.Rows = append(table.Rows, row)
 		return nil
 	}
 	switch {

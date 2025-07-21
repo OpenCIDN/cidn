@@ -85,6 +85,9 @@ type BlobStatus struct {
 	// UploadIDs holds the list of upload IDs for multipart uploads
 	UploadIDs []string `json:"uploadIDs,omitempty"`
 
+	// UploadEtags holds the etags of uploaded parts for multipart uploads
+	UploadEtags []UploadEtag `json:"uploadEtags,omitempty"`
+
 	// RetryCount is the number of times the blob has been retried.
 	RetryCount int64 `json:"retryCount,omitempty"`
 
@@ -94,6 +97,14 @@ type BlobStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+}
+
+// UploadEtag holds the etag information for uploaded parts of a multipart upload
+// +k8s:deepcopy-gen=true
+// +k8s:openapi-gen=true
+type UploadEtag struct {
+	Size  int64    `json:"size,omitempty"`
+	Etags []string `json:"etags,omitempty"`
 }
 
 // BlobSpec defines the specification for Blob.
@@ -107,7 +118,7 @@ type BlobSpec struct {
 	Source string `json:"source"`
 
 	// Destination is the destination of the blob.
-	Destination []string `json:"destination"`
+	Destination []BlobDestination `json:"destination"`
 
 	// Priority represents the relative importance of this blob when multiple blobs exist.
 	Priority int64 `json:"priority,omitempty"`
@@ -124,11 +135,11 @@ type BlobSpec struct {
 	// ChunksNumber represents the total number of chunks that the blob will be split into.
 	ChunksNumber int64 `json:"chunksNumber,omitempty"`
 
-	// Sha256 is the sha256 checksum of the blob content being verified.
-	Sha256 string `json:"sha256,omitempty"`
+	// ContentSha256 is the sha256 checksum of the blob content being verified.
+	ContentSha256 string `json:"contentSha256,omitempty"`
 
-	// Etag is the ETag of the blob content being verified.
-	Etag string `json:"etag,omitempty"`
+	// SourceEtag is the ETag of the blob content being verified.
+	SourceEtag string `json:"sourceEtag,omitempty"`
 
 	// MaximumParallelism is the maximum number of syncs allowed for this blob.
 	// +default=2
@@ -137,6 +148,17 @@ type BlobSpec struct {
 	// RetryCount is the number of times the sync has been retried.
 	// +default=5
 	RetryCount int64 `json:"retryCount,omitempty"`
+}
+
+// BlobDestination defines the destination for a blob.
+// +k8s:deepcopy-gen=true
+// +k8s:openapi-gen=true
+type BlobDestination struct {
+	// Name is the name of the destination.
+	Name string `json:"name"`
+
+	// Path is the filesystem path where the blob should be stored.
+	Path string `json:"path"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

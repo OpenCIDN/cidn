@@ -32,7 +32,7 @@ type ControllerManager struct {
 	sharedInformerFactory externalversions.SharedInformerFactory
 }
 
-func NewControllerManager(handlerName string, client *versioned.Clientset, s3 *sss.SSS) (*ControllerManager, error) {
+func NewControllerManager(handlerName string, client *versioned.Clientset, s3 map[string]*sss.SSS) (*ControllerManager, error) {
 	sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
 	blobController := NewBlobController(
 		handlerName,

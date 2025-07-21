@@ -40,7 +40,7 @@ import (
 
 type BlobFromSyncController struct {
 	handlerName  string
-	s3           *sss.SSS
+	s3           map[string]*sss.SSS
 	client       versioned.Interface
 	blobInformer informers.BlobInformer
 	syncInformer informers.SyncInformer
@@ -49,7 +49,7 @@ type BlobFromSyncController struct {
 
 func NewBlobFromSyncController(
 	handlerName string,
-	s3 *sss.SSS,
+	s3 map[string]*sss.SSS,
 	client versioned.Interface,
 	sharedInformerFactory externalversions.SharedInformerFactory,
 ) *BlobFromSyncController {
@@ -71,7 +71,7 @@ func NewBlobFromSyncController(
 				return
 			}
 
-			blobName := newSync.Labels[BlobNameLabel]
+			blobName := newSync.Annotations[BlobNameAnnotationKey]
 			if blobName == "" {
 				return
 			}
@@ -80,7 +80,7 @@ func NewBlobFromSyncController(
 		DeleteFunc: func(obj interface{}) {
 			sync := obj.(*v1alpha1.Sync)
 
-			blobName := sync.Labels[BlobNameLabel]
+			blobName := sync.Annotations[BlobNameAnnotationKey]
 			if blobName == "" {
 				return
 			}
@@ -151,8 +151,7 @@ func (c *BlobFromSyncController) syncHandler(ctx context.Context, name string) e
 
 func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, blob *v1alpha1.Blob) error {
 	syncs, err := c.syncInformer.Lister().List(labels.SelectorFromSet(labels.Set{
-		BlobNameLabel: blob.Name,
-		BlobUIDLabel:  string(blob.UID),
+		BlobUIDLabelKey: string(blob.UID),
 	}))
 	if err != nil {
 		return fmt.Errorf("failed to list syncs: %w", err)
@@ -188,12 +187,21 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 		return nil
 	}
 
+	if len(blob.Status.UploadEtags) == 0 {
+		blob.Status.UploadEtags = make([]v1alpha1.UploadEtag, blob.Spec.ChunksNumber)
+	}
+
 	var succeededCount, failedCount, pendingCount, runningCount, retryCount int64
 	var progress int64
 	for _, sync := range syncs {
 		switch sync.Status.Phase {
 		case v1alpha1.SyncPhaseSucceeded:
-			succeededCount++
+
+			blob.Status.UploadEtags[sync.Spec.ChunkIndex-1] = v1alpha1.UploadEtag{
+				Size:  sync.Spec.Total,
+				Etags: sync.Status.Etags,
+			}
+			continue
 		case v1alpha1.SyncPhaseFailed:
 			failedCount++
 		case v1alpha1.SyncPhasePending:
@@ -204,6 +212,13 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 
 		retryCount += sync.Status.RetryCount
 		progress += sync.Status.Progress
+	}
+
+	for _, e := range blob.Status.UploadEtags {
+		if len(e.Etags) != 0 {
+			succeededCount++
+			progress += e.Size
+		}
 	}
 
 	blob.Status.Progress = progress
@@ -236,7 +251,12 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 				blob.Status.Phase = v1alpha1.BlobPhaseFailed
 				for _, sync := range syncs {
 					if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
-						blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, sync.Status.Conditions...)
+						for _, cond := range sync.Status.Conditions {
+							if cond.Type == v1alpha1.ConditionTypeRetryable {
+								continue
+							}
+							blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, cond)
+						}
 					}
 				}
 			} else {
@@ -259,18 +279,25 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 		for i, dst := range blob.Spec.Destination {
 			uploadID := blob.Status.UploadIDs[i]
 			dst := dst
-			g.Go(func() error {
-				var parts []*s3.Part
-				for _, s := range syncs {
-					parts = append(parts, &s3.Part{
-						ETag:       &s.Status.Etags[i],
-						PartNumber: &s.Spec.ChunkIndex,
-						Size:       &s.Spec.Total,
-					})
-				}
+			parts := make([]*s3.Part, 0, len(blob.Status.UploadEtags))
+			for j, s := range blob.Status.UploadEtags {
+				partNumber := int64(j + 1)
+				parts = append(parts, &s3.Part{
+					ETag:       &s.Etags[i],
+					PartNumber: &partNumber,
+					Size:       &s.Size,
+				})
+			}
 
-				mp := c.s3.GetMultipartWithUploadID(dst, uploadID)
-				mp.SetParts(parts)
+			s3 := c.s3[dst.Name]
+			if s3 == nil {
+				return fmt.Errorf("s3 client for destination %q not found", dst.Name)
+			}
+
+			mp := s3.GetMultipartWithUploadID(dst.Path, uploadID)
+			mp.SetParts(parts)
+
+			g.Go(func() error {
 				return mp.Commit(ctx)
 			})
 		}
@@ -278,14 +305,14 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 		if err != nil {
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
-				Type:               "MultipartCommit",
-				Status:             v1alpha1.ConditionTrue,
-				Reason:             "MultipartCommitFailed",
-				Message:            err.Error(),
-				LastTransitionTime: metav1.Now(),
+				Type:    "MultipartCommit",
+				Message: err.Error(),
 			})
 			return nil
 		}
+
+		blob.Status.UploadIDs = blob.Status.UploadIDs[:0]
+		blob.Status.UploadEtags = blob.Status.UploadEtags[:0]
 	}
 
 	blob.Status.Phase = v1alpha1.BlobPhaseSucceeded

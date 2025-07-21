@@ -161,6 +161,10 @@
             color: var(--color-text-secondary);
         }
 
+        span {
+            vertical-align: middle;
+        }
+
         a {
             text-decoration: none;
             color: inherit;
@@ -399,7 +403,7 @@
     <div class="status-group">
         <div class="status-block">
             <h2 class="status-title processing" onclick="toggleContainer('processing-container')">
-                <svg width="16" height="16">
+                <svg width="24" height="24">
                     <use xlink:href="#icon-running"></use>
                 </svg>
                 Processing <span class="status-status-item-count">[0]</span>
@@ -407,8 +411,8 @@
             <div id="processing-container" class="status-container"></div>
         </div>
         <div class="status-block">
-            <h2 class="status-title pending" onclick="toggleContainer('pending-container')">
-                <svg width="16" height="16">
+            <h2 class="status-title pending collapsed" onclick="toggleContainer('pending-container')">
+                <svg width="24" height="24">
                     <use xlink:href="#icon-pending"></use>
                 </svg>
                 Pending <span class="status-status-item-count">[0]</span>
@@ -417,7 +421,7 @@
         </div>
         <div class="status-block">
             <h2 class="status-title failed collapsed" onclick="toggleContainer('failed-container')">
-                <svg width="16" height="16">
+                <svg width="24" height="24">
                     <use xlink:href="#icon-failed"></use>
                 </svg>
                 Failed <span class="status-status-item-count">[0]</span>
@@ -426,7 +430,7 @@
         </div>
         <div class="status-block">
             <h2 class="status-title completed collapsed" onclick="toggleContainer('completed-container')">
-                <svg width="16" height="16">
+                <svg width="24" height="24">
                     <use xlink:href="#icon-succeeded"></use>
                 </svg>
                 Completed <span class="status-status-item-count">[0]</span>
@@ -473,16 +477,24 @@
                 </span>` : '<span></span>';
 
         const svgIcon = (name) =>
-            `<svg width="12" height="12" style="vertical-align:middle;"><use xlink:href="#icon-${name}"></use></svg>`;
+            `<svg width="16" height="16" style="vertical-align: middle;"><use xlink:href="#icon-${name}"></use></svg>`;
 
-        const highlightChunksInfo = data =>
-            `<span title="Chunks status: idle, pending, failed, running, succeeded / total">
-            ${data.chunksNumber > 8 ?
-                `${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0) > 0 ? `${svgIcon('idle')} ${data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0)}` : ''} ${(data.pendingChunks || 0) > 0 ? `${svgIcon('pending')} ${data.pendingChunks || 0}` : ''} ${(data.failedChunks || 0) > 0 ? `${svgIcon('failed')} ${data.failedChunks || 0}` : ''} ${(data.runningChunks || 0) > 0 ? `${svgIcon('running')} ${data.runningChunks || 0}` : ''} ${(data.succeededChunks || 0) > 0 ? `${svgIcon('succeeded')} ${data.succeededChunks || 0}` : ''}`
+        const highlightChunksInfo = data => {
+            const pending = data.pendingChunks || 0;
+            const running = data.runningChunks || 0;
+            const succeeded = data.succeededChunks || 0;
+            const failed = data.failedChunks || 0;
+            const chunksNumber = data.chunksNumber || 0;
+            const idle = data.chunksNumber - pending - running - succeeded - failed;
+            
+            return `<span title="Chunks status: idle, pending, failed, running, succeeded / total">
+            ${chunksNumber > 8 ?
+                `${idle > 0 ? `${svgIcon('idle')}<span>${idle}</span>` : ''} ${pending > 0 ? `${svgIcon('pending')}<span>${pending}</span>` : ''} ${failed > 0 ? `${svgIcon('failed')}<span>${failed}</span>` : ''} ${running > 0 ? `${svgIcon('running')}<span>${running}</span>` : ''} ${succeeded > 0 ? `${svgIcon('succeeded')}<span>${succeeded}</span>` : ''}`
                 :
-                `${svgIcon('idle').repeat(data.chunksNumber - (data.pendingChunks || 0) - (data.runningChunks || 0) - (data.succeededChunks || 0) - (data.failedChunks || 0))}${svgIcon('pending').repeat(data.pendingChunks || 0)}${svgIcon('failed').repeat(data.failedChunks || 0)}${svgIcon('running').repeat(data.runningChunks || 0)}${svgIcon('succeeded').repeat(data.succeededChunks || 0)}`
-            } ${data.chunksNumber > 1 ? `/ ${data.chunksNumber}` : ''}
-            </span>`
+                `${svgIcon('idle').repeat(idle)}${svgIcon('pending').repeat(pending)}${svgIcon('failed').repeat(failed)}${svgIcon('running').repeat(running)}${svgIcon('succeeded').repeat(succeeded)}`
+            } ${chunksNumber > 1 ? `<span>/ ${chunksNumber}</span>` : ''}
+            </span>`;
+        }
 
         const progressData = {};
         const statusMap = {

@@ -57,14 +57,15 @@ func buildBlob(sha256 string, source string, destination string) string {
 		`apiVersion: task.opencidn.daocloud.io/v1alpha1
 kind: Blob
 metadata:
-  name: blob-%s
+  name: blob.%s
 spec:
-  minimumChunkSize: 268435456
+  minimumChunkSize: 134217728
   maximumParallelism: 2
-  sha256: %s
+  contentSha256: %s
   source: http://nginx-test/%s
   destination:
-  - blob-%s
+  - name: minio
+    path: blob.%s
 ---
 `, destination, sha256, source, destination)
 }

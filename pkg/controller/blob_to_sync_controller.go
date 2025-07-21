@@ -39,7 +39,7 @@ import (
 
 type BlobToSyncController struct {
 	handlerName  string
-	s3           *sss.SSS
+	s3           map[string]*sss.SSS
 	expires      time.Duration
 	client       versioned.Interface
 	blobInformer informers.BlobInformer
@@ -49,7 +49,7 @@ type BlobToSyncController struct {
 
 func NewBlobToSyncController(
 	handlerName string,
-	s3 *sss.SSS,
+	s3 map[string]*sss.SSS,
 	client versioned.Interface,
 	sharedInformerFactory externalversions.SharedInformerFactory,
 ) *BlobToSyncController {
@@ -75,7 +75,12 @@ func NewBlobToSyncController(
 			c.workqueue.Add(key)
 		},
 		DeleteFunc: func(obj interface{}) {
-			c.cleanupBlob(obj)
+			blob, ok := obj.(*v1alpha1.Blob)
+			if !ok {
+				return
+			}
+
+			c.cleanupBlob(blob)
 		},
 	})
 
@@ -93,16 +98,10 @@ func (c *BlobToSyncController) runWorker(ctx context.Context) {
 	}
 }
 
-func (c *BlobToSyncController) cleanupBlob(obj interface{}) {
-	blob, ok := obj.(*v1alpha1.Blob)
-	if !ok {
-		return
-	}
-
+func (c *BlobToSyncController) cleanupBlob(blob *v1alpha1.Blob) {
 	err := c.client.TaskV1alpha1().Syncs().DeleteCollection(context.Background(), metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: labels.Set{
-			BlobNameLabel: blob.Name,
-			BlobUIDLabel:  string(blob.UID),
+			BlobUIDLabelKey: string(blob.UID),
 		}.String(),
 	})
 	if err != nil {
@@ -140,33 +139,34 @@ func (c *BlobToSyncController) syncHandler(ctx context.Context, name string) err
 		return nil
 	}
 
-	if blob.Status.Phase != v1alpha1.BlobPhaseRunning && blob.Status.Phase != v1alpha1.BlobPhaseUnknown {
-		return nil
-	}
+	switch blob.Status.Phase {
+	case v1alpha1.BlobPhaseRunning, v1alpha1.BlobPhaseUnknown:
+		if blob.Spec.ChunkSize != 0 && blob.Spec.Total > blob.Spec.ChunkSize {
+			err := c.toSyncs(ctx, blob)
+			if err != nil {
+				return fmt.Errorf("failed to create sync for blob %s: %v", blob.Name, err)
+			}
 
-	if blob.Spec.ChunkSize != 0 && blob.Spec.Total > blob.Spec.ChunkSize {
-		err := c.createSyncs(ctx, blob)
-		if err != nil {
-			return fmt.Errorf("failed to create sync for blob %s: %v", blob.Name, err)
+		} else {
+			err := c.toOneSync(ctx, blob)
+			if err != nil {
+				return fmt.Errorf("failed to create sync for blob %s: %v", blob.Name, err)
+			}
 		}
-
-	} else {
-		err := c.createOneSync(ctx, blob)
-		if err != nil {
-			return fmt.Errorf("failed to create sync for blob %s: %v", blob.Name, err)
-		}
+	case v1alpha1.BlobPhaseSucceeded:
+		c.cleanupBlob(blob)
 	}
 
 	return nil
 }
 
-func (c *BlobToSyncController) createOneSync(ctx context.Context, blob *v1alpha1.Blob) error {
+func (c *BlobToSyncController) toOneSync(ctx context.Context, blob *v1alpha1.Blob) error {
 	existingSync, err := c.syncInformer.Lister().Get(blob.Name)
 	if err == nil && existingSync != nil {
 		if existingSync.Spec.Total == blob.Spec.Total &&
-			existingSync.Spec.Sha256 == blob.Spec.Sha256 &&
-			existingSync.Labels[BlobNameLabel] == blob.Name &&
-			existingSync.Labels[BlobUIDLabel] == string(blob.UID) {
+			existingSync.Spec.Sha256 == blob.Spec.ContentSha256 &&
+			existingSync.Annotations[BlobNameAnnotationKey] == blob.Name &&
+			existingSync.Labels[BlobUIDLabelKey] == string(blob.UID) {
 			// Sync already exists and matches, no need to create a new one
 			return nil
 		}
@@ -185,8 +185,10 @@ func (c *BlobToSyncController) createOneSync(ctx context.Context, blob *v1alpha1
 		ObjectMeta: metav1.ObjectMeta{
 			Name: blob.Name,
 			Labels: map[string]string{
-				BlobNameLabel: blob.Name,
-				BlobUIDLabel:  string(blob.UID),
+				BlobUIDLabelKey: string(blob.UID),
+			},
+			Annotations: map[string]string{
+				BlobNameAnnotationKey: blob.Name,
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
@@ -200,7 +202,7 @@ func (c *BlobToSyncController) createOneSync(ctx context.Context, blob *v1alpha1
 		Spec: v1alpha1.SyncSpec{
 			Total:      blob.Spec.Total,
 			Priority:   blob.Spec.Priority,
-			Sha256:     blob.Spec.Sha256,
+			Sha256:     blob.Spec.ContentSha256,
 			RetryCount: blob.Spec.RetryCount - blob.Status.RetryCount,
 		},
 		Status: v1alpha1.SyncStatus{
@@ -208,7 +210,7 @@ func (c *BlobToSyncController) createOneSync(ctx context.Context, blob *v1alpha1
 		},
 	}
 
-	if blob.Spec.Sha256 != "" {
+	if blob.Spec.ContentSha256 != "" {
 		sync.Spec.Sha256PartialPreviousName = "-"
 	}
 
@@ -222,15 +224,20 @@ func (c *BlobToSyncController) createOneSync(ctx context.Context, blob *v1alpha1
 		},
 	}
 
-	if blob.Spec.Etag != "" {
+	if blob.Spec.SourceEtag != "" {
 		if sync.Spec.Source.Response.Headers == nil {
 			sync.Spec.Source.Response.Headers = map[string]string{}
 		}
-		sync.Spec.Source.Response.Headers["Etag"] = blob.Spec.Etag
+		sync.Spec.Source.Response.Headers["Etag"] = blob.Spec.SourceEtag
 	}
 
 	for _, dst := range blob.Spec.Destination {
-		d, err := c.s3.SignPut(dst, c.expires)
+		s3 := c.s3[dst.Name]
+		if s3 == nil {
+			return fmt.Errorf("s3 client for destination %q not found", dst.Name)
+		}
+
+		d, err := s3.SignPut(dst.Path, c.expires)
 		if err != nil {
 			return err
 		}
@@ -263,8 +270,10 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
-				BlobNameLabel: blob.Name,
-				BlobUIDLabel:  string(blob.UID),
+				BlobUIDLabelKey: string(blob.UID),
+			},
+			Annotations: map[string]string{
+				BlobNameAnnotationKey: blob.Name,
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
@@ -287,12 +296,12 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 		},
 	}
 
-	if blob.Spec.Sha256 != "" {
+	if blob.Spec.ContentSha256 != "" {
 		sync.Spec.Sha256PartialPreviousName = lastName
 	}
 
-	if num == blob.Spec.ChunksNumber && blob.Spec.Sha256 != "" {
-		sync.Spec.Sha256 = blob.Spec.Sha256
+	if num == blob.Spec.ChunksNumber && blob.Spec.ContentSha256 != "" {
+		sync.Spec.Sha256 = blob.Spec.ContentSha256
 	}
 
 	sync.Spec.Source = v1alpha1.SyncHTTP{
@@ -308,15 +317,20 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 		},
 	}
 
-	if blob.Spec.Etag != "" {
+	if blob.Spec.SourceEtag != "" {
 		if sync.Spec.Source.Response.Headers == nil {
 			sync.Spec.Source.Response.Headers = map[string]string{}
 		}
-		sync.Spec.Source.Response.Headers["Etag"] = blob.Spec.Etag
+		sync.Spec.Source.Response.Headers["Etag"] = blob.Spec.SourceEtag
 	}
 
 	for j, dst := range blob.Spec.Destination {
-		mp := c.s3.GetMultipartWithUploadID(dst, uploadIDs[j])
+		s3 := c.s3[dst.Name]
+		if s3 == nil {
+			return nil, fmt.Errorf("s3 client for destination %q not found", dst.Name)
+		}
+
+		mp := s3.GetMultipartWithUploadID(dst.Path, uploadIDs[j])
 		partURL, err := mp.SignUploadPart(num, c.expires)
 		if err != nil {
 			return nil, err
@@ -339,9 +353,9 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 	return sync, nil
 }
 
-func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.Blob) error {
+func (c *BlobToSyncController) toSyncs(ctx context.Context, blob *v1alpha1.Blob) error {
 	syncs, err := c.syncInformer.Lister().List(labels.SelectorFromSet(labels.Set{
-		BlobNameLabel: blob.Name,
+		BlobUIDLabelKey: string(blob.UID),
 	}))
 	if err != nil {
 		return err
@@ -351,13 +365,6 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 	runningCount := 0
 	failedCount := 0
 	for _, sync := range syncs {
-		if sync.Labels[BlobUIDLabel] != string(blob.UID) {
-			if err := c.client.TaskV1alpha1().Syncs().Delete(ctx, sync.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-				return fmt.Errorf("failed to delete existing sync: %v", err)
-			}
-			continue
-		}
-
 		switch sync.Status.Phase {
 		case v1alpha1.SyncPhasePending:
 			pendingCount++
@@ -378,9 +385,14 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 
 	if uploadIDs := blob.Status.UploadIDs; len(uploadIDs) == 0 {
 		for _, dst := range blob.Spec.Destination {
-			mp, err := c.s3.GetMultipart(ctx, dst)
+			s3 := c.s3[dst.Name]
+			if s3 == nil {
+				return fmt.Errorf("s3 client for destination %q not found", dst.Name)
+			}
+
+			mp, err := s3.GetMultipart(ctx, dst.Path)
 			if err != nil {
-				mp, err = c.s3.NewMultipart(ctx, dst)
+				mp, err = s3.NewMultipart(ctx, dst.Path)
 				if err != nil {
 					return err
 				}
@@ -396,7 +408,7 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 	lastName := "-"
 
 	g, _ := errgroup.WithContext(ctx)
-	g.SetLimit(4)
+	g.SetLimit(int(blob.Spec.MaximumParallelism))
 	for i := int64(0); i < blob.Spec.ChunksNumber && created < toCreate; i++ {
 		start := i * blob.Spec.ChunkSize
 		end := start + blob.Spec.ChunkSize
@@ -406,6 +418,26 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 
 		num := i + 1
 		name := fmt.Sprintf("%s.%0*d.%0*x-%0*x", blob.Name, p0, num, s0, start, s0, end)
+
+		if len(blob.Status.UploadEtags) != 0 && len(blob.Status.UploadEtags[i].Etags) != 0 {
+			if i < int64(len(blob.Status.UploadEtags))-1 && len(blob.Status.UploadEtags[i+1].Etags) != 0 {
+				if _, err := c.syncInformer.Lister().Get(name); err == nil {
+					g.Go(func() error {
+						err := c.client.TaskV1alpha1().Syncs().Delete(ctx, name, metav1.DeleteOptions{})
+						if err != nil {
+							if !apierrors.IsNotFound(err) {
+								klog.Errorf("failed to delete existing sync %s: %v", name, err)
+								return nil
+							}
+						}
+						return nil
+					})
+				}
+			}
+
+			lastName = name
+			continue
+		}
 
 		if _, err := c.syncInformer.Lister().Get(name); err == nil {
 			lastName = name
@@ -421,23 +453,29 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 
 		g.Go(func() error {
 			_, err = c.client.TaskV1alpha1().Syncs().Create(ctx, sync, metav1.CreateOptions{})
-			if err != nil {
-				if !apierrors.IsAlreadyExists(err) {
-					return err
-				}
+			if err == nil {
+				return nil
+			}
 
-				// Delete existing sync and retry
-				err := c.client.TaskV1alpha1().Syncs().Delete(ctx, sync.Name, metav1.DeleteOptions{})
-				if err != nil {
-					if !apierrors.IsNotFound(err) {
-						return fmt.Errorf("failed to delete existing sync: %v", err)
-					}
-				}
-				_, err = c.client.TaskV1alpha1().Syncs().Create(ctx, sync, metav1.CreateOptions{})
-				if err != nil {
-					return err
+			if !apierrors.IsAlreadyExists(err) {
+				klog.Errorf("failed to create sync %s: %v", sync.Name, err)
+				return nil
+			}
+
+			// Delete existing sync and retry
+			err := c.client.TaskV1alpha1().Syncs().Delete(ctx, sync.Name, metav1.DeleteOptions{})
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					klog.Errorf("failed to delete existing sync %s: %v", sync.Name, err)
+					return nil
 				}
 			}
+			_, err = c.client.TaskV1alpha1().Syncs().Create(ctx, sync, metav1.CreateOptions{})
+			if err != nil {
+				klog.Errorf("failed to create sync %s after retry: %v", sync.Name, err)
+				return nil
+			}
+
 			return nil
 		})
 
@@ -445,5 +483,5 @@ func (c *BlobToSyncController) createSyncs(ctx context.Context, blob *v1alpha1.B
 		lastName = name
 	}
 
-	return g.Wait()
+	return nil
 }

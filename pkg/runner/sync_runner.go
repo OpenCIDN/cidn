@@ -233,9 +233,9 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 	if err != nil {
 		retry, err := utils.IsNetWorkError(err)
 		if retry {
-			s.handleProcessErrorAndRetryable(err)
+			s.handleProcessErrorAndRetryable("", err)
 		} else {
-			s.handleProcessError(err)
+			s.handleProcessError("", err)
 		}
 		return nil
 	}
@@ -247,9 +247,9 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 			srcResp.Body.Close()
 		}
 		if retry {
-			s.handleProcessErrorAndRetryable(err)
+			s.handleProcessErrorAndRetryable("", err)
 		} else {
-			s.handleProcessError(err)
+			s.handleProcessError("", err)
 		}
 		return nil
 	}
@@ -259,7 +259,7 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 			err := fmt.Errorf("unexpected status code: got %d, want %d",
 				srcResp.StatusCode, sync.Spec.Source.Response.StatusCode)
 
-			s.handleProcessError(err)
+			s.handleProcessError("", err)
 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
@@ -269,7 +269,7 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 	} else {
 		if srcResp.StatusCode >= http.StatusMultipleChoices {
 			err := fmt.Errorf("source returned error status code: %d", srcResp.StatusCode)
-			s.handleProcessError(err)
+			s.handleProcessError("", err)
 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
@@ -280,7 +280,7 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 
 	if srcResp.ContentLength != sync.Spec.Total {
 		err := fmt.Errorf("content length mismatch: got %d, want %d", srcResp.ContentLength, sync.Spec.Total)
-		s.handleProcessErrorWithReason(err, "ContentLengthMismatch")
+		s.handleProcessError("ContentLengthMismatch", err)
 
 		if srcResp.Body != nil {
 			srcResp.Body.Close()
@@ -292,7 +292,7 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 		respVal := srcResp.Header.Get(k)
 		if respVal != v {
 			err := fmt.Errorf("header %s mismatch: got %s, want %s", k, respVal, v)
-			s.handleProcessErrorWithReason(err, "HeaderMismatch")
+			s.handleProcessError("HeaderMismatch", err)
 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
@@ -412,7 +412,7 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 
 	err = g.Wait()
 	if err != nil {
-		s.handleProcessErrorAndRetryable(err)
+		s.handleProcessErrorAndRetryable("", err)
 		return
 	}
 
@@ -507,14 +507,14 @@ func (r *SyncRunner) handleSha256AndFinalize(ctx context.Context, sync *v1alpha1
 	psync, err := r.getSync(sync.Spec.Sha256PartialPreviousName)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			s.handleProcessError(err)
+			s.handleProcessError("", err)
 			return
 		}
 	} else {
 		if psync.Status.Phase == v1alpha1.SyncPhaseSucceeded {
 			if len(psync.Status.Sha256Partial) == 0 {
 				err := fmt.Errorf("partial sync %q has no sha256 partial data", sync.Spec.Sha256PartialPreviousName)
-				s.handleProcessErrorWithReason(err, "MissingSha256PartialData")
+				s.handleProcessError("MissingSha256PartialData", err)
 				return
 			}
 			s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
@@ -544,7 +544,7 @@ func (r *SyncRunner) waitForPartialSync(ctx context.Context, sync *v1alpha1.Sync
 		psync, err := r.getSync(sync.Spec.Sha256PartialPreviousName)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
-				s.handleProcessError(err)
+				s.handleProcessError("", err)
 				return
 			}
 			continue
@@ -554,7 +554,7 @@ func (r *SyncRunner) waitForPartialSync(ctx context.Context, sync *v1alpha1.Sync
 		}
 		if len(psync.Status.Sha256Partial) == 0 {
 			err := fmt.Errorf("partial sync %q has no sha256 partial data", sync.Spec.Sha256PartialPreviousName)
-			s.handleProcessErrorWithReason(err, "MissingSha256PartialData")
+			s.handleProcessError("MissingSha256PartialData", err)
 			return
 		}
 		s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
@@ -706,64 +706,46 @@ func (s *state) Update(fun func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error)) {
 
 	status, err := fun(s.ss.DeepCopy())
 	if err != nil {
-		handleProcessError(&s.ss.Status, err)
+		handleProcessError(&s.ss.Status, "", err)
 	} else {
 		s.ss = status.DeepCopy()
 	}
 }
 
-func handleProcessErrorWithReason(ss *v1alpha1.SyncStatus, err error, reason string) {
-	const typ = "Process"
+func handleProcessError(ss *v1alpha1.SyncStatus, typ string, err error) {
+	if typ == "" {
+		typ = "Process"
+	}
 	ss.Phase = v1alpha1.SyncPhaseFailed
 	ss.Conditions = v1alpha1.AppendConditions(ss.Conditions, v1alpha1.Condition{
-		Type:               typ,
-		Reason:             reason,
-		Status:             v1alpha1.ConditionTrue,
-		Message:            err.Error(),
-		LastTransitionTime: metav1.Now(),
+		Type:    typ,
+		Message: err.Error(),
 	})
 }
 
-func handleProcessError(ss *v1alpha1.SyncStatus, err error) {
-	handleProcessErrorWithReason(ss, err, "ProcessFailed")
-}
-
-func (s *state) handleProcessErrorWithReason(err error, reason string) {
+func (s *state) handleProcessError(typ string, err error) {
 	s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
-		handleProcessErrorWithReason(&ss.Status, err, reason)
+		handleProcessError(&ss.Status, typ, err)
 		return ss, nil
 	})
 }
 
-func (s *state) handleProcessError(err error) {
+func (s *state) handleProcessErrorAndRetryable(typ string, err error) {
 	s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
-		handleProcessError(&ss.Status, err)
-		return ss, nil
-	})
-}
-
-func (s *state) handleProcessErrorAndRetryable(err error) {
-	s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
-		handleProcessError(&ss.Status, err)
+		handleProcessError(&ss.Status, typ, err)
 
 		if ss.Spec.ChunksNumber > 1 {
 			ss.Status.Conditions = v1alpha1.AppendConditions(ss.Status.Conditions,
 				v1alpha1.Condition{
-					Type:               v1alpha1.ConditionTypeRetryable,
-					Status:             v1alpha1.ConditionTrue,
-					Reason:             "",
-					Message:            fmt.Sprintf("Retryable, Retry count: %d, chunk: %d/%d", ss.Status.RetryCount, ss.Spec.ChunkIndex, ss.Spec.ChunksNumber),
-					LastTransitionTime: metav1.Now(),
+					Type:    v1alpha1.ConditionTypeRetryable,
+					Message: fmt.Sprintf("Retryable, Retry count: %d, chunk: %d/%d", ss.Status.RetryCount, ss.Spec.ChunkIndex, ss.Spec.ChunksNumber),
 				},
 			)
 		} else {
 			ss.Status.Conditions = v1alpha1.AppendConditions(ss.Status.Conditions,
 				v1alpha1.Condition{
-					Type:               v1alpha1.ConditionTypeRetryable,
-					Status:             v1alpha1.ConditionTrue,
-					Reason:             "",
-					Message:            fmt.Sprintf("Retryable, Retry count: %d", ss.Status.RetryCount),
-					LastTransitionTime: metav1.Now(),
+					Type:    v1alpha1.ConditionTypeRetryable,
+					Message: fmt.Sprintf("Retryable, Retry count: %d", ss.Status.RetryCount),
 				},
 			)
 		}
