@@ -37,8 +37,11 @@ func RegisterDefaults(scheme *runtime.Scheme) error {
 }
 
 func SetObjectDefaults_Blob(in *Blob) {
-	if in.Spec.MaximumParallelism == 0 {
-		in.Spec.MaximumParallelism = 2
+	if in.Spec.MaximumRunning == 0 {
+		in.Spec.MaximumRunning = 2
+	}
+	if in.Spec.MaximumPending == 0 {
+		in.Spec.MaximumPending = 1
 	}
 	if in.Spec.RetryCount == 0 {
 		in.Spec.RetryCount = 5

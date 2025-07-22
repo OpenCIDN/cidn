@@ -25,9 +25,8 @@ import (
 )
 
 type ControllerManager struct {
-	blobController        *BlobController
-	releaseBlobController *ReleaseBlobController
-	releaseSyncController *ReleaseSyncController
+	blobController    *BlobController
+	releaseController *ReleaseController
 
 	sharedInformerFactory externalversions.SharedInformerFactory
 }
@@ -41,13 +40,7 @@ func NewControllerManager(handlerName string, client *versioned.Clientset, s3 ma
 		sharedInformerFactory,
 	)
 
-	releaseBlobController := NewReleaseBlobController(
-		handlerName,
-		client,
-		sharedInformerFactory,
-	)
-
-	releaseSyncController := NewReleaseSyncController(
+	releaseController := NewReleaseController(
 		handlerName,
 		client,
 		sharedInformerFactory,
@@ -55,8 +48,7 @@ func NewControllerManager(handlerName string, client *versioned.Clientset, s3 ma
 
 	return &ControllerManager{
 		blobController:        blobController,
-		releaseBlobController: releaseBlobController,
-		releaseSyncController: releaseSyncController,
+		releaseController:     releaseController,
 		sharedInformerFactory: sharedInformerFactory,
 	}, nil
 }
@@ -76,12 +68,7 @@ func (c *ControllerManager) Start(ctx context.Context) error {
 		return err
 	}
 
-	err = c.releaseBlobController.Start(ctx)
-	if err != nil {
-		return err
-	}
-
-	err = c.releaseSyncController.Start(ctx)
+	err = c.releaseController.Start(ctx)
 	if err != nil {
 		return err
 	}

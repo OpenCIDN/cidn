@@ -17,13 +17,12 @@ services:
 
         mc mb local/myminio
       ) &
-      /usr/bin/docker-entrypoint.sh server /data --console-address ":9001"
-    ports:
-    - 9000:9000
-    - 9001:9001
+      /usr/bin/docker-entrypoint.sh server /data/$${HOSTNAME}
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+    deploy:
+      replicas: 2
     networks:
       controller-tier: {}
       runner-tier: {}
@@ -81,9 +80,12 @@ services:
     command:
     - --kubeconfig=/kubeconfig.local.yaml
     - --master=https://apiserver:6443
-    - --storage-url=minio://minioadmin:minioadmin@myminio.us-east-1?forcepathstyle=true&secure=false&chunksize=104857600&regionendpoint=http://minio:9000
+    - --storage-url=minio-1://minioadmin:minioadmin@myminio.us-east-1?forcepathstyle=true&secure=false&chunksize=104857600&regionendpoint=http://cidn-minio-1:9000
+    - --storage-url=minio-2://minioadmin:minioadmin@myminio.us-east-1?forcepathstyle=true&secure=false&chunksize=104857600&regionendpoint=http://cidn-minio-2:9000
     volumes:
     - ./kubeconfig.local.yaml:/kubeconfig.local.yaml:ro
+    deploy:
+      replicas: 2
     networks:
       controller-tier: {}
   runner:
@@ -142,6 +144,8 @@ services:
     - source: nginx-test-config
       target: /etc/nginx/conf.d/default.conf
       mode: 0440
+    deploy:
+      replicas: 2
     networks:
       runner-tier: {}
 configs:

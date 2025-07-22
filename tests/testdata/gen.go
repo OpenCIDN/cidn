@@ -20,7 +20,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"os"
@@ -31,10 +31,13 @@ import (
 
 var files = []string{
 	"1b",
+	"16b",
 	"5kib",
 	"5mib",
 	"50mib",
 	"100mib",
+	"128mib",
+	"256mib",
 	"512mib",
 	"1gib",
 	"2gib",
@@ -52,22 +55,72 @@ func parseSizeExpression(expr string) (uint64, error) {
 	return humanize.ParseBytes(expr)
 }
 
-func buildBlob(sha256 string, source string, destination string) string {
-	return fmt.Sprintf(
-		`apiVersion: task.opencidn.daocloud.io/v1alpha1
+var blobTmpl = template.Must(template.New("blob").Parse(`
+apiVersion: task.opencidn.daocloud.io/v1alpha1
 kind: Blob
 metadata:
-  name: blob.%s
+  name: blob.{{.Destination}}.1-1.hash-error
+spec:
+  minimumChunkSize: 200000000
+  maximumRunning: 2
+  contentSha256: {{.Sha256}}xx
+  source:
+  - url: http://cidn-nginx-test-1/{{.Source}}
+  destination:
+  - name: minio-1
+    path: blob.{{.Destination}}.1-1.hash-error
+---
+apiVersion: task.opencidn.daocloud.io/v1alpha1
+kind: Blob
+metadata:
+  name: blob.{{.Destination}}.1-1
+spec:
+  minimumChunkSize: 100000000
+  maximumRunning: 2
+  contentSha256: {{.Sha256}}
+  source:
+  - url: http://cidn-nginx-test-1/{{.Source}}
+  destination:
+  - name: minio-1
+    path: blob.{{.Destination}}.1-1
+---
+apiVersion: task.opencidn.daocloud.io/v1alpha1
+kind: Blob
+metadata:
+  name: blob.{{.Destination}}.2-2
 spec:
   minimumChunkSize: 134217728
-  maximumParallelism: 2
-  contentSha256: %s
-  source: http://nginx-test/%s
+  maximumRunning: 2
+  contentSha256: {{.Sha256}}
+  source:
+  - url: http://cidn-nginx-test-1/{{.Source}}
+  - url: http://cidn-nginx-test-2/{{.Source}}
   destination:
-  - name: minio
-    path: blob.%s
+  - name: minio-1
+    path: blob.{{.Destination}}.2-2
+    verifySha256: true
+  - name: minio-2
+    path: blob.{{.Destination}}.2-2
+    verifySha256: true
 ---
-`, destination, sha256, source, destination)
+`))
+
+func buildBlob(sha256 string, source string, destination string) string {
+	data := struct {
+		Sha256      string
+		Source      string
+		Destination string
+	}{
+		Sha256:      sha256,
+		Source:      source,
+		Destination: destination,
+	}
+
+	var buf strings.Builder
+	if err := blobTmpl.Execute(&buf, data); err != nil {
+		return ""
+	}
+	return buf.String()
 }
 
 var randReader = rand.Reader

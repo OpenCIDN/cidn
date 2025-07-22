@@ -32,6 +32,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Blob":             schema_pkg_apis_task_v1alpha1_Blob(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobDestination":  schema_pkg_apis_task_v1alpha1_BlobDestination(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobList":         schema_pkg_apis_task_v1alpha1_BlobList(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobSource":       schema_pkg_apis_task_v1alpha1_BlobSource(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobSpec":         schema_pkg_apis_task_v1alpha1_BlobSpec(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobStatus":       schema_pkg_apis_task_v1alpha1_BlobStatus(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition":        schema_pkg_apis_task_v1alpha1_Condition(ref),
@@ -173,6 +174,13 @@ func schema_pkg_apis_task_v1alpha1_BlobDestination(ref common.ReferenceCallback)
 							Format:      "",
 						},
 					},
+					"verifySha256": {
+						SchemaProps: spec.SchemaProps{
+							Description: "VerifySha256 indicates whether the blob's content should be verified with SHA256 checksum. If true, the blob will be verified after download using the ContentSha256 value.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"name", "path"},
 			},
@@ -229,6 +237,35 @@ func schema_pkg_apis_task_v1alpha1_BlobList(ref common.ReferenceCallback) common
 	}
 }
 
+func schema_pkg_apis_task_v1alpha1_BlobSource(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BlobSource defines the source for a blob.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"url": {
+						SchemaProps: spec.SchemaProps{
+							Description: "URL is the source URL of the blob.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"etag": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Etag is the ETag of the source resource.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"url"},
+			},
+		},
+	}
+}
+
 func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -247,9 +284,15 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 					"source": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Source is the source of the blob.",
-							Default:     "",
-							Type:        []string{"string"},
-							Format:      "",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobSource"),
+									},
+								},
+							},
 						},
 					},
 					"destination": {
@@ -309,17 +352,18 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "",
 						},
 					},
-					"sourceEtag": {
+					"maximumRunning": {
 						SchemaProps: spec.SchemaProps{
-							Description: "SourceEtag is the ETag of the blob content being verified.",
-							Type:        []string{"string"},
-							Format:      "",
+							Description: "MaximumRunning is the maximum number of running syncs allowed for this blob.",
+							Default:     2,
+							Type:        []string{"integer"},
+							Format:      "int64",
 						},
 					},
-					"maximumParallelism": {
+					"maximumPending": {
 						SchemaProps: spec.SchemaProps{
-							Description: "MaximumParallelism is the maximum number of syncs allowed for this blob.",
-							Default:     2,
+							Description: "MaximumPending is the maximum number of pending syncs allowed for this blob.",
+							Default:     1,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -337,7 +381,7 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobDestination"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobDestination", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobSource"},
 	}
 }
 

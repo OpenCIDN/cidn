@@ -85,8 +85,8 @@ func (*blobStrategy) Validate(ctx context.Context, obj runtime.Object) field.Err
 
 	var errList field.ErrorList
 
-	if blob.Spec.Source == "" {
-		errList = append(errList, field.Required(field.NewPath("spec", "source"), "source must be specified"))
+	if len(blob.Spec.Source) == 0 {
+		errList = append(errList, field.Required(field.NewPath("spec", "source"), "at least one source must be specified"))
 	}
 
 	if len(blob.Spec.Destination) == 0 {
@@ -115,23 +115,29 @@ func (*blobStrategy) Canonicalize(obj runtime.Object) {
 	}
 
 	if blob.Spec.Total != 0 {
-		if blob.Spec.MinimumChunkSize != 0 && blob.Spec.ChunkSize == 0 && blob.Spec.ChunksNumber == 0 {
+		if blob.Spec.MinimumChunkSize != 0 {
 			blob.Spec.ChunksNumber = getChunksNumberByMinimumChunkSize(blob.Spec.Total, blob.Spec.MinimumChunkSize)
-		}
-
-		if blob.Spec.ChunkSize == 0 && blob.Spec.ChunksNumber > 1 {
 			blob.Spec.ChunkSize = getChunkSize(blob.Spec.Total, blob.Spec.ChunksNumber)
-		}
-
-		if blob.Spec.ChunksNumber == 0 {
+		} else if blob.Spec.ChunkSize == 0 && blob.Spec.ChunksNumber != 0 {
+			blob.Spec.ChunkSize = getChunkSize(blob.Spec.Total, blob.Spec.ChunksNumber)
+		} else if blob.Spec.ChunkSize != 0 && blob.Spec.ChunksNumber == 0 {
 			blob.Spec.ChunksNumber = getChunksNumber(blob.Spec.Total, blob.Spec.ChunkSize)
+		} else {
+			blob.Spec.ChunksNumber = 1
+			blob.Spec.ChunkSize = blob.Spec.Total
 		}
 	}
 }
 
 func getChunksNumberByMinimumChunkSize(total, minimumChunkSize int64) int64 {
 	chunksNumber := total / minimumChunkSize
-	return min(chunksNumber, 10000)
+	if chunksNumber <= 1 {
+		return 1
+	}
+	if chunksNumber >= 10000 {
+		return 10000
+	}
+	return chunksNumber
 }
 
 func getChunkSize(total, chunksNumber int64) int64 {
@@ -142,7 +148,11 @@ func getChunkSize(total, chunksNumber int64) int64 {
 	if total%chunksNumber != 0 {
 		chunkSize++
 	}
-	return min(chunkSize, 5*1024*1024*1024) // 5GiB
+
+	if chunkSize >= 5*1024*1024*1024 { // <= 5GiB
+		return 5 * 1024 * 1024 * 1024
+	}
+	return chunkSize
 }
 
 func getChunksNumber(total, chunkSize int64) int64 {
@@ -165,8 +175,17 @@ func (*blobStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object
 	oldBlob := old.(*v1alpha1.Blob)
 	var errList field.ErrorList
 
-	if newBlob.Spec.Source != oldBlob.Spec.Source {
-		errList = append(errList, field.Forbidden(field.NewPath("spec", "source"), "source is immutable"))
+	if len(newBlob.Spec.Source) < len(oldBlob.Spec.Source) {
+		errList = append(errList, field.Forbidden(field.NewPath("spec", "source"), "cannot reduce number of sources"))
+	}
+
+	for i := range oldBlob.Spec.Source {
+		if i >= len(newBlob.Spec.Source) {
+			break
+		}
+		if newBlob.Spec.Source[i].URL != oldBlob.Spec.Source[i].URL {
+			errList = append(errList, field.Forbidden(field.NewPath("spec", "source").Index(i).Child("url"), "source URL is immutable"))
+		}
 	}
 
 	if !reflect.DeepEqual(newBlob.Spec.Destination, oldBlob.Spec.Destination) {
@@ -202,7 +221,6 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 		table.ColumnDefinitions = []metav1.TableColumnDefinition{
 			{Name: "Name", Type: "string", Format: "name", Description: "Name of the blob"},
 			{Name: "Handler", Type: "string", Description: "Handler for the blob"},
-			{Name: "Source", Type: "string", Description: "Source of the blob"},
 			{Name: "Phase", Type: "string", Description: "Current phase of the blob"},
 			{Name: "Progress", Type: "string", Description: "Progress of the blob"},
 			{Name: "Chunks", Type: "string", Description: "Completed chunks of the blob"},
@@ -235,7 +253,7 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 		}
 
 		chunks := "<none>"
-		if blob.Spec.ChunksNumber != 1 {
+		if blob.Spec.ChunksNumber > 1 {
 			chunks = fmt.Sprintf("%d/%d", blob.Status.SucceededChunks, blob.Spec.ChunksNumber)
 		}
 
@@ -243,7 +261,6 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 			Cells: []interface{}{
 				blob.Name,
 				blob.Spec.HandlerName,
-				blob.Spec.Source,
 				phase,
 				progress,
 				chunks,

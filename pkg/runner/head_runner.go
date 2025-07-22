@@ -187,7 +187,9 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 		return nil
 	}
 
-	fi, retryable, err := httpStat(blob.Spec.Source, r.httpClient, nil)
+	src := blob.Spec.Source[0]
+
+	fi, retryable, err := httpStat(src.URL, r.httpClient, nil)
 	if err != nil {
 		blobCopy := blob.DeepCopy()
 		blobCopy.Status.Phase = v1alpha1.BlobPhaseFailed
@@ -212,7 +214,7 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 
 	blobCopy := blob.DeepCopy()
 	blobCopy.Spec.Total = fi.Size
-	blobCopy.Spec.SourceEtag = fi.Etag
+	blobCopy.Spec.Source[0].Etag = fi.Etag
 	blobCopy.Spec.HandlerName = ""
 	blobCopy.Status.Phase = v1alpha1.BlobPhasePending
 	if !fi.Range {

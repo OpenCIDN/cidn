@@ -141,18 +141,21 @@ func (c *BlobToSyncController) syncHandler(ctx context.Context, name string) err
 
 	switch blob.Status.Phase {
 	case v1alpha1.BlobPhaseRunning, v1alpha1.BlobPhaseUnknown:
-		if blob.Spec.ChunkSize != 0 && blob.Spec.Total > blob.Spec.ChunkSize {
-			err := c.toSyncs(ctx, blob)
-			if err != nil {
-				return fmt.Errorf("failed to create sync for blob %s: %v", blob.Name, err)
-			}
+		if blob.Spec.ChunksNumber != 0 {
+			if blob.Spec.ChunksNumber != 1 {
+				err := c.toSyncs(ctx, blob)
+				if err != nil {
+					return fmt.Errorf("failed to create sync for blob %s: %v", blob.Name, err)
+				}
 
-		} else {
-			err := c.toOneSync(ctx, blob)
-			if err != nil {
-				return fmt.Errorf("failed to create sync for blob %s: %v", blob.Name, err)
+			} else {
+				err := c.toOneSync(ctx, blob)
+				if err != nil {
+					return fmt.Errorf("failed to create sync for blob %s: %v", blob.Name, err)
+				}
 			}
 		}
+
 	case v1alpha1.BlobPhaseSucceeded:
 		c.cleanupBlob(blob)
 	}
@@ -214,21 +217,23 @@ func (c *BlobToSyncController) toOneSync(ctx context.Context, blob *v1alpha1.Blo
 		sync.Spec.Sha256PartialPreviousName = "-"
 	}
 
+	src := blob.Spec.Source[0]
+
 	sync.Spec.Source = v1alpha1.SyncHTTP{
 		Request: v1alpha1.SyncHTTPRequest{
 			Method: http.MethodGet,
-			URL:    blob.Spec.Source,
+			URL:    src.URL,
 		},
 		Response: v1alpha1.SyncHTTPResponse{
 			StatusCode: http.StatusOK,
+			Headers: map[string]string{
+				"Content-Length": fmt.Sprintf("%d", blob.Spec.Total),
+			},
 		},
 	}
 
-	if blob.Spec.SourceEtag != "" {
-		if sync.Spec.Source.Response.Headers == nil {
-			sync.Spec.Source.Response.Headers = map[string]string{}
-		}
-		sync.Spec.Source.Response.Headers["Etag"] = blob.Spec.SourceEtag
+	if src.Etag != "" {
+		sync.Spec.Source.Response.Headers["Etag"] = src.Etag
 	}
 
 	for _, dst := range blob.Spec.Destination {
@@ -304,24 +309,27 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 		sync.Spec.Sha256 = blob.Spec.ContentSha256
 	}
 
+	src := blob.Spec.Source[num%int64(len(blob.Spec.Source))]
+
 	sync.Spec.Source = v1alpha1.SyncHTTP{
 		Request: v1alpha1.SyncHTTPRequest{
 			Method: http.MethodGet,
-			URL:    blob.Spec.Source,
+			URL:    src.URL,
 			Headers: map[string]string{
 				"Range": fmt.Sprintf("bytes=%d-%d", start, end-1),
 			},
 		},
 		Response: v1alpha1.SyncHTTPResponse{
 			StatusCode: http.StatusPartialContent,
+			Headers: map[string]string{
+				"Content-Length": fmt.Sprintf("%d", end-start),
+				"Content-Range":  fmt.Sprintf("bytes %d-%d/%d", start, end-1, blob.Spec.Total),
+			},
 		},
 	}
 
-	if blob.Spec.SourceEtag != "" {
-		if sync.Spec.Source.Response.Headers == nil {
-			sync.Spec.Source.Response.Headers = map[string]string{}
-		}
-		sync.Spec.Source.Response.Headers["Etag"] = blob.Spec.SourceEtag
+	if src.Etag != "" {
+		sync.Spec.Source.Response.Headers["Etag"] = src.Etag
 	}
 
 	for j, dst := range blob.Spec.Destination {
@@ -378,9 +386,17 @@ func (c *BlobToSyncController) toSyncs(ctx context.Context, blob *v1alpha1.Blob)
 		return nil
 	}
 
-	toCreate := int(blob.Spec.MaximumParallelism) - (pendingCount + runningCount)
+	if pendingCount >= int(blob.Spec.MaximumPending) {
+		return nil
+	}
+
+	toCreate := int(blob.Spec.MaximumRunning) - (pendingCount + runningCount)
 	if toCreate <= 0 {
 		return nil
+	}
+
+	if toCreate > int(blob.Spec.MaximumPending) {
+		toCreate = int(blob.Spec.MaximumPending)
 	}
 
 	if uploadIDs := blob.Status.UploadIDs; len(uploadIDs) == 0 {
@@ -408,7 +424,7 @@ func (c *BlobToSyncController) toSyncs(ctx context.Context, blob *v1alpha1.Blob)
 	lastName := "-"
 
 	g, _ := errgroup.WithContext(ctx)
-	g.SetLimit(int(blob.Spec.MaximumParallelism))
+	g.SetLimit(toCreate)
 	for i := int64(0); i < blob.Spec.ChunksNumber && created < toCreate; i++ {
 		start := i * blob.Spec.ChunkSize
 		end := start + blob.Spec.ChunkSize
@@ -417,7 +433,7 @@ func (c *BlobToSyncController) toSyncs(ctx context.Context, blob *v1alpha1.Blob)
 		}
 
 		num := i + 1
-		name := fmt.Sprintf("%s.%0*d.%0*x-%0*x", blob.Name, p0, num, s0, start, s0, end)
+		name := fmt.Sprintf("%s:%0*d:%0*x-%0*x", blob.Name, p0, num, s0, start, s0, end)
 
 		if len(blob.Status.UploadEtags) != 0 && len(blob.Status.UploadEtags[i].Etags) != 0 {
 			if i < int64(len(blob.Status.UploadEtags))-1 && len(blob.Status.UploadEtags[i+1].Etags) != 0 {

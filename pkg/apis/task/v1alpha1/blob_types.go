@@ -115,7 +115,7 @@ type BlobSpec struct {
 	HandlerName string `json:"handlerName"`
 
 	// Source is the source of the blob.
-	Source string `json:"source"`
+	Source []BlobSource `json:"source"`
 
 	// Destination is the destination of the blob.
 	Destination []BlobDestination `json:"destination"`
@@ -138,16 +138,28 @@ type BlobSpec struct {
 	// ContentSha256 is the sha256 checksum of the blob content being verified.
 	ContentSha256 string `json:"contentSha256,omitempty"`
 
-	// SourceEtag is the ETag of the blob content being verified.
-	SourceEtag string `json:"sourceEtag,omitempty"`
-
-	// MaximumParallelism is the maximum number of syncs allowed for this blob.
+	// MaximumRunning is the maximum number of running syncs allowed for this blob.
 	// +default=2
-	MaximumParallelism int64 `json:"maximumParallelism,omitempty"`
+	MaximumRunning int64 `json:"maximumRunning,omitempty"`
+
+	// MaximumPending is the maximum number of pending syncs allowed for this blob.
+	// +default=1
+	MaximumPending int64 `json:"maximumPending,omitempty"`
 
 	// RetryCount is the number of times the sync has been retried.
 	// +default=5
 	RetryCount int64 `json:"retryCount,omitempty"`
+}
+
+// BlobSource defines the source for a blob.
+// +k8s:deepcopy-gen=true
+// +k8s:openapi-gen=true
+type BlobSource struct {
+	// URL is the source URL of the blob.
+	URL string `json:"url"`
+
+	// Etag is the ETag of the source resource.
+	Etag string `json:"etag,omitempty"`
 }
 
 // BlobDestination defines the destination for a blob.
@@ -159,6 +171,10 @@ type BlobDestination struct {
 
 	// Path is the filesystem path where the blob should be stored.
 	Path string `json:"path"`
+
+	// VerifySha256 indicates whether the blob's content should be verified with SHA256 checksum.
+	// If true, the blob will be verified after download using the ContentSha256 value.
+	VerifySha256 bool `json:"verifySha256,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

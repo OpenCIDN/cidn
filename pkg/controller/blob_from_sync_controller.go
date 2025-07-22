@@ -18,7 +18,10 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"math/rand"
 	"reflect"
 	"time"
@@ -150,41 +153,73 @@ func (c *BlobFromSyncController) syncHandler(ctx context.Context, name string) e
 }
 
 func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, blob *v1alpha1.Blob) error {
-	syncs, err := c.syncInformer.Lister().List(labels.SelectorFromSet(labels.Set{
-		BlobUIDLabelKey: string(blob.UID),
-	}))
-	if err != nil {
-		return fmt.Errorf("failed to list syncs: %w", err)
-	}
-
 	if blob.Spec.ChunksNumber == 1 {
-		if len(syncs) == 0 {
-			blob.Status.Phase = v1alpha1.BlobPhaseRunning
-			return nil
+		sync, err := c.syncInformer.Lister().Get(blob.Name)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("failed to get sync: %w", err)
 		}
-		sync := syncs[0]
+
 		switch sync.Status.Phase {
 		case v1alpha1.SyncPhaseSucceeded:
-			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
-			blob.Status.Progress = sync.Status.Progress
-		case v1alpha1.SyncPhaseFailed:
-			if sync.Status.RetryCount >= sync.Spec.RetryCount {
-				blob.Status.RetryCount = sync.Status.RetryCount
+			blob.Status.PendingChunks = 0
+			blob.Status.RunningChunks = 0
+			blob.Status.SucceededChunks = 1
+			blob.Status.FailedChunks = 0
+			err := c.verifySha256(ctx, blob)
+			if err != nil {
 				blob.Status.Phase = v1alpha1.BlobPhaseFailed
-				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, sync.Status.Conditions...)
-			} else if _, ok := v1alpha1.GetCondition(sync.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
+				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
+					Type:    "Sha256Verification",
+					Message: err.Error(),
+				})
+			} else {
+				blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+				blob.Status.Progress = sync.Status.Progress
+			}
+		case v1alpha1.SyncPhaseFailed:
+			blob.Status.PendingChunks = 0
+			blob.Status.RunningChunks = 0
+			blob.Status.SucceededChunks = 0
+			blob.Status.FailedChunks = 1
+			if _, ok := v1alpha1.GetCondition(sync.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && sync.Status.RetryCount < sync.Spec.RetryCount {
 				blob.Status.Phase = v1alpha1.BlobPhaseRunning
 				blob.Status.Progress = sync.Status.Progress
 			} else {
 				blob.Status.RetryCount = sync.Status.RetryCount
 				blob.Status.Phase = v1alpha1.BlobPhaseFailed
-				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, sync.Status.Conditions...)
+				for _, cond := range sync.Status.Conditions {
+					if cond.Type == v1alpha1.ConditionTypeRetryable {
+						continue
+					}
+					blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, cond)
+				}
 			}
-		case v1alpha1.SyncPhaseRunning, v1alpha1.SyncPhaseUnknown, v1alpha1.SyncPhasePending:
+		case v1alpha1.SyncPhaseRunning, v1alpha1.SyncPhaseUnknown:
+			blob.Status.PendingChunks = 0
+			blob.Status.RunningChunks = 1
+			blob.Status.SucceededChunks = 0
+			blob.Status.FailedChunks = 0
+			blob.Status.Phase = v1alpha1.BlobPhaseRunning
+			blob.Status.Progress = sync.Status.Progress
+		case v1alpha1.SyncPhasePending:
+			blob.Status.PendingChunks = 1
+			blob.Status.RunningChunks = 0
+			blob.Status.SucceededChunks = 0
+			blob.Status.FailedChunks = 0
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 			blob.Status.Progress = sync.Status.Progress
 		}
 		return nil
+	}
+
+	syncs, err := c.syncInformer.Lister().List(labels.SelectorFromSet(labels.Set{
+		BlobUIDLabelKey: string(blob.UID),
+	}))
+	if err != nil {
+		return fmt.Errorf("failed to list syncs: %w", err)
 	}
 
 	if len(blob.Status.UploadEtags) == 0 {
@@ -274,6 +309,20 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 	if len(blob.Status.UploadIDs) != 0 &&
 		blob.Status.Phase == v1alpha1.BlobPhaseRunning &&
 		blob.Status.Progress == blob.Spec.Total {
+
+		var totalSize int64
+		for _, etag := range blob.Status.UploadEtags {
+			totalSize += etag.Size
+		}
+		if totalSize != blob.Spec.Total {
+			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
+				Type:    "SizeMismatch",
+				Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, blob.Spec.Total),
+			})
+			return nil
+		}
+
 		g, _ := errgroup.WithContext(ctx)
 
 		for i, dst := range blob.Spec.Destination {
@@ -311,11 +360,62 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 			return nil
 		}
 
-		blob.Status.UploadIDs = blob.Status.UploadIDs[:0]
-		blob.Status.UploadEtags = blob.Status.UploadEtags[:0]
+		err := c.verifySha256(ctx, blob)
+		if err != nil {
+			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
+				Type:    "Sha256Verification",
+				Message: err.Error(),
+			})
+		} else {
+			blob.Status.UploadIDs = blob.Status.UploadIDs[:0]
+			blob.Status.UploadEtags = blob.Status.UploadEtags[:0]
+			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+		}
+	}
+	return nil
+}
+
+func (c *BlobFromSyncController) verifySha256(ctx context.Context, blob *v1alpha1.Blob) error {
+	if blob.Spec.ContentSha256 == "" {
+		return nil
 	}
 
-	blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+	g, ctx := errgroup.WithContext(ctx)
 
+	for _, dst := range blob.Spec.Destination {
+		if !dst.VerifySha256 {
+			continue
+		}
+		dst := dst
+
+		s3 := c.s3[dst.Name]
+		if s3 == nil {
+			return fmt.Errorf("s3 client for destination %q not found", dst.Name)
+		}
+
+		g.Go(func() error {
+			return verifyDestinationSha256(ctx, s3, &dst, blob.Spec.ContentSha256)
+		})
+	}
+	return g.Wait()
+}
+
+func verifyDestinationSha256(ctx context.Context, s3 *sss.SSS, dst *v1alpha1.BlobDestination, contentSha256 string) error {
+	reader, err := s3.Reader(ctx, dst.Path)
+	if err != nil {
+		return fmt.Errorf("failed to open reader for destination %q: %w", dst.Path, err)
+	}
+	defer reader.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, reader); err != nil {
+		return fmt.Errorf("failed to read content for destination %q: %w", dst.Path, err)
+	}
+
+	calculatedHash := hex.EncodeToString(hasher.Sum(nil))
+	if calculatedHash != contentSha256 {
+		return fmt.Errorf("sha256 mismatch for destination %q: expected %s, got %s", dst.Path, contentSha256, calculatedHash)
+	}
 	return nil
 }

@@ -486,13 +486,13 @@
             const failed = data.failedChunks || 0;
             const chunksNumber = data.chunksNumber || 0;
             const idle = data.chunksNumber - pending - running - succeeded - failed;
-            
+
             return `<span title="Chunks status: idle, pending, failed, running, succeeded / total">
             ${chunksNumber > 8 ?
-                `${idle > 0 ? `${svgIcon('idle')}<span>${idle}</span>` : ''} ${pending > 0 ? `${svgIcon('pending')}<span>${pending}</span>` : ''} ${failed > 0 ? `${svgIcon('failed')}<span>${failed}</span>` : ''} ${running > 0 ? `${svgIcon('running')}<span>${running}</span>` : ''} ${succeeded > 0 ? `${svgIcon('succeeded')}<span>${succeeded}</span>` : ''}`
-                :
-                `${svgIcon('idle').repeat(idle)}${svgIcon('pending').repeat(pending)}${svgIcon('failed').repeat(failed)}${svgIcon('running').repeat(running)}${svgIcon('succeeded').repeat(succeeded)}`
-            } ${chunksNumber > 1 ? `<span>/ ${chunksNumber}</span>` : ''}
+                    `${idle > 0 ? `${svgIcon('idle')}<span>${idle}</span>` : ''} ${pending > 0 ? `${svgIcon('pending')}<span>${pending}</span>` : ''} ${failed > 0 ? `${svgIcon('failed')}<span>${failed}</span>` : ''} ${running > 0 ? `${svgIcon('running')}<span>${running}</span>` : ''} ${succeeded > 0 ? `${svgIcon('succeeded')}<span>${succeeded}</span>` : ''}`
+                    :
+                    `${svgIcon('idle').repeat(idle)}${svgIcon('pending').repeat(pending)}${svgIcon('failed').repeat(failed)}${svgIcon('running').repeat(running)}${svgIcon('succeeded').repeat(succeeded)}`
+                } <span>/ ${chunksNumber}</span>
             </span>`;
         }
 
@@ -579,7 +579,7 @@
                         };
                     }
 
-                    let progressPercent = size > 0 ? (progress / size) * 100 : 0;
+                    let progressPercent = size > 0 ? (progress / size * 100).toFixed(0) : 0;
                     if (progressPercent > 99 && size != progress) {
                         progressPercent = 99;
                     }
@@ -588,7 +588,7 @@
                         <div class="progress-text">
                             ${highlightProgress(progress, size)} 
                             ${highlightSpeed(speed, remainingTime)} 
-                            ${highlightChunksInfo(data)}
+                            ${data.chunksNumber ? highlightChunksInfo(data) : `<span></span>`}
                         </div>
                         <div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>`;
                 }
@@ -597,14 +597,14 @@
                     ${highlightError(escapeErrors(errors))}
                     <div class="progress-text">
                         ${size ? highlightProgress(progress, size) : ''}
-                        ${data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks ? highlightChunksInfo(data) : ''}
+                        ${data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks) ? highlightChunksInfo(data) : ''}
                     </div>`;
                 case 'Pending':
                 case 'Unknown':
                     return `${header}
                     <div class="progress-text">
                         ${size ? highlightProgress(progress, size) : ''}
-                        ${data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks ? highlightChunksInfo(data) : ''}
+                        ${data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks) ? highlightChunksInfo(data) : ''}
                     </div>`;
                 case 'Succeeded':
                     return `${header}
