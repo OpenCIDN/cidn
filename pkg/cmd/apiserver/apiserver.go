@@ -20,20 +20,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
 	"os"
 
 	"github.com/OpenCIDN/cidn/pkg/apiserver"
-	generatedopenapi "github.com/OpenCIDN/cidn/pkg/openapi"
 	"github.com/spf13/cobra"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
-	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
-	serverstorage "k8s.io/apiserver/pkg/server/storage"
 	"k8s.io/apiserver/pkg/storage/storagebackend"
-	utilcompatibility "k8s.io/apiserver/pkg/util/compatibility"
-	"k8s.io/client-go/rest"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/term"
 	"k8s.io/klog/v2"
@@ -64,54 +57,6 @@ func (o Options) Validate(args []string) error {
 	return utilerrors.NewAggregate(errs)
 }
 
-type ServerConfig struct {
-	Apiserver *genericapiserver.Config
-	Rest      *rest.Config
-}
-
-func (o Options) ServerConfig() (*apiserver.Config, error) {
-	err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")})
-	if err != nil {
-		return nil, fmt.Errorf("error creating self-signed certificates: %v", err)
-	}
-
-	apiservercfg := genericapiserver.NewRecommendedConfig(apiserver.Codecs)
-	err = o.SecureServing.ApplyTo(&apiservercfg.SecureServing, &apiservercfg.LoopbackClientConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	// enable OpenAPI schemas
-	namer := openapinamer.NewDefinitionNamer(apiserver.Scheme)
-	apiservercfg.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, namer)
-	apiservercfg.OpenAPIConfig.Info.Title = "OpenCIDN"
-	apiservercfg.OpenAPIConfig.Info.Version = "0.1"
-
-	apiservercfg.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, namer)
-	apiservercfg.OpenAPIV3Config.Info.Title = "OpenCIDN"
-	apiservercfg.OpenAPIV3Config.Info.Version = "0.1"
-
-	apiservercfg.EffectiveVersion = utilcompatibility.DefaultBuildEffectiveVersion()
-
-	storageFactory := serverstorage.NewDefaultStorageFactory(
-		o.Etcd.StorageConfig,
-		o.Etcd.DefaultStorageMediaType,
-		apiserver.Codecs,
-		serverstorage.NewDefaultResourceEncodingConfigForEffectiveVersion(apiserver.Scheme, nil),
-		apiservercfg.MergedResourceConfig,
-		nil,
-	)
-
-	err = o.Etcd.ApplyWithStorageFactoryTo(storageFactory, &apiservercfg.Config)
-	if err != nil {
-		return nil, err
-	}
-
-	return &apiserver.Config{
-		GenericConfig: apiservercfg,
-	}, nil
-}
-
 // NewServerCommand provides a CLI handler for the metrics server entrypoint
 func NewServerCommand(ctx context.Context) *cobra.Command {
 	opts := &Options{
@@ -119,9 +64,6 @@ func NewServerCommand(ctx context.Context) *cobra.Command {
 		Etcd:          genericoptions.NewEtcdOptions(storagebackend.NewDefaultConfig(defaultEtcdPathPrefix, nil)),
 	}
 
-	// klog.Infof("%#v", opts.Etcd)
-	// opts.Etcd.StorageConfig.EncodeVersioner = runtime.NewMultiGroupVersioner(v1alpha1.SchemeGroupVersion, schema.GroupKind{Group: v1alpha1.GroupName})
-	// opts.Etcd.DefaultStorageMediaType = "application/json"
 	opts.SecureServing.BindPort = 6443
 
 	cmd := &cobra.Command{
@@ -161,7 +103,7 @@ func NewServerCommand(ctx context.Context) *cobra.Command {
 }
 
 func runCommand(ctx context.Context, o *Options) error {
-	servercfg, err := o.ServerConfig()
+	servercfg, err := apiserver.NewConfig(o.SecureServing, o.Etcd)
 	if err != nil {
 		return err
 	}

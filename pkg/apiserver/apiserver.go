@@ -17,16 +17,23 @@ limitations under the License.
 package apiserver
 
 import (
+	"fmt"
+	"net"
+
+	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
+	generatedopenapi "github.com/OpenCIDN/cidn/pkg/openapi"
+	"github.com/OpenCIDN/cidn/pkg/registry/task/blob"
+	"github.com/OpenCIDN/cidn/pkg/registry/task/chunk"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
 	"k8s.io/apiserver/pkg/registry/rest"
 	genericapiserver "k8s.io/apiserver/pkg/server"
-
-	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
-	"github.com/OpenCIDN/cidn/pkg/registry/task/blob"
-	"github.com/OpenCIDN/cidn/pkg/registry/task/chunk"
+	genericoptions "k8s.io/apiserver/pkg/server/options"
+	serverstorage "k8s.io/apiserver/pkg/server/storage"
+	utilcompatibility "k8s.io/apiserver/pkg/util/compatibility"
 )
 
 var (
@@ -110,4 +117,50 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 	}
 
 	return genericServer, nil
+}
+
+func NewConfig(
+	secureServing *genericoptions.SecureServingOptionsWithLoopback,
+	etcd *genericoptions.EtcdOptions,
+) (*Config, error) {
+	err := secureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")})
+	if err != nil {
+		return nil, fmt.Errorf("error creating self-signed certificates: %v", err)
+	}
+
+	apiservercfg := genericapiserver.NewRecommendedConfig(Codecs)
+	err = secureServing.ApplyTo(&apiservercfg.SecureServing, &apiservercfg.LoopbackClientConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// enable OpenAPI schemas
+	namer := openapinamer.NewDefinitionNamer(Scheme)
+	apiservercfg.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, namer)
+	apiservercfg.OpenAPIConfig.Info.Title = "OpenCIDN"
+	apiservercfg.OpenAPIConfig.Info.Version = "0.1"
+
+	apiservercfg.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, namer)
+	apiservercfg.OpenAPIV3Config.Info.Title = "OpenCIDN"
+	apiservercfg.OpenAPIV3Config.Info.Version = "0.1"
+
+	apiservercfg.EffectiveVersion = utilcompatibility.DefaultBuildEffectiveVersion()
+
+	storageFactory := serverstorage.NewDefaultStorageFactory(
+		etcd.StorageConfig,
+		etcd.DefaultStorageMediaType,
+		Codecs,
+		serverstorage.NewDefaultResourceEncodingConfigForEffectiveVersion(Scheme, nil),
+		apiservercfg.MergedResourceConfig,
+		nil,
+	)
+
+	err = etcd.ApplyWithStorageFactoryTo(storageFactory, &apiservercfg.Config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Config{
+		GenericConfig: apiservercfg,
+	}, nil
 }
