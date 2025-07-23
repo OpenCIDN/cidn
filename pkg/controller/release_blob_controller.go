@@ -189,8 +189,8 @@ func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) (t
 		}
 
 		if blob.Status.RetryCount < blob.Spec.RetryCount {
-			newBlob := blob.DeepCopy()
-			if _, ok := v1alpha1.GetCondition(newBlob.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
+			if _, ok := v1alpha1.GetCondition(blob.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
+				newBlob := blob.DeepCopy()
 				newBlob.Status.Phase = v1alpha1.BlobPhasePending
 				newBlob.Status.Conditions = nil
 				newBlob.Status.RetryCount++

@@ -191,10 +191,9 @@ func (r *SyncRunner) updateSync(ctx context.Context, sync *v1alpha1.Sync) (*v1al
 
 // buildRequest constructs an HTTP request from SyncHTTP configuration
 func (r *SyncRunner) buildRequest(ctx context.Context, syncHTTP *v1alpha1.SyncHTTP, body io.Reader) (*http.Request, error) {
-
 	req, err := http.NewRequestWithContext(ctx, syncHTTP.Request.Method, syncHTTP.Request.URL, body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
 
 	// Set default headers
@@ -307,12 +306,26 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 func (r *SyncRunner) destinationRequest(ctx context.Context, dest *v1alpha1.SyncHTTP, dr io.Reader) (string, error) {
 	destReq, err := r.buildRequest(ctx, dest, dr)
 	if err != nil {
-		return "", err
+		if retry, err := utils.IsNetWorkError(err); !retry {
+			return "", err
+		}
+
+		destReq, err = r.buildRequest(ctx, dest, dr)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	destResp, err := r.httpClient.Do(destReq)
 	if err != nil {
-		return "", err
+		if retry, err := utils.IsHTTPResponseError(destResp, err); !retry {
+			return "", err
+		}
+
+		destResp, err = r.httpClient.Do(destReq)
+		if err != nil {
+			return "", err
+		}
 	}
 	defer destResp.Body.Close()
 
@@ -398,7 +411,6 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 		g.Go(func() error {
 			etag, err := r.destinationRequest(ctx, &dest, dr)
 			if err != nil {
-
 				return err
 			}
 			etags[i] = etag
@@ -415,7 +427,7 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 
 	err = g.Wait()
 	if err != nil {
-		s.handleProcessErrorAndRetryable("", err)
+		s.handleProcessError("", err)
 		return
 	}
 

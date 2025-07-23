@@ -188,8 +188,8 @@ func (c *ReleaseSyncController) syncHandler(ctx context.Context, name string) (t
 		}
 
 		if sync.Status.RetryCount < sync.Spec.RetryCount {
-			newSync := sync.DeepCopy()
-			if _, ok := v1alpha1.GetCondition(newSync.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
+			if _, ok := v1alpha1.GetCondition(sync.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
+				newSync := sync.DeepCopy()
 				newSync.Status.Phase = v1alpha1.SyncPhasePending
 				newSync.Status.Conditions = nil
 				newSync.Status.RetryCount++
