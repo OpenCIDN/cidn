@@ -245,11 +245,13 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 			}
 		}
 
-		var progress string
-		if blob.Status.Progress == blob.Spec.Total {
-			progress = humanize.IBytes(uint64(blob.Spec.Total))
-		} else {
-			progress = fmt.Sprintf("%s/%s", humanize.IBytes(uint64(blob.Status.Progress)), humanize.IBytes(uint64(blob.Spec.Total)))
+		progress := "<none>"
+		if blob.Spec.Total != 0 {
+			if blob.Status.Progress == blob.Spec.Total {
+				progress = humanize.IBytes(uint64(blob.Spec.Total))
+			} else {
+				progress = fmt.Sprintf("%s/%s", humanize.IBytes(uint64(blob.Status.Progress)), humanize.IBytes(uint64(blob.Spec.Total)))
+			}
 		}
 
 		chunks := "<none>"
