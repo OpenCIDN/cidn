@@ -24,8 +24,13 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 )
 
+// REST implements a RESTStorage for API services.
+type REST struct {
+	*genericregistry.Store
+}
+
 // NewREST returns a RESTStorage object that will work against API services.
-func NewREST(scheme *runtime.Scheme, optsGetter generic.RESTOptionsGetter) (*genericregistry.Store, error) {
+func NewREST(scheme *runtime.Scheme, optsGetter generic.RESTOptionsGetter) (*REST, error) {
 	strategy := NewStrategy(scheme)
 
 	store := &genericregistry.Store{
@@ -45,5 +50,9 @@ func NewREST(scheme *runtime.Scheme, optsGetter generic.RESTOptionsGetter) (*gen
 	if err := store.CompleteWithOptions(options); err != nil {
 		return nil, err
 	}
-	return store, nil
+	return &REST{store}, nil
+}
+
+func (r *REST) ShortNames() []string {
+	return []string{"ck"}
 }
