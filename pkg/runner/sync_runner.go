@@ -389,6 +389,9 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 	drs := make([]*ReadCount, 0, len(sync.Spec.Destination))
 	for i, dest := range sync.Spec.Destination {
 		dest := dest
+		if dest.Request.Method == "" {
+			continue
+		}
 		i := i
 		dr := NewReadCount(ctx, swmr.NewReader())
 		drs = append(drs, dr)

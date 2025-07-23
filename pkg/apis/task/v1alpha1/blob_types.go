@@ -175,6 +175,9 @@ type BlobDestination struct {
 	// VerifySha256 indicates whether the blob's content should be verified with SHA256 checksum.
 	// If true, the blob will be verified after download using the ContentSha256 value.
 	VerifySha256 bool `json:"verifySha256,omitempty"`
+
+	// SkipIfExists indicates whether to skip the download if the blob already exists at the destination.
+	SkipIfExists bool `json:"skipIfExists,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

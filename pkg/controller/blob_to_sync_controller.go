@@ -242,6 +242,13 @@ func (c *BlobToSyncController) toOneSync(ctx context.Context, blob *v1alpha1.Blo
 			return fmt.Errorf("s3 client for destination %q not found", dst.Name)
 		}
 
+		if dst.SkipIfExists {
+			fi, err := s3.StatHead(ctx, dst.Path)
+			if err == nil && fi.Size() == blob.Spec.Total {
+				continue
+			}
+		}
+
 		d, err := s3.SignPut(dst.Path, c.expires)
 		if err != nil {
 			return err
@@ -259,6 +266,16 @@ func (c *BlobToSyncController) toOneSync(ctx context.Context, blob *v1alpha1.Blo
 				StatusCode: http.StatusOK,
 			},
 		})
+	}
+
+	if len(sync.Spec.Destination) == 0 {
+		blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+		blob.Status.Progress = blob.Spec.Total
+		_, err := c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update blob status: %v", err)
+		}
+		return nil
 	}
 
 	_, err = c.client.TaskV1alpha1().Syncs().Create(ctx, sync, metav1.CreateOptions{})
@@ -338,7 +355,18 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 			return nil, fmt.Errorf("s3 client for destination %q not found", dst.Name)
 		}
 
-		mp := s3.GetMultipartWithUploadID(dst.Path, uploadIDs[j])
+		uploadID := uploadIDs[j]
+		if uploadID == "" {
+			sync.Spec.Destination = append(sync.Spec.Destination, v1alpha1.SyncHTTP{
+				Request: v1alpha1.SyncHTTPRequest{
+					Method: "",
+					URL:    "",
+				},
+			})
+			continue
+		}
+
+		mp := s3.GetMultipartWithUploadID(dst.Path, uploadID)
 		partURL, err := mp.SignUploadPart(num, c.expires)
 		if err != nil {
 			return nil, err
@@ -406,6 +434,14 @@ func (c *BlobToSyncController) toSyncs(ctx context.Context, blob *v1alpha1.Blob)
 				return fmt.Errorf("s3 client for destination %q not found", dst.Name)
 			}
 
+			if dst.SkipIfExists {
+				fi, err := s3.StatHead(ctx, dst.Path)
+				if err == nil && fi.Size() == blob.Spec.Total {
+					uploadIDs = append(uploadIDs, "")
+					continue
+				}
+			}
+
 			mp, err := s3.GetMultipart(ctx, dst.Path)
 			if err != nil {
 				mp, err = s3.NewMultipart(ctx, dst.Path)
@@ -415,6 +451,24 @@ func (c *BlobToSyncController) toSyncs(ctx context.Context, blob *v1alpha1.Blob)
 			}
 			uploadIDs = append(uploadIDs, mp.UploadID())
 		}
+
+		allEmpty := true
+		for _, id := range uploadIDs {
+			if id != "" {
+				allEmpty = false
+				break
+			}
+		}
+		if allEmpty {
+			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			blob.Status.Progress = blob.Spec.Total
+			_, err := c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to update blob status: %v", err)
+			}
+			return nil
+		}
+
 		blob.Status.UploadIDs = uploadIDs
 	}
 

@@ -139,11 +139,21 @@ func (c *BlobFromSyncController) syncHandler(ctx context.Context, name string) e
 		return nil
 	}
 
-	err = c.updateBlobStatusFromSyncs(ctx, blob)
-	if err != nil {
-		return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+	if blob.Spec.ChunksNumber == 0 {
+		return nil
 	}
 
+	if blob.Spec.ChunksNumber != 1 {
+		err = c.fromSyncs(ctx, blob)
+		if err != nil {
+			return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+		}
+	} else {
+		err = c.fromOneSync(ctx, blob)
+		if err != nil {
+			return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+		}
+	}
 	_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to update blob status: %v", err)
@@ -152,69 +162,69 @@ func (c *BlobFromSyncController) syncHandler(ctx context.Context, name string) e
 	return nil
 }
 
-func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, blob *v1alpha1.Blob) error {
-	if blob.Spec.ChunksNumber == 1 {
-		sync, err := c.syncInformer.Lister().Get(blob.Name)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return nil
-			}
-			return fmt.Errorf("failed to get sync: %w", err)
+func (c *BlobFromSyncController) fromOneSync(ctx context.Context, blob *v1alpha1.Blob) error {
+	sync, err := c.syncInformer.Lister().Get(blob.Name)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
 		}
-
-		switch sync.Status.Phase {
-		case v1alpha1.SyncPhaseSucceeded:
-			blob.Status.PendingChunks = 0
-			blob.Status.RunningChunks = 0
-			blob.Status.SucceededChunks = 1
-			blob.Status.FailedChunks = 0
-			err := c.verifySha256(ctx, blob)
-			if err != nil {
-				blob.Status.Phase = v1alpha1.BlobPhaseFailed
-				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
-					Type:    "Sha256Verification",
-					Message: err.Error(),
-				})
-			} else {
-				blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
-				blob.Status.Progress = sync.Status.Progress
-			}
-		case v1alpha1.SyncPhaseFailed:
-			blob.Status.PendingChunks = 0
-			blob.Status.RunningChunks = 0
-			blob.Status.SucceededChunks = 0
-			blob.Status.FailedChunks = 1
-			if _, ok := v1alpha1.GetCondition(sync.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && sync.Status.RetryCount < sync.Spec.RetryCount {
-				blob.Status.Phase = v1alpha1.BlobPhaseRunning
-				blob.Status.Progress = sync.Status.Progress
-			} else {
-				blob.Status.RetryCount = sync.Status.RetryCount
-				blob.Status.Phase = v1alpha1.BlobPhaseFailed
-				for _, cond := range sync.Status.Conditions {
-					if cond.Type == v1alpha1.ConditionTypeRetryable {
-						continue
-					}
-					blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, cond)
-				}
-			}
-		case v1alpha1.SyncPhaseRunning, v1alpha1.SyncPhaseUnknown:
-			blob.Status.PendingChunks = 0
-			blob.Status.RunningChunks = 1
-			blob.Status.SucceededChunks = 0
-			blob.Status.FailedChunks = 0
-			blob.Status.Phase = v1alpha1.BlobPhaseRunning
-			blob.Status.Progress = sync.Status.Progress
-		case v1alpha1.SyncPhasePending:
-			blob.Status.PendingChunks = 1
-			blob.Status.RunningChunks = 0
-			blob.Status.SucceededChunks = 0
-			blob.Status.FailedChunks = 0
-			blob.Status.Phase = v1alpha1.BlobPhaseRunning
-			blob.Status.Progress = sync.Status.Progress
-		}
-		return nil
+		return fmt.Errorf("failed to get sync: %w", err)
 	}
 
+	switch sync.Status.Phase {
+	case v1alpha1.SyncPhaseSucceeded:
+		blob.Status.PendingChunks = 0
+		blob.Status.RunningChunks = 0
+		blob.Status.SucceededChunks = 1
+		blob.Status.FailedChunks = 0
+		err := c.verifySha256(ctx, blob)
+		if err != nil {
+			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
+				Type:    "Sha256Verification",
+				Message: err.Error(),
+			})
+		} else {
+			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			blob.Status.Progress = sync.Status.Progress
+		}
+	case v1alpha1.SyncPhaseFailed:
+		blob.Status.PendingChunks = 0
+		blob.Status.RunningChunks = 0
+		blob.Status.SucceededChunks = 0
+		blob.Status.FailedChunks = 1
+		if _, ok := v1alpha1.GetCondition(sync.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && sync.Status.RetryCount < sync.Spec.RetryCount {
+			blob.Status.Phase = v1alpha1.BlobPhaseRunning
+			blob.Status.Progress = sync.Status.Progress
+		} else {
+			blob.Status.RetryCount = sync.Status.RetryCount
+			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			for _, cond := range sync.Status.Conditions {
+				if cond.Type == v1alpha1.ConditionTypeRetryable {
+					continue
+				}
+				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, cond)
+			}
+		}
+	case v1alpha1.SyncPhaseRunning, v1alpha1.SyncPhaseUnknown:
+		blob.Status.PendingChunks = 0
+		blob.Status.RunningChunks = 1
+		blob.Status.SucceededChunks = 0
+		blob.Status.FailedChunks = 0
+		blob.Status.Phase = v1alpha1.BlobPhaseRunning
+		blob.Status.Progress = sync.Status.Progress
+	case v1alpha1.SyncPhasePending:
+		blob.Status.PendingChunks = 1
+		blob.Status.RunningChunks = 0
+		blob.Status.SucceededChunks = 0
+		blob.Status.FailedChunks = 0
+		blob.Status.Phase = v1alpha1.BlobPhaseRunning
+		blob.Status.Progress = sync.Status.Progress
+	}
+	return nil
+}
+
+func (c *BlobFromSyncController) fromSyncs(ctx context.Context, blob *v1alpha1.Blob) error {
 	syncs, err := c.syncInformer.Lister().List(labels.SelectorFromSet(labels.Set{
 		BlobUIDLabelKey: string(blob.UID),
 	}))
@@ -327,6 +337,9 @@ func (c *BlobFromSyncController) updateBlobStatusFromSyncs(ctx context.Context, 
 
 		for i, dst := range blob.Spec.Destination {
 			uploadID := blob.Status.UploadIDs[i]
+			if uploadID == "" {
+				continue
+			}
 			dst := dst
 			parts := make([]*s3.Part, 0, len(blob.Status.UploadEtags))
 			for j, s := range blob.Status.UploadEtags {

@@ -83,6 +83,7 @@ spec:
   destination:
   - name: minio-1
     path: blob.{{.Destination}}.1-1
+    skipIfExists: true
 ---
 apiVersion: task.opencidn.daocloud.io/v1alpha1
 kind: Blob
@@ -99,9 +100,11 @@ spec:
   - name: minio-1
     path: blob.{{.Destination}}.2-2
     verifySha256: true
+    skipIfExists: true
   - name: minio-2
     path: blob.{{.Destination}}.2-2
     verifySha256: true
+    skipIfExists: true
 ---
 `))
 

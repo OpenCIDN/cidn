@@ -181,6 +181,13 @@ func schema_pkg_apis_task_v1alpha1_BlobDestination(ref common.ReferenceCallback)
 							Format:      "",
 						},
 					},
+					"skipIfExists": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SkipIfExists indicates whether to skip the download if the blob already exists at the destination.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"name", "path"},
 			},
