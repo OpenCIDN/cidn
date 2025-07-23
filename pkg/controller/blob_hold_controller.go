@@ -79,7 +79,7 @@ func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
 	var wg sync.WaitGroup
 
 	for _, blob := range blobs {
-		if blob.Spec.HandlerName != c.handlerName {
+		if blob.Status.HandlerName != c.handlerName {
 			continue
 		}
 
@@ -92,7 +92,7 @@ func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
 			defer wg.Done()
 
 			blobCopy := b.DeepCopy()
-			blobCopy.Spec.HandlerName = ""
+			blobCopy.Status.HandlerName = ""
 			blobCopy.Status.Phase = v1alpha1.BlobPhasePending
 			blobCopy.Status.Conditions = nil
 			_, err := c.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
@@ -103,7 +103,7 @@ func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
 						klog.Errorf("failed to get latest blob %s: %v", blobCopy.Name, getErr)
 						return
 					}
-					latest.Spec.HandlerName = ""
+					latest.Status.HandlerName = ""
 					latest.Status.Phase = v1alpha1.BlobPhasePending
 					latest.Status.Conditions = nil
 					_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, latest, metav1.UpdateOptions{})
@@ -162,7 +162,7 @@ func (c *BlobHoldController) chunkHandler(ctx context.Context, name string) erro
 		return err
 	}
 
-	if blob.Spec.HandlerName != "" {
+	if blob.Status.HandlerName != "" {
 		return nil
 	}
 
@@ -174,7 +174,7 @@ func (c *BlobHoldController) chunkHandler(ctx context.Context, name string) erro
 		return nil
 	}
 
-	blob.Spec.HandlerName = c.handlerName
+	blob.Status.HandlerName = c.handlerName
 	blob.Status.Phase = v1alpha1.BlobPhaseRunning
 	_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
 	if err != nil {

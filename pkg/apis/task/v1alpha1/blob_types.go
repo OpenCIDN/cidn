@@ -64,6 +64,9 @@ const (
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
 type BlobStatus struct {
+	// HandlerName is the name of the handler.
+	HandlerName string `json:"handlerName"`
+
 	// Phase represents the current phase of the blob.
 	Phase BlobPhase `json:"phase,omitempty"`
 
@@ -111,9 +114,6 @@ type UploadEtag struct {
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
 type BlobSpec struct {
-	// HandlerName is the name of the handler.
-	HandlerName string `json:"handlerName"`
-
 	// Source is the source of the blob.
 	Source []BlobSource `json:"source"`
 

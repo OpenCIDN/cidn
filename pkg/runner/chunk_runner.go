@@ -99,7 +99,7 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 	var wg sync.WaitGroup
 
 	for _, chunk := range chunks {
-		if chunk.Spec.HandlerName != r.handlerName {
+		if chunk.Status.HandlerName != r.handlerName {
 			continue
 		}
 
@@ -113,7 +113,7 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 			defer wg.Done()
 
 			chunkCopy := s.DeepCopy()
-			chunkCopy.Spec.HandlerName = ""
+			chunkCopy.Status.HandlerName = ""
 			chunkCopy.Status.Phase = v1alpha1.ChunkPhasePending
 			chunkCopy.Status.Conditions = nil
 			_, err := r.client.TaskV1alpha1().Chunks().Update(ctx, chunkCopy, metav1.UpdateOptions{})
@@ -124,7 +124,7 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 						klog.Errorf("failed to get latest chunk %s: %v", chunkCopy.Name, getErr)
 						return
 					}
-					latest.Spec.HandlerName = ""
+					latest.Status.HandlerName = ""
 					latest.Status.Phase = v1alpha1.ChunkPhasePending
 					latest.Status.Conditions = nil
 					_, err = r.client.TaskV1alpha1().Chunks().Update(ctx, latest, metav1.UpdateOptions{})
@@ -172,7 +172,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 		return true
 	}
 
-	if s.Spec.HandlerName != r.handlerName {
+	if s.Status.HandlerName != r.handlerName {
 		return true
 	}
 
@@ -357,7 +357,7 @@ func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.Chu
 }
 
 func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, continues <-chan struct{}) {
-	klog.Infof("Processing chunk %s (handler: %s)", chunk.Name, chunk.Spec.HandlerName)
+	klog.Infof("Processing chunk %s (handler: %s)", chunk.Name, chunk.Status.HandlerName)
 	defer klog.Infof("Finish processing chunk %s", chunk.Name)
 	defer func() { <-continues }()
 
@@ -459,9 +459,9 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 					return ss, nil
 				}
 
-				if newChunk.Spec.HandlerName != r.handlerName {
+				if newChunk.Status.HandlerName != r.handlerName {
 					cancel()
-					klog.Warningf("Chunk %s has been acquired by another handler %s", ss.Name, newChunk.Spec.HandlerName)
+					klog.Warningf("Chunk %s has been acquired by another handler %s", ss.Name, newChunk.Status.HandlerName)
 					return ss, nil
 				}
 				newChunk.Status = ss.Status
@@ -640,7 +640,7 @@ func (r *ChunkRunner) getPending(ctx context.Context) (*v1alpha1.Chunk, error) {
 	}
 
 	for _, chunk := range chunks {
-		chunk.Spec.HandlerName = r.handlerName
+		chunk.Status.HandlerName = r.handlerName
 		chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
 
 		chunk, err := r.updateChunk(ctx, chunk)
@@ -675,7 +675,7 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 
 	// Filter for Pending state
 	for _, chunk := range chunks {
-		if chunk.Spec.HandlerName == "" && chunk.Status.Phase == v1alpha1.ChunkPhasePending {
+		if chunk.Status.HandlerName == "" && chunk.Status.Phase == v1alpha1.ChunkPhasePending {
 			pendingChunks = append(pendingChunks, chunk)
 		}
 	}

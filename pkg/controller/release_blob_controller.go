@@ -90,7 +90,7 @@ func (c *ReleaseBlobController) cleanupBlob(obj interface{}) {
 
 func (c *ReleaseBlobController) enqueueBlob(obj interface{}) {
 	blob := obj.(*v1alpha1.Blob)
-	if blob.Spec.HandlerName == "" {
+	if blob.Status.HandlerName == "" {
 		return
 	}
 
@@ -141,7 +141,7 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 		return 0, err
 	}
 
-	if blob.Spec.HandlerName == "" {
+	if blob.Status.HandlerName == "" {
 		return 0, nil
 	}
 
@@ -174,7 +174,7 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 
 		newBlob := blob.DeepCopy()
 		newBlob.Status.Phase = v1alpha1.BlobPhasePending
-		newBlob.Spec.HandlerName = ""
+		newBlob.Status.HandlerName = ""
 		klog.Infof("Transitioning blob %s from Unknown to Pending phase and clearing handler", name)
 
 		_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, newBlob, metav1.UpdateOptions{})
@@ -194,7 +194,7 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 				newBlob.Status.Phase = v1alpha1.BlobPhasePending
 				newBlob.Status.Conditions = nil
 				newBlob.Status.RetryCount++
-				newBlob.Spec.HandlerName = ""
+				newBlob.Status.HandlerName = ""
 				klog.Infof("Transitioning blob %s from Failed to Pending phase and clearing handler", name)
 
 				_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, newBlob, metav1.UpdateOptions{})

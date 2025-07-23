@@ -90,7 +90,7 @@ func (c *ReleaseChunkController) cleanupChunk(obj interface{}) {
 
 func (c *ReleaseChunkController) enqueueChunk(obj interface{}) {
 	chunk := obj.(*v1alpha1.Chunk)
-	if chunk.Spec.HandlerName == "" {
+	if chunk.Status.HandlerName == "" {
 		return
 	}
 
@@ -141,7 +141,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 		return 0, err
 	}
 
-	if chunk.Spec.HandlerName == "" {
+	if chunk.Status.HandlerName == "" {
 		return 0, nil
 	}
 
@@ -173,7 +173,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 
 		newChunk := chunk.DeepCopy()
 		newChunk.Status.Phase = v1alpha1.ChunkPhasePending
-		newChunk.Spec.HandlerName = ""
+		newChunk.Status.HandlerName = ""
 		klog.Infof("Transitioning chunk %s from Unknown to Pending phase and clearing handler", name)
 
 		_, err = c.client.TaskV1alpha1().Chunks().Update(ctx, newChunk, metav1.UpdateOptions{})
@@ -193,7 +193,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 				newChunk.Status.Phase = v1alpha1.ChunkPhasePending
 				newChunk.Status.Conditions = nil
 				newChunk.Status.RetryCount++
-				newChunk.Spec.HandlerName = ""
+				newChunk.Status.HandlerName = ""
 				klog.Infof("Transitioning chunk %s from Failed to Pending phase and clearing handler", name)
 
 				_, err = c.client.TaskV1alpha1().Chunks().Update(ctx, newChunk, metav1.UpdateOptions{})

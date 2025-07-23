@@ -85,7 +85,7 @@ func (r *HeadRunner) Release(ctx context.Context) error {
 	var wg sync.WaitGroup
 
 	for _, blob := range blobs {
-		if blob.Spec.HandlerName != r.handlerName {
+		if blob.Status.HandlerName != r.handlerName {
 			continue
 		}
 
@@ -98,7 +98,7 @@ func (r *HeadRunner) Release(ctx context.Context) error {
 			defer wg.Done()
 
 			blobCopy := b.DeepCopy()
-			blobCopy.Spec.HandlerName = ""
+			blobCopy.Status.HandlerName = ""
 			blobCopy.Status.Phase = v1alpha1.BlobPhasePending
 			blobCopy.Status.Conditions = nil
 			_, err := r.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
@@ -109,7 +109,7 @@ func (r *HeadRunner) Release(ctx context.Context) error {
 						klog.Errorf("failed to get latest blob %s: %v", blobCopy.Name, getErr)
 						return
 					}
-					latest.Spec.HandlerName = ""
+					latest.Status.HandlerName = ""
 					latest.Status.Phase = v1alpha1.BlobPhasePending
 					latest.Status.Conditions = nil
 					_, err = r.client.TaskV1alpha1().Blobs().Update(ctx, latest, metav1.UpdateOptions{})
@@ -171,19 +171,19 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 		return err
 	}
 
-	if blob.Spec.HandlerName == "" {
+	if blob.Status.HandlerName == "" {
 		if blob.Spec.Total != 0 {
 			return nil
 		}
 
 		blobCopy := blob.DeepCopy()
-		blobCopy.Spec.HandlerName = r.handlerName
+		blobCopy.Status.HandlerName = r.handlerName
 		blobCopy.Status.Phase = v1alpha1.BlobPhaseRunning
 		_, err = r.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
 		return err
 	}
 
-	if blob.Spec.HandlerName != r.handlerName {
+	if blob.Status.HandlerName != r.handlerName {
 		return nil
 	}
 
@@ -215,7 +215,7 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 	blobCopy := blob.DeepCopy()
 	blobCopy.Spec.Total = fi.Size
 	blobCopy.Spec.Source[0].Etag = fi.Etag
-	blobCopy.Spec.HandlerName = ""
+	blobCopy.Status.HandlerName = ""
 	blobCopy.Status.Phase = v1alpha1.BlobPhasePending
 	if !fi.Range {
 		blobCopy.Spec.ChunkSize = 0

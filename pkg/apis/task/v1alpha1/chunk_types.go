@@ -64,6 +64,9 @@ const (
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
 type ChunkStatus struct {
+	// HandlerName is the name of the handler.
+	HandlerName string `json:"handlerName"`
+
 	// Phase represents the current phase of the chunk.
 	Phase ChunkPhase `json:"phase,omitempty"`
 
@@ -137,9 +140,6 @@ type ChunkHTTP struct {
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
 type ChunkSpec struct {
-	// HandlerName is the name of the handler.
-	HandlerName string `json:"handlerName"`
-
 	// Source is the source of the chunk.
 	Source ChunkHTTP `json:"source"`
 

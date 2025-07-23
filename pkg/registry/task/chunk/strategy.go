@@ -199,7 +199,7 @@ func (*chunkStrategy) ConvertToTable(ctx context.Context, object runtime.Object,
 		row := metav1.TableRow{
 			Cells: []interface{}{
 				chunk.Name,
-				chunk.Spec.HandlerName,
+				chunk.Status.HandlerName,
 				phase,
 				progress,
 				time.Since(chunk.CreationTimestamp.Time).Truncate(time.Second).String(),

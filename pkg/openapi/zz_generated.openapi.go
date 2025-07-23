@@ -280,14 +280,6 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 				Description: "BlobSpec defines the specification for Blob.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
-					"handlerName": {
-						SchemaProps: spec.SchemaProps{
-							Description: "HandlerName is the name of the handler.",
-							Default:     "",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
 					"source": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Source is the source of the blob.",
@@ -384,7 +376,7 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 						},
 					},
 				},
-				Required: []string{"handlerName", "source", "destination", "total"},
+				Required: []string{"source", "destination", "total"},
 			},
 		},
 		Dependencies: []string{
@@ -399,6 +391,14 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 				Description: "BlobStatus holds status for the Blob",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
+					"handlerName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "HandlerName is the name of the handler.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 					"phase": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Phase represents the current phase of the blob.",
@@ -502,6 +502,7 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 						},
 					},
 				},
+				Required: []string{"handlerName"},
 			},
 		},
 		Dependencies: []string{
@@ -730,14 +731,6 @@ func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) commo
 				Description: "ChunkSpec defines the specification for Chunk.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
-					"handlerName": {
-						SchemaProps: spec.SchemaProps{
-							Description: "HandlerName is the name of the handler.",
-							Default:     "",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
 					"source": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Source is the source of the chunk.",
@@ -812,7 +805,7 @@ func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) commo
 						},
 					},
 				},
-				Required: []string{"handlerName", "source", "destination", "priority", "total"},
+				Required: []string{"source", "destination", "priority", "total"},
 			},
 		},
 		Dependencies: []string{
@@ -827,6 +820,14 @@ func schema_pkg_apis_task_v1alpha1_ChunkStatus(ref common.ReferenceCallback) com
 				Description: "ChunkStatus holds status for the Chunk",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
+					"handlerName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "HandlerName is the name of the handler.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 					"phase": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Phase represents the current phase of the chunk.",
@@ -924,6 +925,7 @@ func schema_pkg_apis_task_v1alpha1_ChunkStatus(ref common.ReferenceCallback) com
 						},
 					},
 				},
+				Required: []string{"handlerName"},
 			},
 		},
 		Dependencies: []string{

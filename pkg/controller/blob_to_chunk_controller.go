@@ -135,7 +135,7 @@ func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) e
 		return err
 	}
 
-	if blob.Spec.HandlerName != c.handlerName {
+	if blob.Status.HandlerName != c.handlerName {
 		return nil
 	}
 

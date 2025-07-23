@@ -262,7 +262,7 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 		row := metav1.TableRow{
 			Cells: []interface{}{
 				blob.Name,
-				blob.Spec.HandlerName,
+				blob.Status.HandlerName,
 				phase,
 				progress,
 				chunks,
