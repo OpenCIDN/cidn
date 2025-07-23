@@ -62,7 +62,7 @@ func MatchChunk(label labels.Selector, field fields.Selector) storage.SelectionP
 
 // SelectableFields returns a field set that represents the object.
 func SelectableFields(obj *v1alpha1.Chunk) fields.Set {
-	return generic.ObjectMetaFieldsSet(&obj.ObjectMeta, true)
+	return generic.ObjectMetaFieldsSet(&obj.ObjectMeta, false)
 }
 
 type chunkStrategy struct {

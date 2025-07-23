@@ -62,7 +62,7 @@ func MatchBlob(label labels.Selector, field fields.Selector) storage.SelectionPr
 
 // SelectableFields returns a field set that represents the object.
 func SelectableFields(obj *v1alpha1.Blob) fields.Set {
-	return generic.ObjectMetaFieldsSet(&obj.ObjectMeta, true)
+	return generic.ObjectMetaFieldsSet(&obj.ObjectMeta, false)
 }
 
 type blobStrategy struct {
