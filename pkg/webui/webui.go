@@ -104,7 +104,7 @@ func NewHandler(client versioned.Interface) http.Handler {
 
 				mut.Lock()
 				defer mut.Unlock()
-				if oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Spec.Total {
+				if oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Status.Total {
 					updateBuffer[string(newBlob.UID)] = createEvent("UPDATE", newBlob)
 				} else {
 					delete(updateBuffer, string(newBlob.UID))
@@ -208,7 +208,7 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 	cleaned.Name = blob.Name
 	// Set spec fields
 	cleaned.Priority = blob.Spec.Priority
-	cleaned.Total = blob.Spec.Total
+	cleaned.Total = blob.Status.Total
 	cleaned.ChunksNumber = blob.Spec.ChunksNumber
 
 	// Set status fields

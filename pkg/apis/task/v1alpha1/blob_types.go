@@ -69,6 +69,12 @@ type BlobStatus struct {
 	// Phase represents the current phase of the blob.
 	Phase BlobPhase `json:"phase,omitempty"`
 
+	// Total represents the total amount of work to be done for this blob.
+	Total int64 `json:"total,omitempty"`
+
+	// AcceptRanges represents the accept-ranges header of the response.
+	AcceptRanges bool `json:"acceptRanges,omitempty"`
+
 	// Progress is the progress of the blob.
 	Progress int64 `json:"progress,omitempty"`
 
@@ -122,9 +128,6 @@ type BlobSpec struct {
 	// Priority represents the relative importance of this blob when multiple blobs exist.
 	Priority int64 `json:"priority,omitempty"`
 
-	// Total represents the total amount of work to be done for this blob.
-	Total int64 `json:"total"`
-
 	// MinimumChunkSize represents the minimum size of each chunk when splitting the blob.
 	MinimumChunkSize int64 `json:"minimumChunkSize,omitempty"`
 
@@ -156,9 +159,6 @@ type BlobSpec struct {
 type BlobSource struct {
 	// URL is the source URL of the blob.
 	URL string `json:"url"`
-
-	// Etag is the ETag of the source resource.
-	Etag string `json:"etag,omitempty"`
 }
 
 // BlobDestination defines the destination for a blob.

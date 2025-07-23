@@ -26,7 +26,6 @@ import (
 // ChunkRunner executes Chunk tasks
 type Runner struct {
 	chunk *ChunkRunner
-	head  *HeadRunner
 
 	sharedInformerFactory externalversions.SharedInformerFactory
 }
@@ -36,7 +35,6 @@ func NewRunner(handlerName string, client versioned.Interface) *Runner {
 	sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
 	return &Runner{
 		chunk:                 NewChunkRunner(handlerName, client, sharedInformerFactory),
-		head:                  NewHeadRunner(handlerName, client, sharedInformerFactory),
 		sharedInformerFactory: sharedInformerFactory,
 	}
 }
@@ -48,20 +46,12 @@ func (r *Runner) Shutdown(ctx context.Context) error {
 		return err
 	}
 
-	err = r.head.Release(ctx)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
 // Start starts the runner
 func (r *Runner) Start(ctx context.Context) error {
 	err := r.chunk.Start(ctx)
-	if err != nil {
-		return err
-	}
-	err = r.head.Start(ctx)
 	if err != nil {
 		return err
 	}

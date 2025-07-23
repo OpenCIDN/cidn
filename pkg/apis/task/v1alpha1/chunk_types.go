@@ -72,6 +72,9 @@ type ChunkStatus struct {
 	// Progress is the progress of the chunk.
 	Progress int64 `json:"progress,omitempty"`
 
+	// SourceResponse is the response from the source resource
+	SourceResponse *ChunkHTTPResponse `json:"sourceResponse,omitempty"`
+
 	// SourceProgress is the progress of reading the source resource
 	SourceProgress int64 `json:"sourceProgress,omitempty"`
 
@@ -120,7 +123,7 @@ type ChunkHTTPResponse struct {
 	// StatusCode is the expected HTTP status code
 	StatusCode int `json:"statusCode"`
 
-	// Headers contains the HTTP headers from the response that should be validated
+	// Headers contains the HTTP headers from the response
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
@@ -143,13 +146,13 @@ type ChunkSpec struct {
 	Source ChunkHTTP `json:"source"`
 
 	// Destination is the destination of the chunk.
-	Destination []ChunkHTTP `json:"destination"`
+	Destination []ChunkHTTP `json:"destination,omitempty"`
 
 	// Priority represents the relative importance of this chunk when multiple chunks exist.
 	Priority int64 `json:"priority"`
 
 	// Total represents the total amount of work to be done for this chunk.
-	Total int64 `json:"total"`
+	Total int64 `json:"total,omitempty"`
 
 	// ChunkIndex represents the part number in a multipart upload operation.
 	// 0 means not part of a multipart upload, >0 means the part number (1-based index).

@@ -259,13 +259,6 @@ func schema_pkg_apis_task_v1alpha1_BlobSource(ref common.ReferenceCallback) comm
 							Format:      "",
 						},
 					},
-					"etag": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Etag is the ETag of the source resource.",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
 				},
 				Required: []string{"url"},
 			},
@@ -311,14 +304,6 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 					"priority": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Priority represents the relative importance of this blob when multiple blobs exist.",
-							Type:        []string{"integer"},
-							Format:      "int64",
-						},
-					},
-					"total": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Total represents the total amount of work to be done for this blob.",
-							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -376,7 +361,7 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 						},
 					},
 				},
-				Required: []string{"source", "destination", "total"},
+				Required: []string{"source", "destination"},
 			},
 		},
 		Dependencies: []string{
@@ -403,6 +388,20 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 						SchemaProps: spec.SchemaProps{
 							Description: "Phase represents the current phase of the blob.",
 							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"total": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Total represents the total amount of work to be done for this blob.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"acceptRanges": {
+						SchemaProps: spec.SchemaProps{
+							Description: "AcceptRanges represents the accept-ranges header of the response.",
+							Type:        []string{"boolean"},
 							Format:      "",
 						},
 					},
@@ -654,7 +653,7 @@ func schema_pkg_apis_task_v1alpha1_ChunkHTTPResponse(ref common.ReferenceCallbac
 					},
 					"headers": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Headers contains the HTTP headers from the response that should be validated",
+							Description: "Headers contains the HTTP headers from the response",
 							Type:        []string{"object"},
 							AdditionalProperties: &spec.SchemaOrBool{
 								Allows: true,
@@ -763,7 +762,6 @@ func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) commo
 					"total": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Total represents the total amount of work to be done for this chunk.",
-							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -805,7 +803,7 @@ func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) commo
 						},
 					},
 				},
-				Required: []string{"source", "destination", "priority", "total"},
+				Required: []string{"source", "priority"},
 			},
 		},
 		Dependencies: []string{
@@ -840,6 +838,12 @@ func schema_pkg_apis_task_v1alpha1_ChunkStatus(ref common.ReferenceCallback) com
 							Description: "Progress is the progress of the chunk.",
 							Type:        []string{"integer"},
 							Format:      "int64",
+						},
+					},
+					"sourceResponse": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SourceResponse is the response from the source resource",
+							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPResponse"),
 						},
 					},
 					"sourceProgress": {
@@ -929,7 +933,7 @@ func schema_pkg_apis_task_v1alpha1_ChunkStatus(ref common.ReferenceCallback) com
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPResponse", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"},
 	}
 }
 

@@ -29,6 +29,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -255,6 +256,20 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		return nil
 	}
 
+	headers := map[string]string{}
+	for k := range srcResp.Header {
+		headers[strings.ToLower(k)] = srcResp.Header.Get(k)
+	}
+
+	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+		ss.Status.SourceResponse = &v1alpha1.ChunkHTTPResponse{
+			StatusCode: srcResp.StatusCode,
+			Headers:    headers,
+		}
+
+		return ss, nil
+	})
+
 	if chunk.Spec.Source.Response.StatusCode != 0 {
 		if srcResp.StatusCode != chunk.Spec.Source.Response.StatusCode {
 			err := fmt.Errorf("unexpected status code: got %d, want %d",
@@ -279,7 +294,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		}
 	}
 
-	if srcResp.ContentLength != chunk.Spec.Total {
+	if chunk.Spec.Total != 0 && srcResp.ContentLength != chunk.Spec.Total {
 		err := fmt.Errorf("content length mismatch: got %d, want %d", srcResp.ContentLength, chunk.Spec.Total)
 		s.handleProcessError("ContentLengthMismatch", err)
 
@@ -376,6 +391,14 @@ func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, contin
 
 	body := r.sourceRequest(ctx, chunk, s)
 	if body == nil {
+		return
+	}
+
+	if len(chunk.Spec.Destination) == 0 {
+		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+			ss.Status.Phase = v1alpha1.ChunkPhaseSucceeded
+			return ss, nil
+		})
 		return
 	}
 

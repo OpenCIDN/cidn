@@ -118,17 +118,20 @@ func (*blobStrategy) Canonicalize(obj runtime.Object) {
 		blob.Status.Phase = v1alpha1.BlobPhasePending
 	}
 
-	if blob.Spec.Total != 0 {
-		if blob.Spec.MinimumChunkSize != 0 {
-			blob.Spec.ChunksNumber = getChunksNumberByMinimumChunkSize(blob.Spec.Total, blob.Spec.MinimumChunkSize)
-			blob.Spec.ChunkSize = getChunkSize(blob.Spec.Total, blob.Spec.ChunksNumber)
+	if blob.Status.Total != 0 {
+		if !blob.Status.AcceptRanges {
+			blob.Spec.ChunksNumber = 1
+			blob.Spec.ChunkSize = blob.Status.Total
+		} else if blob.Spec.MinimumChunkSize != 0 {
+			blob.Spec.ChunksNumber = getChunksNumberByMinimumChunkSize(blob.Status.Total, blob.Spec.MinimumChunkSize)
+			blob.Spec.ChunkSize = getChunkSize(blob.Status.Total, blob.Spec.ChunksNumber)
 		} else if blob.Spec.ChunkSize == 0 && blob.Spec.ChunksNumber != 0 {
-			blob.Spec.ChunkSize = getChunkSize(blob.Spec.Total, blob.Spec.ChunksNumber)
+			blob.Spec.ChunkSize = getChunkSize(blob.Status.Total, blob.Spec.ChunksNumber)
 		} else if blob.Spec.ChunkSize != 0 && blob.Spec.ChunksNumber == 0 {
-			blob.Spec.ChunksNumber = getChunksNumber(blob.Spec.Total, blob.Spec.ChunkSize)
+			blob.Spec.ChunksNumber = getChunksNumber(blob.Status.Total, blob.Spec.ChunkSize)
 		} else {
 			blob.Spec.ChunksNumber = 1
-			blob.Spec.ChunkSize = blob.Spec.Total
+			blob.Spec.ChunkSize = blob.Status.Total
 		}
 	}
 }
@@ -196,6 +199,18 @@ func (*blobStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object
 		errList = append(errList, field.Forbidden(field.NewPath("spec", "destination"), "destination is immutable"))
 	}
 
+	if oldBlob.Status.Total != 0 && newBlob.Status.Total != oldBlob.Status.Total {
+		errList = append(errList, field.Forbidden(field.NewPath("status", "total"), "total is immutable"))
+	}
+
+	if oldBlob.Spec.ChunkSize != 0 && newBlob.Spec.ChunkSize != oldBlob.Spec.ChunkSize {
+		errList = append(errList, field.Forbidden(field.NewPath("spec", "chunkSize"), "chunkSize is immutable"))
+	}
+
+	if oldBlob.Spec.ChunksNumber != 0 && newBlob.Spec.ChunksNumber != oldBlob.Spec.ChunksNumber {
+		errList = append(errList, field.Forbidden(field.NewPath("spec", "chunksNumber"), "chunksNumber is immutable"))
+	}
+
 	return errList
 }
 
@@ -250,11 +265,11 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 		}
 
 		progress := "<none>"
-		if blob.Spec.Total != 0 {
-			if blob.Status.Progress == blob.Spec.Total {
-				progress = humanize.IBytes(uint64(blob.Spec.Total))
+		if blob.Status.Total != 0 {
+			if blob.Status.Progress == blob.Status.Total {
+				progress = humanize.IBytes(uint64(blob.Status.Total))
 			} else {
-				progress = fmt.Sprintf("%s/%s", humanize.IBytes(uint64(blob.Status.Progress)), humanize.IBytes(uint64(blob.Spec.Total)))
+				progress = fmt.Sprintf("%s/%s", humanize.IBytes(uint64(blob.Status.Progress)), humanize.IBytes(uint64(blob.Status.Total)))
 			}
 		}
 

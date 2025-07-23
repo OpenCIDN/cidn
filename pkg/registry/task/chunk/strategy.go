@@ -88,16 +88,8 @@ func (*chunkStrategy) Validate(ctx context.Context, obj runtime.Object) field.Er
 	chunk := obj.(*v1alpha1.Chunk)
 	var errList field.ErrorList
 
-	if chunk.Spec.Total <= 0 {
-		errList = append(errList, field.Required(field.NewPath("spec", "total"), "total must be greater than 0"))
-	}
-
 	if len(chunk.Spec.Source.Request.URL) == 0 {
 		errList = append(errList, field.Required(field.NewPath("spec", "source", "request", "url"), "source URL must be specified"))
-	}
-
-	if len(chunk.Spec.Destination) == 0 {
-		errList = append(errList, field.Required(field.NewPath("spec", "destination"), "at least one destination must be specified"))
 	}
 
 	return errList
@@ -127,16 +119,8 @@ func (*chunkStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Objec
 	oldChunk := old.(*v1alpha1.Chunk)
 	var errList field.ErrorList
 
-	if newChunk.Spec.Total != oldChunk.Spec.Total {
-		errList = append(errList, field.Forbidden(field.NewPath("spec", "total"), "total is immutable"))
-	}
-
-	if newChunk.Spec.Source.Request.URL != oldChunk.Spec.Source.Request.URL {
-		errList = append(errList, field.Forbidden(field.NewPath("spec", "source", "request", "url"), "source URL is immutable"))
-	}
-
-	if !reflect.DeepEqual(newChunk.Spec.Destination, oldChunk.Spec.Destination) {
-		errList = append(errList, field.Forbidden(field.NewPath("spec", "destination"), "destination is immutable"))
+	if !reflect.DeepEqual(newChunk.Spec, oldChunk.Spec) {
+		errList = append(errList, field.Forbidden(field.NewPath("spec"), "spec is immutable"))
 	}
 
 	return errList

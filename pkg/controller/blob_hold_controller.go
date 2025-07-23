@@ -166,11 +166,7 @@ func (c *BlobHoldController) chunkHandler(ctx context.Context, name string) erro
 		return nil
 	}
 
-	if blob.Spec.Total == 0 {
-		return nil
-	}
-
-	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded {
+	if blob.Status.Phase != v1alpha1.BlobPhasePending {
 		return nil
 	}
 
@@ -178,6 +174,9 @@ func (c *BlobHoldController) chunkHandler(ctx context.Context, name string) erro
 	blob.Status.Phase = v1alpha1.BlobPhaseRunning
 	_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
 	if err != nil {
+		if apierrors.IsConflict(err) {
+			return nil
+		}
 		return fmt.Errorf("failed to update blob %s: %v", blob.Name, err)
 	}
 

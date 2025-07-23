@@ -139,10 +139,14 @@ func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) e
 		return nil
 	}
 
+	if blob.Status.Total == 0 {
+		return c.toHeadChunk(ctx, blob)
+	}
+
 	switch blob.Status.Phase {
 	case v1alpha1.BlobPhaseRunning, v1alpha1.BlobPhaseUnknown:
 		if blob.Spec.ChunksNumber != 0 {
-			if blob.Spec.ChunksNumber != 1 {
+			if blob.Spec.ChunksNumber != 1 && blob.Status.AcceptRanges {
 				err := c.toChunks(ctx, blob)
 				if err != nil {
 					return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
@@ -163,10 +167,89 @@ func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) e
 	return nil
 }
 
-func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
-	existingChunk, err := c.chunkInformer.Lister().Get(blob.Name)
+func buildHeadChunkName(blobName string, i int) string {
+	return fmt.Sprintf("%s:head:%d", blobName, i)
+}
+
+func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.Blob) error {
+	chunkName := buildHeadChunkName(blob.Name, 0)
+	existingChunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err == nil && existingChunk != nil {
-		if existingChunk.Spec.Total == blob.Spec.Total &&
+		if existingChunk.Annotations[BlobNameAnnotationKey] == blob.Name &&
+			existingChunk.Labels[BlobUIDLabelKey] == string(blob.UID) {
+			return nil
+		}
+
+		err := c.client.TaskV1alpha1().Chunks().Delete(ctx, chunkName, metav1.DeleteOptions{})
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				return fmt.Errorf("failed to delete mismatched chunk: %v", err)
+			}
+		}
+	}
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to check for existing chunk: %v", err)
+	}
+
+	src := blob.Spec.Source[0]
+
+	chunk := &v1alpha1.Chunk{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: chunkName,
+			Labels: map[string]string{
+				BlobUIDLabelKey: string(blob.UID),
+			},
+			Annotations: map[string]string{
+				BlobNameAnnotationKey: blob.Name,
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: v1alpha1.GroupVersion.String(),
+					Kind:       v1alpha1.BlobKind,
+					Name:       blob.Name,
+					UID:        blob.UID,
+				},
+			},
+		},
+		Spec: v1alpha1.ChunkSpec{
+			Priority:   blob.Spec.Priority,
+			RetryCount: blob.Spec.RetryCount - blob.Status.RetryCount,
+		},
+		Status: v1alpha1.ChunkStatus{
+			Phase: v1alpha1.ChunkPhasePending,
+		},
+	}
+
+	chunk.Spec.Source = v1alpha1.ChunkHTTP{
+		Request: v1alpha1.ChunkHTTPRequest{
+			Method: http.MethodHead,
+			URL:    src.URL,
+			Headers: map[string]string{
+				"Accept": "*/*",
+			},
+		},
+		Response: v1alpha1.ChunkHTTPResponse{
+			StatusCode: http.StatusOK,
+		},
+	}
+
+	_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func buildFullChunkName(blobName string) string {
+	return fmt.Sprintf("%s:full", blobName)
+}
+
+func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
+	chunkName := buildFullChunkName(blob.Name)
+	existingChunk, err := c.chunkInformer.Lister().Get(chunkName)
+	if err == nil && existingChunk != nil {
+		if existingChunk.Spec.Total == blob.Status.Total &&
 			existingChunk.Spec.Sha256 == blob.Spec.ContentSha256 &&
 			existingChunk.Annotations[BlobNameAnnotationKey] == blob.Name &&
 			existingChunk.Labels[BlobUIDLabelKey] == string(blob.UID) {
@@ -186,7 +269,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 	}
 	chunk := &v1alpha1.Chunk{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: blob.Name,
+			Name: chunkName,
 			Labels: map[string]string{
 				BlobUIDLabelKey: string(blob.UID),
 			},
@@ -203,7 +286,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 			},
 		},
 		Spec: v1alpha1.ChunkSpec{
-			Total:      blob.Spec.Total,
+			Total:      blob.Status.Total,
 			Priority:   blob.Spec.Priority,
 			Sha256:     blob.Spec.ContentSha256,
 			RetryCount: blob.Spec.RetryCount - blob.Status.RetryCount,
@@ -227,13 +310,9 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusOK,
 			Headers: map[string]string{
-				"Content-Length": fmt.Sprintf("%d", blob.Spec.Total),
+				"Content-Length": fmt.Sprintf("%d", blob.Status.Total),
 			},
 		},
-	}
-
-	if src.Etag != "" {
-		chunk.Spec.Source.Response.Headers["Etag"] = src.Etag
 	}
 
 	for _, dst := range blob.Spec.Destination {
@@ -244,7 +323,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 
 		if dst.SkipIfExists {
 			fi, err := s3.StatHead(ctx, dst.Path)
-			if err == nil && fi.Size() == blob.Spec.Total {
+			if err == nil && fi.Size() == blob.Status.Total {
 				continue
 			}
 		}
@@ -259,7 +338,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 				Method: http.MethodPut,
 				URL:    d,
 				Headers: map[string]string{
-					"Content-Length": fmt.Sprintf("%d", blob.Spec.Total),
+					"Content-Length": fmt.Sprintf("%d", blob.Status.Total),
 				},
 			},
 			Response: v1alpha1.ChunkHTTPResponse{
@@ -270,7 +349,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 
 	if len(chunk.Spec.Destination) == 0 {
 		blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
-		blob.Status.Progress = blob.Spec.Total
+		blob.Status.Progress = blob.Status.Total
 		_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to update blob status: %v", err)
@@ -340,13 +419,9 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 			StatusCode: http.StatusPartialContent,
 			Headers: map[string]string{
 				"Content-Length": fmt.Sprintf("%d", end-start),
-				"Content-Range":  fmt.Sprintf("bytes %d-%d/%d", start, end-1, blob.Spec.Total),
+				"Content-Range":  fmt.Sprintf("bytes %d-%d/%d", start, end-1, blob.Status.Total),
 			},
 		},
-	}
-
-	if src.Etag != "" {
-		chunk.Spec.Source.Response.Headers["Etag"] = src.Etag
 	}
 
 	for j, dst := range blob.Spec.Destination {
@@ -436,7 +511,7 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 
 			if dst.SkipIfExists {
 				fi, err := s3.StatHead(ctx, dst.Path)
-				if err == nil && fi.Size() == blob.Spec.Total {
+				if err == nil && fi.Size() == blob.Status.Total {
 					uploadIDs = append(uploadIDs, "")
 					continue
 				}
@@ -461,7 +536,7 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 		}
 		if allEmpty {
 			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
-			blob.Status.Progress = blob.Spec.Total
+			blob.Status.Progress = blob.Status.Total
 			_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to update blob status: %v", err)
@@ -474,7 +549,7 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 
 	created := 0
 	p0 := decimalStringLength(blob.Spec.ChunksNumber)
-	s0 := hexStringLength(blob.Spec.Total)
+	s0 := hexStringLength(blob.Status.Total)
 	lastName := "-"
 
 	g, _ := errgroup.WithContext(ctx)
@@ -482,8 +557,8 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 	for i := int64(0); i < blob.Spec.ChunksNumber && created < toCreate; i++ {
 		start := i * blob.Spec.ChunkSize
 		end := start + blob.Spec.ChunkSize
-		if end > blob.Spec.Total {
-			end = blob.Spec.Total
+		if end > blob.Status.Total {
+			end = blob.Status.Total
 		}
 
 		num := i + 1

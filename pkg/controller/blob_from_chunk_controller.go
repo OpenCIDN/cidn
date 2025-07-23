@@ -24,6 +24,7 @@ import (
 	"io"
 	"math/rand"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -139,11 +140,19 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 		return nil
 	}
 
+	if blob.Status.Total == 0 {
+		err = c.fromHeadChunk(ctx, blob)
+		if err != nil {
+			return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+		}
+		return nil
+	}
+
 	if blob.Spec.ChunksNumber == 0 {
 		return nil
 	}
 
-	if blob.Spec.ChunksNumber != 1 {
+	if blob.Spec.ChunksNumber != 1 && blob.Status.AcceptRanges {
 		err = c.fromChunks(ctx, blob)
 		if err != nil {
 			return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
@@ -162,8 +171,64 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 	return nil
 }
 
+func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alpha1.Blob) error {
+	chunkName := buildHeadChunkName(blob.Name, 0)
+	chunk, err := c.chunkInformer.Lister().Get(chunkName)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to get chunk: %w", err)
+	}
+
+	if chunk.Status.SourceResponse == nil {
+		return nil
+	}
+
+	switch chunk.Status.Phase {
+	case v1alpha1.ChunkPhaseSucceeded:
+		total, err := strconv.ParseInt(chunk.Status.SourceResponse.Headers["content-length"], 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse content-length: %w", err)
+		}
+
+		blob.Status.Total = total
+		blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
+
+		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update blob status: %v", err)
+		}
+
+		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, chunk.Name, metav1.DeleteOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to delete chunk: %w", err)
+		}
+	case v1alpha1.ChunkPhaseFailed:
+		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.RetryCount < chunk.Spec.RetryCount {
+			blob.Status.Phase = v1alpha1.BlobPhaseRunning
+		} else {
+			blob.Status.RetryCount = chunk.Status.RetryCount
+			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			for _, cond := range chunk.Status.Conditions {
+				if cond.Type == v1alpha1.ConditionTypeRetryable {
+					continue
+				}
+				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, cond)
+			}
+		}
+
+		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update blob status: %v", err)
+		}
+	}
+	return nil
+}
+
 func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
-	chunk, err := c.chunkInformer.Lister().Get(blob.Name)
+	chunkName := buildFullChunkName(blob.Name)
+	chunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
@@ -318,17 +383,17 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 
 	if len(blob.Status.UploadIDs) != 0 &&
 		blob.Status.Phase == v1alpha1.BlobPhaseRunning &&
-		blob.Status.Progress == blob.Spec.Total {
+		blob.Status.Progress == blob.Status.Total {
 
 		var totalSize int64
 		for _, etag := range blob.Status.UploadEtags {
 			totalSize += etag.Size
 		}
-		if totalSize != blob.Spec.Total {
+		if totalSize != blob.Status.Total {
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
 				Type:    "SizeMismatch",
-				Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, blob.Spec.Total),
+				Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, blob.Status.Total),
 			})
 			return nil
 		}
