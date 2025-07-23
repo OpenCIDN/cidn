@@ -120,9 +120,9 @@ func (c *ReleaseBlobController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	next, err := c.syncHandler(ctx, key)
+	next, err := c.chunkHandler(ctx, key)
 	if err != nil {
-		klog.Errorf("error release blob syncing '%s': %v", key, err)
+		klog.Errorf("error release blob chunking '%s': %v", key, err)
 	}
 
 	if next != 0 {
@@ -132,7 +132,7 @@ func (c *ReleaseBlobController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *ReleaseBlobController) syncHandler(ctx context.Context, name string) (time.Duration, error) {
+func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (time.Duration, error) {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {

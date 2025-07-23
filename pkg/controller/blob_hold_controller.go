@@ -143,17 +143,17 @@ func (c *BlobHoldController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.syncHandler(ctx, key)
+	err := c.chunkHandler(ctx, key)
 	if err != nil {
 		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error blob syncing '%s': %v, requeuing", key, err)
+		klog.Errorf("error blob chunking '%s': %v, requeuing", key, err)
 		return true
 	}
 
 	return true
 }
 
-func (c *BlobHoldController) syncHandler(ctx context.Context, name string) error {
+func (c *BlobHoldController) chunkHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {

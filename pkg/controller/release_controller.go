@@ -24,8 +24,8 @@ import (
 )
 
 type ReleaseController struct {
-	releaseBlobController *ReleaseBlobController
-	releaseSyncController *ReleaseSyncController
+	releaseBlobController  *ReleaseBlobController
+	releaseChunkController *ReleaseChunkController
 }
 
 func NewReleaseController(handlerName string, client *versioned.Clientset, sharedInformerFactory externalversions.SharedInformerFactory) *ReleaseController {
@@ -35,15 +35,15 @@ func NewReleaseController(handlerName string, client *versioned.Clientset, share
 		sharedInformerFactory,
 	)
 
-	releaseSyncController := NewReleaseSyncController(
+	releaseChunkController := NewReleaseChunkController(
 		handlerName,
 		client,
 		sharedInformerFactory,
 	)
 
 	return &ReleaseController{
-		releaseBlobController: releaseBlobController,
-		releaseSyncController: releaseSyncController,
+		releaseBlobController:  releaseBlobController,
+		releaseChunkController: releaseChunkController,
 	}
 }
 
@@ -52,7 +52,7 @@ func (c *ReleaseController) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	err = c.releaseSyncController.Start(ctx)
+	err = c.releaseChunkController.Start(ctx)
 	if err != nil {
 		return err
 	}

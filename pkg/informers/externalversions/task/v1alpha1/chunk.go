@@ -32,70 +32,70 @@ import (
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// SyncInformer provides access to a shared informer and lister for
-// Syncs.
-type SyncInformer interface {
+// ChunkInformer provides access to a shared informer and lister for
+// Chunks.
+type ChunkInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() taskv1alpha1.SyncLister
+	Lister() taskv1alpha1.ChunkLister
 }
 
-type syncInformer struct {
+type chunkInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
 }
 
-// NewSyncInformer constructs a new informer for Sync type.
+// NewChunkInformer constructs a new informer for Chunk type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewSyncInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredSyncInformer(client, resyncPeriod, indexers, nil)
+func NewChunkInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredChunkInformer(client, resyncPeriod, indexers, nil)
 }
 
-// NewFilteredSyncInformer constructs a new informer for Sync type.
+// NewFilteredChunkInformer constructs a new informer for Chunk type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredSyncInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredChunkInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.TaskV1alpha1().Syncs().List(context.Background(), options)
+				return client.TaskV1alpha1().Chunks().List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.TaskV1alpha1().Syncs().Watch(context.Background(), options)
+				return client.TaskV1alpha1().Chunks().Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.TaskV1alpha1().Syncs().List(ctx, options)
+				return client.TaskV1alpha1().Chunks().List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.TaskV1alpha1().Syncs().Watch(ctx, options)
+				return client.TaskV1alpha1().Chunks().Watch(ctx, options)
 			},
 		},
-		&apistaskv1alpha1.Sync{},
+		&apistaskv1alpha1.Chunk{},
 		resyncPeriod,
 		indexers,
 	)
 }
 
-func (f *syncInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredSyncInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+func (f *chunkInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredChunkInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
-func (f *syncInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apistaskv1alpha1.Sync{}, f.defaultInformer)
+func (f *chunkInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&apistaskv1alpha1.Chunk{}, f.defaultInformer)
 }
 
-func (f *syncInformer) Lister() taskv1alpha1.SyncLister {
-	return taskv1alpha1.NewSyncLister(f.Informer().GetIndexer())
+func (f *chunkInformer) Lister() taskv1alpha1.ChunkLister {
+	return taskv1alpha1.NewChunkLister(f.Informer().GetIndexer())
 }

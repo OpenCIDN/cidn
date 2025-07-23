@@ -23,19 +23,19 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 )
 
-// SyncRunner executes Sync tasks
+// ChunkRunner executes Chunk tasks
 type Runner struct {
-	sync *SyncRunner
-	head *HeadRunner
+	chunk *ChunkRunner
+	head  *HeadRunner
 
 	sharedInformerFactory externalversions.SharedInformerFactory
 }
 
-// NewSyncRunner creates a new Runner instance
+// NewChunkRunner creates a new Runner instance
 func NewRunner(handlerName string, client versioned.Interface) *Runner {
 	sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
 	return &Runner{
-		sync:                  NewSyncRunner(handlerName, client, sharedInformerFactory),
+		chunk:                 NewChunkRunner(handlerName, client, sharedInformerFactory),
 		head:                  NewHeadRunner(handlerName, client, sharedInformerFactory),
 		sharedInformerFactory: sharedInformerFactory,
 	}
@@ -43,7 +43,7 @@ func NewRunner(handlerName string, client versioned.Interface) *Runner {
 
 // Shutdown stops the runner
 func (r *Runner) Shutdown(ctx context.Context) error {
-	err := r.sync.Release(ctx)
+	err := r.chunk.Release(ctx)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func (r *Runner) Shutdown(ctx context.Context) error {
 
 // Start starts the runner
 func (r *Runner) Start(ctx context.Context) error {
-	err := r.sync.Start(ctx)
+	err := r.chunk.Start(ctx)
 	if err != nil {
 		return err
 	}

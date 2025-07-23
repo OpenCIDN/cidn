@@ -32,8 +32,8 @@ func (c *FakeTaskV1alpha1) Blobs() v1alpha1.BlobInterface {
 	return newFakeBlobs(c)
 }
 
-func (c *FakeTaskV1alpha1) Syncs() v1alpha1.SyncInterface {
-	return newFakeSyncs(c)
+func (c *FakeTaskV1alpha1) Chunks() v1alpha1.ChunkInterface {
+	return newFakeChunks(c)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

@@ -63,8 +63,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&Blob{},
 		&BlobList{},
-		&Sync{},
-		&SyncList{},
+		&Chunk{},
+		&ChunkList{},
 	)
 	// AddToGroupVersion allows the serialization of client types like ListOptions.
 	v1.AddToGroupVersion(scheme, SchemeGroupVersion)

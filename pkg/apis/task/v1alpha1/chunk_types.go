@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	// SyncKind is the kind of the Sync resource.
-	SyncKind = "Sync"
+	// ChunkKind is the kind of the Chunk resource.
+	ChunkKind = "Chunk"
 )
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -30,44 +30,44 @@ const (
 // +genclient:nonNamespaced
 // +genclient:noStatus
 
-// Sync is an API that describes the staged change of a resource
+// Chunk is an API that describes the staged change of a resource
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
-type Sync struct {
+type Chunk struct {
 	metav1.TypeMeta `json:",inline"`
 	// Standard list metadata.
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	// Spec holds information about the request being evaluated.
-	Spec SyncSpec `json:"spec"`
-	// Status holds status for the Sync
-	Status SyncStatus `json:"status,omitempty"`
+	Spec ChunkSpec `json:"spec"`
+	// Status holds status for the Chunk
+	Status ChunkStatus `json:"status,omitempty"`
 }
 
-// SyncPhase defines the phase of a Sync
-type SyncPhase string
+// ChunkPhase defines the phase of a Chunk
+type ChunkPhase string
 
 const (
-	// SyncPhasePending means the sync is pending
-	SyncPhasePending SyncPhase = "Pending"
-	// SyncPhaseRunning means the sync is running
-	SyncPhaseRunning SyncPhase = "Running"
-	// SyncPhaseSucceeded means the sync has succeeded
-	SyncPhaseSucceeded SyncPhase = "Succeeded"
-	// SyncPhaseFailed means the sync has failed
-	SyncPhaseFailed SyncPhase = "Failed"
-	// SyncPhaseUnknown means the sync status is unknown
-	SyncPhaseUnknown SyncPhase = "Unknown"
+	// ChunkPhasePending means the chunk is pending
+	ChunkPhasePending ChunkPhase = "Pending"
+	// ChunkPhaseRunning means the chunk is running
+	ChunkPhaseRunning ChunkPhase = "Running"
+	// ChunkPhaseSucceeded means the chunk has succeeded
+	ChunkPhaseSucceeded ChunkPhase = "Succeeded"
+	// ChunkPhaseFailed means the chunk has failed
+	ChunkPhaseFailed ChunkPhase = "Failed"
+	// ChunkPhaseUnknown means the chunk status is unknown
+	ChunkPhaseUnknown ChunkPhase = "Unknown"
 )
 
-// SyncStatus holds status for the Sync
+// ChunkStatus holds status for the Chunk
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
-type SyncStatus struct {
-	// Phase represents the current phase of the sync.
-	Phase SyncPhase `json:"phase,omitempty"`
+type ChunkStatus struct {
+	// Phase represents the current phase of the chunk.
+	Phase ChunkPhase `json:"phase,omitempty"`
 
-	// Progress is the progress of the sync.
+	// Progress is the progress of the chunk.
 	Progress int64 `json:"progress,omitempty"`
 
 	// SourceProgress is the progress of reading the source resource
@@ -85,10 +85,10 @@ type SyncStatus struct {
 	// Etag is the ETag of the resource snapshot being verified.
 	Etags []string `json:"etags,omitempty"`
 
-	// RetryCount is the number of times the sync has been retried.
+	// RetryCount is the number of times the chunk has been retried.
 	RetryCount int64 `json:"retryCount,omitempty"`
 
-	// Conditions holds conditions for the Sync.
+	// Conditions holds conditions for the Chunk.
 	// +patchMergeKey=type
 	// +patchStrategy=merge
 	// +listType=map
@@ -96,10 +96,10 @@ type SyncStatus struct {
 	Conditions []Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
-// SyncHTTPRequest defines the HTTP request parameters for Sync
+// ChunkHTTPRequest defines the HTTP request parameters for Chunk
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
-type SyncHTTPRequest struct {
+type ChunkHTTPRequest struct {
 	// Method is the HTTP method (GET, POST, PUT, DELETE, etc)
 	Method string `json:"method"`
 
@@ -111,10 +111,10 @@ type SyncHTTPRequest struct {
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
-// SyncHTTPResponse defines the expected HTTP response for validation
+// ChunkHTTPResponse defines the expected HTTP response for validation
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
-type SyncHTTPResponse struct {
+type ChunkHTTPResponse struct {
 	// StatusCode is the expected HTTP status code
 	StatusCode int `json:"statusCode"`
 
@@ -122,41 +122,41 @@ type SyncHTTPResponse struct {
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
-// SyncHTTP defines the HTTP request/response configuration for Sync
+// ChunkHTTP defines the HTTP request/response configuration for Chunk
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
-type SyncHTTP struct {
+type ChunkHTTP struct {
 	// Request defines the HTTP request parameters
-	Request SyncHTTPRequest `json:"request"`
+	Request ChunkHTTPRequest `json:"request"`
 
 	// Response defines the expected HTTP response for validation
-	Response SyncHTTPResponse `json:"response"`
+	Response ChunkHTTPResponse `json:"response"`
 }
 
-// SyncSpec defines the specification for Sync.
+// ChunkSpec defines the specification for Chunk.
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
-type SyncSpec struct {
+type ChunkSpec struct {
 	// HandlerName is the name of the handler.
 	HandlerName string `json:"handlerName"`
 
-	// Source is the source of the sync.
-	Source SyncHTTP `json:"source"`
+	// Source is the source of the chunk.
+	Source ChunkHTTP `json:"source"`
 
-	// Destination is the destination of the sync.
-	Destination []SyncHTTP `json:"destination"`
+	// Destination is the destination of the chunk.
+	Destination []ChunkHTTP `json:"destination"`
 
-	// Priority represents the relative importance of this sync when multiple syncs exist.
+	// Priority represents the relative importance of this chunk when multiple chunks exist.
 	Priority int64 `json:"priority"`
 
-	// Total represents the total amount of work to be done for this sync.
+	// Total represents the total amount of work to be done for this chunk.
 	Total int64 `json:"total"`
 
 	// ChunkIndex represents the part number in a multipart upload operation.
 	// 0 means not part of a multipart upload, >0 means the part number (1-based index).
 	ChunkIndex int64 `json:"chunkIndex,omitempty"`
 
-	// ChunksNumber represents the total number of chunks that the sync is part of in a multipart operation.
+	// ChunksNumber represents the total number of chunks that the chunk is part of in a multipart operation.
 	ChunksNumber int64 `json:"chunksNumber,omitempty"`
 
 	// Sha256PartialPreviousName indicates if this is an initial block when set to "-"
@@ -165,18 +165,18 @@ type SyncSpec struct {
 	// Sha256 is the expected SHA256 hash of the complete content
 	Sha256 string `json:"sha256,omitempty"`
 
-	// RetryCount is the number of times the sync has been retried.
+	// RetryCount is the number of times the chunk has been retried.
 	// +default=5
 	RetryCount int64 `json:"retryCount,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// SyncList contains a list of Sync
+// ChunkList contains a list of Chunk
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
-type SyncList struct {
+type ChunkList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Sync `json:"items"`
+	Items           []Chunk `json:"items"`
 }

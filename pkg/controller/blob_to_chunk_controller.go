@@ -37,30 +37,30 @@ import (
 	"k8s.io/klog/v2"
 )
 
-type BlobToSyncController struct {
-	handlerName  string
-	s3           map[string]*sss.SSS
-	expires      time.Duration
-	client       versioned.Interface
-	blobInformer informers.BlobInformer
-	syncInformer informers.SyncInformer
-	workqueue    workqueue.TypedDelayingInterface[string]
+type BlobToChunkController struct {
+	handlerName   string
+	s3            map[string]*sss.SSS
+	expires       time.Duration
+	client        versioned.Interface
+	blobInformer  informers.BlobInformer
+	chunkInformer informers.ChunkInformer
+	workqueue     workqueue.TypedDelayingInterface[string]
 }
 
-func NewBlobToSyncController(
+func NewBlobToChunkController(
 	handlerName string,
 	s3 map[string]*sss.SSS,
 	client versioned.Interface,
 	sharedInformerFactory externalversions.SharedInformerFactory,
-) *BlobToSyncController {
-	c := &BlobToSyncController{
-		handlerName:  handlerName,
-		s3:           s3,
-		expires:      24 * time.Hour,
-		blobInformer: sharedInformerFactory.Task().V1alpha1().Blobs(),
-		syncInformer: sharedInformerFactory.Task().V1alpha1().Syncs(),
-		client:       client,
-		workqueue:    workqueue.NewTypedDelayingQueue[string](),
+) *BlobToChunkController {
+	c := &BlobToChunkController{
+		handlerName:   handlerName,
+		s3:            s3,
+		expires:       24 * time.Hour,
+		blobInformer:  sharedInformerFactory.Task().V1alpha1().Blobs(),
+		chunkInformer: sharedInformerFactory.Task().V1alpha1().Chunks(),
+		client:        client,
+		workqueue:     workqueue.NewTypedDelayingQueue[string](),
 	}
 
 	c.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -87,46 +87,46 @@ func NewBlobToSyncController(
 	return c
 }
 
-func (c *BlobToSyncController) Start(ctx context.Context) error {
+func (c *BlobToChunkController) Start(ctx context.Context) error {
 
 	go c.runWorker(ctx)
 	return nil
 }
 
-func (c *BlobToSyncController) runWorker(ctx context.Context) {
+func (c *BlobToChunkController) runWorker(ctx context.Context) {
 	for c.processNextItem(ctx) {
 	}
 }
 
-func (c *BlobToSyncController) cleanupBlob(blob *v1alpha1.Blob) {
-	err := c.client.TaskV1alpha1().Syncs().DeleteCollection(context.Background(), metav1.DeleteOptions{}, metav1.ListOptions{
+func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
+	err := c.client.TaskV1alpha1().Chunks().DeleteCollection(context.Background(), metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: labels.Set{
 			BlobUIDLabelKey: string(blob.UID),
 		}.String(),
 	})
 	if err != nil {
-		klog.Errorf("failed to delete syncs for blob %s: %v", blob.Name, err)
+		klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
 	}
 }
 
-func (c *BlobToSyncController) processNextItem(ctx context.Context) bool {
+func (c *BlobToChunkController) processNextItem(ctx context.Context) bool {
 	key, quit := c.workqueue.Get()
 	if quit {
 		return false
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.syncHandler(ctx, key)
+	err := c.chunkHandler(ctx, key)
 	if err != nil {
 		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error blob syncing '%s': %v, requeuing", key, err)
+		klog.Errorf("error blob chunking '%s': %v, requeuing", key, err)
 		return true
 	}
 
 	return true
 }
 
-func (c *BlobToSyncController) syncHandler(ctx context.Context, name string) error {
+func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -143,15 +143,15 @@ func (c *BlobToSyncController) syncHandler(ctx context.Context, name string) err
 	case v1alpha1.BlobPhaseRunning, v1alpha1.BlobPhaseUnknown:
 		if blob.Spec.ChunksNumber != 0 {
 			if blob.Spec.ChunksNumber != 1 {
-				err := c.toSyncs(ctx, blob)
+				err := c.toChunks(ctx, blob)
 				if err != nil {
-					return fmt.Errorf("failed to create sync for blob %s: %v", blob.Name, err)
+					return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
 				}
 
 			} else {
-				err := c.toOneSync(ctx, blob)
+				err := c.toOneChunk(ctx, blob)
 				if err != nil {
-					return fmt.Errorf("failed to create sync for blob %s: %v", blob.Name, err)
+					return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
 				}
 			}
 		}
@@ -163,28 +163,28 @@ func (c *BlobToSyncController) syncHandler(ctx context.Context, name string) err
 	return nil
 }
 
-func (c *BlobToSyncController) toOneSync(ctx context.Context, blob *v1alpha1.Blob) error {
-	existingSync, err := c.syncInformer.Lister().Get(blob.Name)
-	if err == nil && existingSync != nil {
-		if existingSync.Spec.Total == blob.Spec.Total &&
-			existingSync.Spec.Sha256 == blob.Spec.ContentSha256 &&
-			existingSync.Annotations[BlobNameAnnotationKey] == blob.Name &&
-			existingSync.Labels[BlobUIDLabelKey] == string(blob.UID) {
-			// Sync already exists and matches, no need to create a new one
+func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
+	existingChunk, err := c.chunkInformer.Lister().Get(blob.Name)
+	if err == nil && existingChunk != nil {
+		if existingChunk.Spec.Total == blob.Spec.Total &&
+			existingChunk.Spec.Sha256 == blob.Spec.ContentSha256 &&
+			existingChunk.Annotations[BlobNameAnnotationKey] == blob.Name &&
+			existingChunk.Labels[BlobUIDLabelKey] == string(blob.UID) {
+			// Chunk already exists and matches, no need to create a new one
 			return nil
 		}
-		// Delete existing sync since it doesn't match
-		err := c.client.TaskV1alpha1().Syncs().Delete(ctx, blob.Name, metav1.DeleteOptions{})
+		// Delete existing chunk since it doesn't match
+		err := c.client.TaskV1alpha1().Chunks().Delete(ctx, blob.Name, metav1.DeleteOptions{})
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
-				return fmt.Errorf("failed to delete mismatched sync: %v", err)
+				return fmt.Errorf("failed to delete mismatched chunk: %v", err)
 			}
 		}
 	}
 	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to check for existing sync: %v", err)
+		return fmt.Errorf("failed to check for existing chunk: %v", err)
 	}
-	sync := &v1alpha1.Sync{
+	chunk := &v1alpha1.Chunk{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: blob.Name,
 			Labels: map[string]string{
@@ -202,29 +202,29 @@ func (c *BlobToSyncController) toOneSync(ctx context.Context, blob *v1alpha1.Blo
 				},
 			},
 		},
-		Spec: v1alpha1.SyncSpec{
+		Spec: v1alpha1.ChunkSpec{
 			Total:      blob.Spec.Total,
 			Priority:   blob.Spec.Priority,
 			Sha256:     blob.Spec.ContentSha256,
 			RetryCount: blob.Spec.RetryCount - blob.Status.RetryCount,
 		},
-		Status: v1alpha1.SyncStatus{
-			Phase: v1alpha1.SyncPhasePending,
+		Status: v1alpha1.ChunkStatus{
+			Phase: v1alpha1.ChunkPhasePending,
 		},
 	}
 
 	if blob.Spec.ContentSha256 != "" {
-		sync.Spec.Sha256PartialPreviousName = "-"
+		chunk.Spec.Sha256PartialPreviousName = "-"
 	}
 
 	src := blob.Spec.Source[0]
 
-	sync.Spec.Source = v1alpha1.SyncHTTP{
-		Request: v1alpha1.SyncHTTPRequest{
+	chunk.Spec.Source = v1alpha1.ChunkHTTP{
+		Request: v1alpha1.ChunkHTTPRequest{
 			Method: http.MethodGet,
 			URL:    src.URL,
 		},
-		Response: v1alpha1.SyncHTTPResponse{
+		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusOK,
 			Headers: map[string]string{
 				"Content-Length": fmt.Sprintf("%d", blob.Spec.Total),
@@ -233,7 +233,7 @@ func (c *BlobToSyncController) toOneSync(ctx context.Context, blob *v1alpha1.Blo
 	}
 
 	if src.Etag != "" {
-		sync.Spec.Source.Response.Headers["Etag"] = src.Etag
+		chunk.Spec.Source.Response.Headers["Etag"] = src.Etag
 	}
 
 	for _, dst := range blob.Spec.Destination {
@@ -254,21 +254,21 @@ func (c *BlobToSyncController) toOneSync(ctx context.Context, blob *v1alpha1.Blo
 			return err
 		}
 
-		sync.Spec.Destination = append(sync.Spec.Destination, v1alpha1.SyncHTTP{
-			Request: v1alpha1.SyncHTTPRequest{
+		chunk.Spec.Destination = append(chunk.Spec.Destination, v1alpha1.ChunkHTTP{
+			Request: v1alpha1.ChunkHTTPRequest{
 				Method: http.MethodPut,
 				URL:    d,
 				Headers: map[string]string{
 					"Content-Length": fmt.Sprintf("%d", blob.Spec.Total),
 				},
 			},
-			Response: v1alpha1.SyncHTTPResponse{
+			Response: v1alpha1.ChunkHTTPResponse{
 				StatusCode: http.StatusOK,
 			},
 		})
 	}
 
-	if len(sync.Spec.Destination) == 0 {
+	if len(chunk.Spec.Destination) == 0 {
 		blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
 		blob.Status.Progress = blob.Spec.Total
 		_, err := c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
@@ -278,7 +278,7 @@ func (c *BlobToSyncController) toOneSync(ctx context.Context, blob *v1alpha1.Blo
 		return nil
 	}
 
-	_, err = c.client.TaskV1alpha1().Syncs().Create(ctx, sync, metav1.CreateOptions{})
+	_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
 	if err != nil {
 		return err
 	}
@@ -286,9 +286,9 @@ func (c *BlobToSyncController) toOneSync(ctx context.Context, blob *v1alpha1.Blo
 	return nil
 }
 
-func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, start, end int64, lastName string, uploadIDs []string) (*v1alpha1.Sync, error) {
+func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num, start, end int64, lastName string, uploadIDs []string) (*v1alpha1.Chunk, error) {
 	apiVersion := v1alpha1.GroupVersion.String()
-	sync := &v1alpha1.Sync{
+	chunk := &v1alpha1.Chunk{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
@@ -306,37 +306,37 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 				},
 			},
 		},
-		Spec: v1alpha1.SyncSpec{
+		Spec: v1alpha1.ChunkSpec{
 			Total:        end - start,
 			Priority:     blob.Spec.Priority,
 			RetryCount:   blob.Spec.RetryCount - blob.Status.RetryCount,
 			ChunkIndex:   num,
 			ChunksNumber: blob.Spec.ChunksNumber,
 		},
-		Status: v1alpha1.SyncStatus{
-			Phase: v1alpha1.SyncPhasePending,
+		Status: v1alpha1.ChunkStatus{
+			Phase: v1alpha1.ChunkPhasePending,
 		},
 	}
 
 	if blob.Spec.ContentSha256 != "" {
-		sync.Spec.Sha256PartialPreviousName = lastName
+		chunk.Spec.Sha256PartialPreviousName = lastName
 	}
 
 	if num == blob.Spec.ChunksNumber && blob.Spec.ContentSha256 != "" {
-		sync.Spec.Sha256 = blob.Spec.ContentSha256
+		chunk.Spec.Sha256 = blob.Spec.ContentSha256
 	}
 
 	src := blob.Spec.Source[num%int64(len(blob.Spec.Source))]
 
-	sync.Spec.Source = v1alpha1.SyncHTTP{
-		Request: v1alpha1.SyncHTTPRequest{
+	chunk.Spec.Source = v1alpha1.ChunkHTTP{
+		Request: v1alpha1.ChunkHTTPRequest{
 			Method: http.MethodGet,
 			URL:    src.URL,
 			Headers: map[string]string{
 				"Range": fmt.Sprintf("bytes=%d-%d", start, end-1),
 			},
 		},
-		Response: v1alpha1.SyncHTTPResponse{
+		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusPartialContent,
 			Headers: map[string]string{
 				"Content-Length": fmt.Sprintf("%d", end-start),
@@ -346,7 +346,7 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 	}
 
 	if src.Etag != "" {
-		sync.Spec.Source.Response.Headers["Etag"] = src.Etag
+		chunk.Spec.Source.Response.Headers["Etag"] = src.Etag
 	}
 
 	for j, dst := range blob.Spec.Destination {
@@ -357,8 +357,8 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 
 		uploadID := uploadIDs[j]
 		if uploadID == "" {
-			sync.Spec.Destination = append(sync.Spec.Destination, v1alpha1.SyncHTTP{
-				Request: v1alpha1.SyncHTTPRequest{
+			chunk.Spec.Destination = append(chunk.Spec.Destination, v1alpha1.ChunkHTTP{
+				Request: v1alpha1.ChunkHTTPRequest{
 					Method: "",
 					URL:    "",
 				},
@@ -372,25 +372,25 @@ func (c *BlobToSyncController) buildSync(blob *v1alpha1.Blob, name string, num, 
 			return nil, err
 		}
 
-		sync.Spec.Destination = append(sync.Spec.Destination, v1alpha1.SyncHTTP{
-			Request: v1alpha1.SyncHTTPRequest{
+		chunk.Spec.Destination = append(chunk.Spec.Destination, v1alpha1.ChunkHTTP{
+			Request: v1alpha1.ChunkHTTPRequest{
 				Method: http.MethodPut,
 				URL:    partURL,
 				Headers: map[string]string{
 					"Content-Length": fmt.Sprintf("%d", end-start),
 				},
 			},
-			Response: v1alpha1.SyncHTTPResponse{
+			Response: v1alpha1.ChunkHTTPResponse{
 				StatusCode: http.StatusOK,
 			},
 		})
 	}
 
-	return sync, nil
+	return chunk, nil
 }
 
-func (c *BlobToSyncController) toSyncs(ctx context.Context, blob *v1alpha1.Blob) error {
-	syncs, err := c.syncInformer.Lister().List(labels.SelectorFromSet(labels.Set{
+func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blob) error {
+	chunks, err := c.chunkInformer.Lister().List(labels.SelectorFromSet(labels.Set{
 		BlobUIDLabelKey: string(blob.UID),
 	}))
 	if err != nil {
@@ -400,13 +400,13 @@ func (c *BlobToSyncController) toSyncs(ctx context.Context, blob *v1alpha1.Blob)
 	pendingCount := 0
 	runningCount := 0
 	failedCount := 0
-	for _, sync := range syncs {
-		switch sync.Status.Phase {
-		case v1alpha1.SyncPhasePending:
+	for _, chunk := range chunks {
+		switch chunk.Status.Phase {
+		case v1alpha1.ChunkPhasePending:
 			pendingCount++
-		case v1alpha1.SyncPhaseRunning:
+		case v1alpha1.ChunkPhaseRunning:
 			runningCount++
-		case v1alpha1.SyncPhaseFailed:
+		case v1alpha1.ChunkPhaseFailed:
 			failedCount++
 		}
 	}
@@ -491,12 +491,12 @@ func (c *BlobToSyncController) toSyncs(ctx context.Context, blob *v1alpha1.Blob)
 
 		if len(blob.Status.UploadEtags) != 0 && len(blob.Status.UploadEtags[i].Etags) != 0 {
 			if i < int64(len(blob.Status.UploadEtags))-1 && len(blob.Status.UploadEtags[i+1].Etags) != 0 {
-				if _, err := c.syncInformer.Lister().Get(name); err == nil {
+				if _, err := c.chunkInformer.Lister().Get(name); err == nil {
 					g.Go(func() error {
-						err := c.client.TaskV1alpha1().Syncs().Delete(ctx, name, metav1.DeleteOptions{})
+						err := c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
 						if err != nil {
 							if !apierrors.IsNotFound(err) {
-								klog.Errorf("failed to delete existing sync %s: %v", name, err)
+								klog.Errorf("failed to delete existing chunk %s: %v", name, err)
 								return nil
 							}
 						}
@@ -509,40 +509,40 @@ func (c *BlobToSyncController) toSyncs(ctx context.Context, blob *v1alpha1.Blob)
 			continue
 		}
 
-		if _, err := c.syncInformer.Lister().Get(name); err == nil {
+		if _, err := c.chunkInformer.Lister().Get(name); err == nil {
 			lastName = name
 			continue
 		} else if !apierrors.IsNotFound(err) {
 			return err
 		}
 
-		sync, err := c.buildSync(blob, name, num, start, end, lastName, blob.Status.UploadIDs)
+		chunk, err := c.buildChunk(blob, name, num, start, end, lastName, blob.Status.UploadIDs)
 		if err != nil {
 			return err
 		}
 
 		g.Go(func() error {
-			_, err = c.client.TaskV1alpha1().Syncs().Create(ctx, sync, metav1.CreateOptions{})
+			_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
 			if err == nil {
 				return nil
 			}
 
 			if !apierrors.IsAlreadyExists(err) {
-				klog.Errorf("failed to create sync %s: %v", sync.Name, err)
+				klog.Errorf("failed to create chunk %s: %v", chunk.Name, err)
 				return nil
 			}
 
-			// Delete existing sync and retry
-			err := c.client.TaskV1alpha1().Syncs().Delete(ctx, sync.Name, metav1.DeleteOptions{})
+			// Delete existing chunk and retry
+			err := c.client.TaskV1alpha1().Chunks().Delete(ctx, chunk.Name, metav1.DeleteOptions{})
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
-					klog.Errorf("failed to delete existing sync %s: %v", sync.Name, err)
+					klog.Errorf("failed to delete existing chunk %s: %v", chunk.Name, err)
 					return nil
 				}
 			}
-			_, err = c.client.TaskV1alpha1().Syncs().Create(ctx, sync, metav1.CreateOptions{})
+			_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
 			if err != nil {
-				klog.Errorf("failed to create sync %s after retry: %v", sync.Name, err)
+				klog.Errorf("failed to create chunk %s after retry: %v", chunk.Name, err)
 				return nil
 			}
 

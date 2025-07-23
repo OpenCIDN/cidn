@@ -41,49 +41,49 @@ import (
 	"k8s.io/klog/v2"
 )
 
-type BlobFromSyncController struct {
-	handlerName  string
-	s3           map[string]*sss.SSS
-	client       versioned.Interface
-	blobInformer informers.BlobInformer
-	syncInformer informers.SyncInformer
-	workqueue    workqueue.TypedDelayingInterface[string]
+type BlobFromChunkController struct {
+	handlerName   string
+	s3            map[string]*sss.SSS
+	client        versioned.Interface
+	blobInformer  informers.BlobInformer
+	chunkInformer informers.ChunkInformer
+	workqueue     workqueue.TypedDelayingInterface[string]
 }
 
-func NewBlobFromSyncController(
+func NewBlobFromChunkController(
 	handlerName string,
 	s3 map[string]*sss.SSS,
 	client versioned.Interface,
 	sharedInformerFactory externalversions.SharedInformerFactory,
-) *BlobFromSyncController {
-	c := &BlobFromSyncController{
-		handlerName:  handlerName,
-		s3:           s3,
-		blobInformer: sharedInformerFactory.Task().V1alpha1().Blobs(),
-		syncInformer: sharedInformerFactory.Task().V1alpha1().Syncs(),
-		client:       client,
-		workqueue:    workqueue.NewTypedDelayingQueue[string](),
+) *BlobFromChunkController {
+	c := &BlobFromChunkController{
+		handlerName:   handlerName,
+		s3:            s3,
+		blobInformer:  sharedInformerFactory.Task().V1alpha1().Blobs(),
+		chunkInformer: sharedInformerFactory.Task().V1alpha1().Chunks(),
+		client:        client,
+		workqueue:     workqueue.NewTypedDelayingQueue[string](),
 	}
 
-	c.syncInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			newSync := newObj.(*v1alpha1.Sync)
-			oldSync := oldObj.(*v1alpha1.Sync)
+			newChunk := newObj.(*v1alpha1.Chunk)
+			oldChunk := oldObj.(*v1alpha1.Chunk)
 
-			if reflect.DeepEqual(newSync.Status, oldSync.Status) {
+			if reflect.DeepEqual(newChunk.Status, oldChunk.Status) {
 				return
 			}
 
-			blobName := newSync.Annotations[BlobNameAnnotationKey]
+			blobName := newChunk.Annotations[BlobNameAnnotationKey]
 			if blobName == "" {
 				return
 			}
 			c.workqueue.Add(blobName)
 		},
 		DeleteFunc: func(obj interface{}) {
-			sync := obj.(*v1alpha1.Sync)
+			chunk := obj.(*v1alpha1.Chunk)
 
-			blobName := sync.Annotations[BlobNameAnnotationKey]
+			blobName := chunk.Annotations[BlobNameAnnotationKey]
 			if blobName == "" {
 				return
 			}
@@ -94,35 +94,35 @@ func NewBlobFromSyncController(
 	return c
 }
 
-func (c *BlobFromSyncController) Start(ctx context.Context) error {
+func (c *BlobFromChunkController) Start(ctx context.Context) error {
 
 	go c.runWorker(ctx)
 	return nil
 }
 
-func (c *BlobFromSyncController) runWorker(ctx context.Context) {
+func (c *BlobFromChunkController) runWorker(ctx context.Context) {
 	for c.processNextItem(ctx) {
 	}
 }
 
-func (c *BlobFromSyncController) processNextItem(ctx context.Context) bool {
+func (c *BlobFromChunkController) processNextItem(ctx context.Context) bool {
 	key, quit := c.workqueue.Get()
 	if quit {
 		return false
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.syncHandler(ctx, key)
+	err := c.chunkHandler(ctx, key)
 	if err != nil {
 		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error blob syncing '%s': %v, requeuing", key, err)
+		klog.Errorf("error blob chunking '%s': %v, requeuing", key, err)
 		return true
 	}
 
 	return true
 }
 
-func (c *BlobFromSyncController) syncHandler(ctx context.Context, name string) error {
+func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -144,12 +144,12 @@ func (c *BlobFromSyncController) syncHandler(ctx context.Context, name string) e
 	}
 
 	if blob.Spec.ChunksNumber != 1 {
-		err = c.fromSyncs(ctx, blob)
+		err = c.fromChunks(ctx, blob)
 		if err != nil {
 			return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
 		}
 	} else {
-		err = c.fromOneSync(ctx, blob)
+		err = c.fromOneChunk(ctx, blob)
 		if err != nil {
 			return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
 		}
@@ -162,17 +162,17 @@ func (c *BlobFromSyncController) syncHandler(ctx context.Context, name string) e
 	return nil
 }
 
-func (c *BlobFromSyncController) fromOneSync(ctx context.Context, blob *v1alpha1.Blob) error {
-	sync, err := c.syncInformer.Lister().Get(blob.Name)
+func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
+	chunk, err := c.chunkInformer.Lister().Get(blob.Name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
-		return fmt.Errorf("failed to get sync: %w", err)
+		return fmt.Errorf("failed to get chunk: %w", err)
 	}
 
-	switch sync.Status.Phase {
-	case v1alpha1.SyncPhaseSucceeded:
+	switch chunk.Status.Phase {
+	case v1alpha1.ChunkPhaseSucceeded:
 		blob.Status.PendingChunks = 0
 		blob.Status.RunningChunks = 0
 		blob.Status.SucceededChunks = 1
@@ -186,50 +186,50 @@ func (c *BlobFromSyncController) fromOneSync(ctx context.Context, blob *v1alpha1
 			})
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
-			blob.Status.Progress = sync.Status.Progress
+			blob.Status.Progress = chunk.Status.Progress
 		}
-	case v1alpha1.SyncPhaseFailed:
+	case v1alpha1.ChunkPhaseFailed:
 		blob.Status.PendingChunks = 0
 		blob.Status.RunningChunks = 0
 		blob.Status.SucceededChunks = 0
 		blob.Status.FailedChunks = 1
-		if _, ok := v1alpha1.GetCondition(sync.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && sync.Status.RetryCount < sync.Spec.RetryCount {
+		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.RetryCount < chunk.Spec.RetryCount {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
-			blob.Status.Progress = sync.Status.Progress
+			blob.Status.Progress = chunk.Status.Progress
 		} else {
-			blob.Status.RetryCount = sync.Status.RetryCount
+			blob.Status.RetryCount = chunk.Status.RetryCount
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
-			for _, cond := range sync.Status.Conditions {
+			for _, cond := range chunk.Status.Conditions {
 				if cond.Type == v1alpha1.ConditionTypeRetryable {
 					continue
 				}
 				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, cond)
 			}
 		}
-	case v1alpha1.SyncPhaseRunning, v1alpha1.SyncPhaseUnknown:
+	case v1alpha1.ChunkPhaseRunning, v1alpha1.ChunkPhaseUnknown:
 		blob.Status.PendingChunks = 0
 		blob.Status.RunningChunks = 1
 		blob.Status.SucceededChunks = 0
 		blob.Status.FailedChunks = 0
 		blob.Status.Phase = v1alpha1.BlobPhaseRunning
-		blob.Status.Progress = sync.Status.Progress
-	case v1alpha1.SyncPhasePending:
+		blob.Status.Progress = chunk.Status.Progress
+	case v1alpha1.ChunkPhasePending:
 		blob.Status.PendingChunks = 1
 		blob.Status.RunningChunks = 0
 		blob.Status.SucceededChunks = 0
 		blob.Status.FailedChunks = 0
 		blob.Status.Phase = v1alpha1.BlobPhaseRunning
-		blob.Status.Progress = sync.Status.Progress
+		blob.Status.Progress = chunk.Status.Progress
 	}
 	return nil
 }
 
-func (c *BlobFromSyncController) fromSyncs(ctx context.Context, blob *v1alpha1.Blob) error {
-	syncs, err := c.syncInformer.Lister().List(labels.SelectorFromSet(labels.Set{
+func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1.Blob) error {
+	chunks, err := c.chunkInformer.Lister().List(labels.SelectorFromSet(labels.Set{
 		BlobUIDLabelKey: string(blob.UID),
 	}))
 	if err != nil {
-		return fmt.Errorf("failed to list syncs: %w", err)
+		return fmt.Errorf("failed to list chunks: %w", err)
 	}
 
 	if len(blob.Status.UploadEtags) == 0 {
@@ -238,25 +238,25 @@ func (c *BlobFromSyncController) fromSyncs(ctx context.Context, blob *v1alpha1.B
 
 	var succeededCount, failedCount, pendingCount, runningCount, retryCount int64
 	var progress int64
-	for _, sync := range syncs {
-		switch sync.Status.Phase {
-		case v1alpha1.SyncPhaseSucceeded:
+	for _, chunk := range chunks {
+		switch chunk.Status.Phase {
+		case v1alpha1.ChunkPhaseSucceeded:
 
-			blob.Status.UploadEtags[sync.Spec.ChunkIndex-1] = v1alpha1.UploadEtag{
-				Size:  sync.Spec.Total,
-				Etags: sync.Status.Etags,
+			blob.Status.UploadEtags[chunk.Spec.ChunkIndex-1] = v1alpha1.UploadEtag{
+				Size:  chunk.Spec.Total,
+				Etags: chunk.Status.Etags,
 			}
 			continue
-		case v1alpha1.SyncPhaseFailed:
+		case v1alpha1.ChunkPhaseFailed:
 			failedCount++
-		case v1alpha1.SyncPhasePending:
+		case v1alpha1.ChunkPhasePending:
 			pendingCount++
-		case v1alpha1.SyncPhaseRunning:
+		case v1alpha1.ChunkPhaseRunning:
 			runningCount++
 		}
 
-		retryCount += sync.Status.RetryCount
-		progress += sync.Status.Progress
+		retryCount += chunk.Status.RetryCount
+		progress += chunk.Status.Progress
 	}
 
 	for _, e := range blob.Status.UploadEtags {
@@ -276,16 +276,16 @@ func (c *BlobFromSyncController) fromSyncs(ctx context.Context, blob *v1alpha1.B
 		if retryCount >= blob.Spec.RetryCount {
 			blob.Status.RetryCount = blob.Spec.RetryCount
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
-			for _, sync := range syncs {
-				if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
-					blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, sync.Status.Conditions...)
+			for _, chunk := range chunks {
+				if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
+					blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
 				}
 			}
 		} else {
 			hasNonRetryableFailure := false
-			for _, sync := range syncs {
-				if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
-					if _, ok := v1alpha1.GetCondition(sync.Status.Conditions, v1alpha1.ConditionTypeRetryable); !ok {
+			for _, chunk := range chunks {
+				if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
+					if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); !ok {
 						hasNonRetryableFailure = true
 						break
 					}
@@ -294,9 +294,9 @@ func (c *BlobFromSyncController) fromSyncs(ctx context.Context, blob *v1alpha1.B
 			if hasNonRetryableFailure {
 				blob.Status.RetryCount = blob.Spec.RetryCount
 				blob.Status.Phase = v1alpha1.BlobPhaseFailed
-				for _, sync := range syncs {
-					if sync.Status.Phase == v1alpha1.SyncPhaseFailed {
-						for _, cond := range sync.Status.Conditions {
+				for _, chunk := range chunks {
+					if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
+						for _, cond := range chunk.Status.Conditions {
 							if cond.Type == v1alpha1.ConditionTypeRetryable {
 								continue
 							}
@@ -389,7 +389,7 @@ func (c *BlobFromSyncController) fromSyncs(ctx context.Context, blob *v1alpha1.B
 	return nil
 }
 
-func (c *BlobFromSyncController) verifySha256(ctx context.Context, blob *v1alpha1.Blob) error {
+func (c *BlobFromChunkController) verifySha256(ctx context.Context, blob *v1alpha1.Blob) error {
 	if blob.Spec.ContentSha256 == "" {
 		return nil
 	}

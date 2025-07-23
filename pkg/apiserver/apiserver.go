@@ -26,7 +26,7 @@ import (
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/registry/task/blob"
-	"github.com/OpenCIDN/cidn/pkg/registry/task/sync"
+	"github.com/OpenCIDN/cidn/pkg/registry/task/chunk"
 )
 
 var (
@@ -42,8 +42,8 @@ func addInternalTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(schemeGroupVersion,
 		&v1alpha1.Blob{},
 		&v1alpha1.BlobList{},
-		&v1alpha1.Sync{},
-		&v1alpha1.SyncList{},
+		&v1alpha1.Chunk{},
+		&v1alpha1.ChunkList{},
 	)
 
 	v1alpha1.RegisterDefaults(Scheme)
@@ -90,7 +90,7 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(v1alpha1.GroupName, Scheme, metav1.ParameterCodec, Codecs)
 
-	syncStorage, err := sync.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
+	chunkStorage, err := chunk.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
 	if err != nil {
 		return nil, err
 	}
@@ -101,8 +101,8 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 	}
 
 	apiGroupInfo.VersionedResourcesStorageMap["v1alpha1"] = map[string]rest.Storage{
-		"syncs": syncStorage,
-		"blobs": blobStorage,
+		"chunks": chunkStorage,
+		"blobs":  blobStorage,
 	}
 
 	if err := genericServer.InstallAPIGroup(&apiGroupInfo); err != nil {

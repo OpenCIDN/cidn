@@ -39,7 +39,7 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 	flags := &flagpole{}
 	cmd := &cobra.Command{
 		Use:   "runner",
-		Short: "Run the sync runner",
+		Short: "Run the chunk runner",
 		RunE: func(cmd *cobra.Command, args []string) error {
 
 			ident, err := utils.Identity()

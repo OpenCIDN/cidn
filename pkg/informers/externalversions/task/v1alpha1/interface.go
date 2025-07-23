@@ -26,8 +26,8 @@ import (
 type Interface interface {
 	// Blobs returns a BlobInformer.
 	Blobs() BlobInformer
-	// Syncs returns a SyncInformer.
-	Syncs() SyncInformer
+	// Chunks returns a ChunkInformer.
+	Chunks() ChunkInformer
 }
 
 type version struct {
@@ -46,7 +46,7 @@ func (v *version) Blobs() BlobInformer {
 	return &blobInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// Syncs returns a SyncInformer.
-func (v *version) Syncs() SyncInformer {
-	return &syncInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+// Chunks returns a ChunkInformer.
+func (v *version) Chunks() ChunkInformer {
+	return &chunkInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package sync
+package chunk
 
 import (
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,11 +29,11 @@ func NewREST(scheme *runtime.Scheme, optsGetter generic.RESTOptionsGetter) (*gen
 	strategy := NewStrategy(scheme)
 
 	store := &genericregistry.Store{
-		NewFunc:                   func() runtime.Object { return &v1alpha1.Sync{} },
-		NewListFunc:               func() runtime.Object { return &v1alpha1.SyncList{} },
-		PredicateFunc:             MatchSync,
-		DefaultQualifiedResource:  v1alpha1.Resource("syncs"),
-		SingularQualifiedResource: v1alpha1.Resource("sync"),
+		NewFunc:                   func() runtime.Object { return &v1alpha1.Chunk{} },
+		NewListFunc:               func() runtime.Object { return &v1alpha1.ChunkList{} },
+		PredicateFunc:             MatchChunk,
+		DefaultQualifiedResource:  v1alpha1.Resource("chunks"),
+		SingularQualifiedResource: v1alpha1.Resource("chunk"),
 
 		CreateStrategy: strategy,
 		UpdateStrategy: strategy,

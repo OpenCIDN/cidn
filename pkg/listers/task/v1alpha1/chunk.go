@@ -25,24 +25,24 @@ import (
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// SyncLister helps list Syncs.
+// ChunkLister helps list Chunks.
 // All objects returned here must be treated as read-only.
-type SyncLister interface {
-	// List lists all Syncs in the indexer.
+type ChunkLister interface {
+	// List lists all Chunks in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*taskv1alpha1.Sync, err error)
-	// Get retrieves the Sync from the index for a given name.
+	List(selector labels.Selector) (ret []*taskv1alpha1.Chunk, err error)
+	// Get retrieves the Chunk from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*taskv1alpha1.Sync, error)
-	SyncListerExpansion
+	Get(name string) (*taskv1alpha1.Chunk, error)
+	ChunkListerExpansion
 }
 
-// syncLister implements the SyncLister interface.
-type syncLister struct {
-	listers.ResourceIndexer[*taskv1alpha1.Sync]
+// chunkLister implements the ChunkLister interface.
+type chunkLister struct {
+	listers.ResourceIndexer[*taskv1alpha1.Chunk]
 }
 
-// NewSyncLister returns a new SyncLister.
-func NewSyncLister(indexer cache.Indexer) SyncLister {
-	return &syncLister{listers.New[*taskv1alpha1.Sync](indexer, taskv1alpha1.Resource("sync"))}
+// NewChunkLister returns a new ChunkLister.
+func NewChunkLister(indexer cache.Indexer) ChunkLister {
+	return &chunkLister{listers.New[*taskv1alpha1.Chunk](indexer, taskv1alpha1.Resource("chunk"))}
 }

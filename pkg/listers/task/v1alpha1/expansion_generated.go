@@ -22,6 +22,6 @@ package v1alpha1
 // BlobLister.
 type BlobListerExpansion interface{}
 
-// SyncListerExpansion allows custom methods to be added to
-// SyncLister.
-type SyncListerExpansion interface{}
+// ChunkListerExpansion allows custom methods to be added to
+// ChunkLister.
+type ChunkListerExpansion interface{}

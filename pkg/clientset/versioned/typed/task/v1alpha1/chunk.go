@@ -29,40 +29,40 @@ import (
 	gentype "k8s.io/client-go/gentype"
 )
 
-// SyncsGetter has a method to return a SyncInterface.
+// ChunksGetter has a method to return a ChunkInterface.
 // A group's client should implement this interface.
-type SyncsGetter interface {
-	Syncs() SyncInterface
+type ChunksGetter interface {
+	Chunks() ChunkInterface
 }
 
-// SyncInterface has methods to work with Sync resources.
-type SyncInterface interface {
-	Create(ctx context.Context, sync *taskv1alpha1.Sync, opts v1.CreateOptions) (*taskv1alpha1.Sync, error)
-	Update(ctx context.Context, sync *taskv1alpha1.Sync, opts v1.UpdateOptions) (*taskv1alpha1.Sync, error)
+// ChunkInterface has methods to work with Chunk resources.
+type ChunkInterface interface {
+	Create(ctx context.Context, chunk *taskv1alpha1.Chunk, opts v1.CreateOptions) (*taskv1alpha1.Chunk, error)
+	Update(ctx context.Context, chunk *taskv1alpha1.Chunk, opts v1.UpdateOptions) (*taskv1alpha1.Chunk, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*taskv1alpha1.Sync, error)
-	List(ctx context.Context, opts v1.ListOptions) (*taskv1alpha1.SyncList, error)
+	Get(ctx context.Context, name string, opts v1.GetOptions) (*taskv1alpha1.Chunk, error)
+	List(ctx context.Context, opts v1.ListOptions) (*taskv1alpha1.ChunkList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *taskv1alpha1.Sync, err error)
-	SyncExpansion
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *taskv1alpha1.Chunk, err error)
+	ChunkExpansion
 }
 
-// syncs implements SyncInterface
-type syncs struct {
-	*gentype.ClientWithList[*taskv1alpha1.Sync, *taskv1alpha1.SyncList]
+// chunks implements ChunkInterface
+type chunks struct {
+	*gentype.ClientWithList[*taskv1alpha1.Chunk, *taskv1alpha1.ChunkList]
 }
 
-// newSyncs returns a Syncs
-func newSyncs(c *TaskV1alpha1Client) *syncs {
-	return &syncs{
-		gentype.NewClientWithList[*taskv1alpha1.Sync, *taskv1alpha1.SyncList](
-			"syncs",
+// newChunks returns a Chunks
+func newChunks(c *TaskV1alpha1Client) *chunks {
+	return &chunks{
+		gentype.NewClientWithList[*taskv1alpha1.Chunk, *taskv1alpha1.ChunkList](
+			"chunks",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			"",
-			func() *taskv1alpha1.Sync { return &taskv1alpha1.Sync{} },
-			func() *taskv1alpha1.SyncList { return &taskv1alpha1.SyncList{} },
+			func() *taskv1alpha1.Chunk { return &taskv1alpha1.Chunk{} },
+			func() *taskv1alpha1.ChunkList { return &taskv1alpha1.ChunkList{} },
 		),
 	}
 }

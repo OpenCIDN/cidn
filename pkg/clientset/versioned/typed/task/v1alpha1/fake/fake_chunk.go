@@ -24,24 +24,24 @@ import (
 	gentype "k8s.io/client-go/gentype"
 )
 
-// fakeSyncs implements SyncInterface
-type fakeSyncs struct {
-	*gentype.FakeClientWithList[*v1alpha1.Sync, *v1alpha1.SyncList]
+// fakeChunks implements ChunkInterface
+type fakeChunks struct {
+	*gentype.FakeClientWithList[*v1alpha1.Chunk, *v1alpha1.ChunkList]
 	Fake *FakeTaskV1alpha1
 }
 
-func newFakeSyncs(fake *FakeTaskV1alpha1) taskv1alpha1.SyncInterface {
-	return &fakeSyncs{
-		gentype.NewFakeClientWithList[*v1alpha1.Sync, *v1alpha1.SyncList](
+func newFakeChunks(fake *FakeTaskV1alpha1) taskv1alpha1.ChunkInterface {
+	return &fakeChunks{
+		gentype.NewFakeClientWithList[*v1alpha1.Chunk, *v1alpha1.ChunkList](
 			fake.Fake,
 			"",
-			v1alpha1.SchemeGroupVersion.WithResource("syncs"),
-			v1alpha1.SchemeGroupVersion.WithKind("Sync"),
-			func() *v1alpha1.Sync { return &v1alpha1.Sync{} },
-			func() *v1alpha1.SyncList { return &v1alpha1.SyncList{} },
-			func(dst, src *v1alpha1.SyncList) { dst.ListMeta = src.ListMeta },
-			func(list *v1alpha1.SyncList) []*v1alpha1.Sync { return gentype.ToPointerSlice(list.Items) },
-			func(list *v1alpha1.SyncList, items []*v1alpha1.Sync) { list.Items = gentype.FromPointerSlice(items) },
+			v1alpha1.SchemeGroupVersion.WithResource("chunks"),
+			v1alpha1.SchemeGroupVersion.WithKind("Chunk"),
+			func() *v1alpha1.Chunk { return &v1alpha1.Chunk{} },
+			func() *v1alpha1.ChunkList { return &v1alpha1.ChunkList{} },
+			func(dst, src *v1alpha1.ChunkList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.ChunkList) []*v1alpha1.Chunk { return gentype.ToPointerSlice(list.Items) },
+			func(list *v1alpha1.ChunkList, items []*v1alpha1.Chunk) { list.Items = gentype.FromPointerSlice(items) },
 		),
 		fake,
 	}

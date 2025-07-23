@@ -31,9 +31,9 @@ const (
 )
 
 type BlobController struct {
-	blobHoldController     *BlobHoldController
-	blobToSyncController   *BlobToSyncController
-	blobFromSyncController *BlobFromSyncController
+	blobHoldController      *BlobHoldController
+	blobToChunkController   *BlobToChunkController
+	blobFromChunkController *BlobFromChunkController
 }
 
 func NewBlobController(
@@ -48,13 +48,13 @@ func NewBlobController(
 			client,
 			sharedInformerFactory,
 		),
-		blobToSyncController: NewBlobToSyncController(
+		blobToChunkController: NewBlobToChunkController(
 			handlerName,
 			s3,
 			client,
 			sharedInformerFactory,
 		),
-		blobFromSyncController: NewBlobFromSyncController(
+		blobFromChunkController: NewBlobFromChunkController(
 			handlerName,
 			s3,
 			client,
@@ -77,12 +77,12 @@ func (c *BlobController) Start(ctx context.Context) error {
 		return err
 	}
 
-	err = c.blobToSyncController.Start(ctx)
+	err = c.blobToChunkController.Start(ctx)
 	if err != nil {
 		return err
 	}
 
-	err = c.blobFromSyncController.Start(ctx)
+	err = c.blobFromChunkController.Start(ctx)
 	if err != nil {
 		return err
 	}

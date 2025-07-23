@@ -138,15 +138,15 @@ type BlobSpec struct {
 	// ContentSha256 is the sha256 checksum of the blob content being verified.
 	ContentSha256 string `json:"contentSha256,omitempty"`
 
-	// MaximumRunning is the maximum number of running syncs allowed for this blob.
+	// MaximumRunning is the maximum number of running chunks allowed for this blob.
 	// +default=2
 	MaximumRunning int64 `json:"maximumRunning,omitempty"`
 
-	// MaximumPending is the maximum number of pending syncs allowed for this blob.
+	// MaximumPending is the maximum number of pending chunks allowed for this blob.
 	// +default=1
 	MaximumPending int64 `json:"maximumPending,omitempty"`
 
-	// RetryCount is the number of times the sync has been retried.
+	// RetryCount is the number of times the chunk has been retried.
 	// +default=5
 	RetryCount int64 `json:"retryCount,omitempty"`
 }

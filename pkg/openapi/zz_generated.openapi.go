@@ -29,74 +29,74 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Blob":             schema_pkg_apis_task_v1alpha1_Blob(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobDestination":  schema_pkg_apis_task_v1alpha1_BlobDestination(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobList":         schema_pkg_apis_task_v1alpha1_BlobList(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobSource":       schema_pkg_apis_task_v1alpha1_BlobSource(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobSpec":         schema_pkg_apis_task_v1alpha1_BlobSpec(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobStatus":       schema_pkg_apis_task_v1alpha1_BlobStatus(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition":        schema_pkg_apis_task_v1alpha1_Condition(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Sync":             schema_pkg_apis_task_v1alpha1_Sync(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncHTTP":         schema_pkg_apis_task_v1alpha1_SyncHTTP(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncHTTPRequest":  schema_pkg_apis_task_v1alpha1_SyncHTTPRequest(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncHTTPResponse": schema_pkg_apis_task_v1alpha1_SyncHTTPResponse(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncList":         schema_pkg_apis_task_v1alpha1_SyncList(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncSpec":         schema_pkg_apis_task_v1alpha1_SyncSpec(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncStatus":       schema_pkg_apis_task_v1alpha1_SyncStatus(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtag":       schema_pkg_apis_task_v1alpha1_UploadEtag(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.APIGroup":                    schema_pkg_apis_meta_v1_APIGroup(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.APIGroupList":                schema_pkg_apis_meta_v1_APIGroupList(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.APIResource":                 schema_pkg_apis_meta_v1_APIResource(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.APIResourceList":             schema_pkg_apis_meta_v1_APIResourceList(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.APIVersions":                 schema_pkg_apis_meta_v1_APIVersions(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.ApplyOptions":                schema_pkg_apis_meta_v1_ApplyOptions(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.Condition":                   schema_pkg_apis_meta_v1_Condition(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.CreateOptions":               schema_pkg_apis_meta_v1_CreateOptions(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.DeleteOptions":               schema_pkg_apis_meta_v1_DeleteOptions(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.Duration":                    schema_pkg_apis_meta_v1_Duration(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.FieldSelectorRequirement":    schema_pkg_apis_meta_v1_FieldSelectorRequirement(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.FieldsV1":                    schema_pkg_apis_meta_v1_FieldsV1(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.GetOptions":                  schema_pkg_apis_meta_v1_GetOptions(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupKind":                   schema_pkg_apis_meta_v1_GroupKind(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupResource":               schema_pkg_apis_meta_v1_GroupResource(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupVersion":                schema_pkg_apis_meta_v1_GroupVersion(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupVersionForDiscovery":    schema_pkg_apis_meta_v1_GroupVersionForDiscovery(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupVersionKind":            schema_pkg_apis_meta_v1_GroupVersionKind(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupVersionResource":        schema_pkg_apis_meta_v1_GroupVersionResource(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.InternalEvent":               schema_pkg_apis_meta_v1_InternalEvent(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector":               schema_pkg_apis_meta_v1_LabelSelector(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelectorRequirement":    schema_pkg_apis_meta_v1_LabelSelectorRequirement(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.List":                        schema_pkg_apis_meta_v1_List(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta":                    schema_pkg_apis_meta_v1_ListMeta(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.ListOptions":                 schema_pkg_apis_meta_v1_ListOptions(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.ManagedFieldsEntry":          schema_pkg_apis_meta_v1_ManagedFieldsEntry(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.MicroTime":                   schema_pkg_apis_meta_v1_MicroTime(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta":                  schema_pkg_apis_meta_v1_ObjectMeta(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.OwnerReference":              schema_pkg_apis_meta_v1_OwnerReference(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.PartialObjectMetadata":       schema_pkg_apis_meta_v1_PartialObjectMetadata(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.PartialObjectMetadataList":   schema_pkg_apis_meta_v1_PartialObjectMetadataList(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.Patch":                       schema_pkg_apis_meta_v1_Patch(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.PatchOptions":                schema_pkg_apis_meta_v1_PatchOptions(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.Preconditions":               schema_pkg_apis_meta_v1_Preconditions(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.RootPaths":                   schema_pkg_apis_meta_v1_RootPaths(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.ServerAddressByClientCIDR":   schema_pkg_apis_meta_v1_ServerAddressByClientCIDR(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.Status":                      schema_pkg_apis_meta_v1_Status(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.StatusCause":                 schema_pkg_apis_meta_v1_StatusCause(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.StatusDetails":               schema_pkg_apis_meta_v1_StatusDetails(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.Table":                       schema_pkg_apis_meta_v1_Table(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.TableColumnDefinition":       schema_pkg_apis_meta_v1_TableColumnDefinition(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.TableOptions":                schema_pkg_apis_meta_v1_TableOptions(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.TableRow":                    schema_pkg_apis_meta_v1_TableRow(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.TableRowCondition":           schema_pkg_apis_meta_v1_TableRowCondition(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.Time":                        schema_pkg_apis_meta_v1_Time(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.Timestamp":                   schema_pkg_apis_meta_v1_Timestamp(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.TypeMeta":                    schema_pkg_apis_meta_v1_TypeMeta(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.UpdateOptions":               schema_pkg_apis_meta_v1_UpdateOptions(ref),
-		"k8s.io/apimachinery/pkg/apis/meta/v1.WatchEvent":                  schema_pkg_apis_meta_v1_WatchEvent(ref),
-		"k8s.io/apimachinery/pkg/runtime.RawExtension":                     schema_k8sio_apimachinery_pkg_runtime_RawExtension(ref),
-		"k8s.io/apimachinery/pkg/runtime.TypeMeta":                         schema_k8sio_apimachinery_pkg_runtime_TypeMeta(ref),
-		"k8s.io/apimachinery/pkg/runtime.Unknown":                          schema_k8sio_apimachinery_pkg_runtime_Unknown(ref),
-		"k8s.io/apimachinery/pkg/version.Info":                             schema_k8sio_apimachinery_pkg_version_Info(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Blob":              schema_pkg_apis_task_v1alpha1_Blob(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobDestination":   schema_pkg_apis_task_v1alpha1_BlobDestination(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobList":          schema_pkg_apis_task_v1alpha1_BlobList(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobSource":        schema_pkg_apis_task_v1alpha1_BlobSource(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobSpec":          schema_pkg_apis_task_v1alpha1_BlobSpec(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobStatus":        schema_pkg_apis_task_v1alpha1_BlobStatus(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Chunk":             schema_pkg_apis_task_v1alpha1_Chunk(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTP":         schema_pkg_apis_task_v1alpha1_ChunkHTTP(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPRequest":  schema_pkg_apis_task_v1alpha1_ChunkHTTPRequest(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPResponse": schema_pkg_apis_task_v1alpha1_ChunkHTTPResponse(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkList":         schema_pkg_apis_task_v1alpha1_ChunkList(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkSpec":         schema_pkg_apis_task_v1alpha1_ChunkSpec(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkStatus":       schema_pkg_apis_task_v1alpha1_ChunkStatus(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition":         schema_pkg_apis_task_v1alpha1_Condition(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtag":        schema_pkg_apis_task_v1alpha1_UploadEtag(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.APIGroup":                     schema_pkg_apis_meta_v1_APIGroup(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.APIGroupList":                 schema_pkg_apis_meta_v1_APIGroupList(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.APIResource":                  schema_pkg_apis_meta_v1_APIResource(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.APIResourceList":              schema_pkg_apis_meta_v1_APIResourceList(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.APIVersions":                  schema_pkg_apis_meta_v1_APIVersions(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.ApplyOptions":                 schema_pkg_apis_meta_v1_ApplyOptions(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.Condition":                    schema_pkg_apis_meta_v1_Condition(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.CreateOptions":                schema_pkg_apis_meta_v1_CreateOptions(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.DeleteOptions":                schema_pkg_apis_meta_v1_DeleteOptions(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.Duration":                     schema_pkg_apis_meta_v1_Duration(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.FieldSelectorRequirement":     schema_pkg_apis_meta_v1_FieldSelectorRequirement(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.FieldsV1":                     schema_pkg_apis_meta_v1_FieldsV1(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.GetOptions":                   schema_pkg_apis_meta_v1_GetOptions(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupKind":                    schema_pkg_apis_meta_v1_GroupKind(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupResource":                schema_pkg_apis_meta_v1_GroupResource(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupVersion":                 schema_pkg_apis_meta_v1_GroupVersion(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupVersionForDiscovery":     schema_pkg_apis_meta_v1_GroupVersionForDiscovery(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupVersionKind":             schema_pkg_apis_meta_v1_GroupVersionKind(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.GroupVersionResource":         schema_pkg_apis_meta_v1_GroupVersionResource(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.InternalEvent":                schema_pkg_apis_meta_v1_InternalEvent(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector":                schema_pkg_apis_meta_v1_LabelSelector(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelectorRequirement":     schema_pkg_apis_meta_v1_LabelSelectorRequirement(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.List":                         schema_pkg_apis_meta_v1_List(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta":                     schema_pkg_apis_meta_v1_ListMeta(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.ListOptions":                  schema_pkg_apis_meta_v1_ListOptions(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.ManagedFieldsEntry":           schema_pkg_apis_meta_v1_ManagedFieldsEntry(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.MicroTime":                    schema_pkg_apis_meta_v1_MicroTime(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta":                   schema_pkg_apis_meta_v1_ObjectMeta(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.OwnerReference":               schema_pkg_apis_meta_v1_OwnerReference(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.PartialObjectMetadata":        schema_pkg_apis_meta_v1_PartialObjectMetadata(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.PartialObjectMetadataList":    schema_pkg_apis_meta_v1_PartialObjectMetadataList(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.Patch":                        schema_pkg_apis_meta_v1_Patch(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.PatchOptions":                 schema_pkg_apis_meta_v1_PatchOptions(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.Preconditions":                schema_pkg_apis_meta_v1_Preconditions(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.RootPaths":                    schema_pkg_apis_meta_v1_RootPaths(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.ServerAddressByClientCIDR":    schema_pkg_apis_meta_v1_ServerAddressByClientCIDR(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.Status":                       schema_pkg_apis_meta_v1_Status(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.StatusCause":                  schema_pkg_apis_meta_v1_StatusCause(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.StatusDetails":                schema_pkg_apis_meta_v1_StatusDetails(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.Table":                        schema_pkg_apis_meta_v1_Table(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.TableColumnDefinition":        schema_pkg_apis_meta_v1_TableColumnDefinition(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.TableOptions":                 schema_pkg_apis_meta_v1_TableOptions(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.TableRow":                     schema_pkg_apis_meta_v1_TableRow(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.TableRowCondition":            schema_pkg_apis_meta_v1_TableRowCondition(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.Time":                         schema_pkg_apis_meta_v1_Time(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.Timestamp":                    schema_pkg_apis_meta_v1_Timestamp(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.TypeMeta":                     schema_pkg_apis_meta_v1_TypeMeta(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.UpdateOptions":                schema_pkg_apis_meta_v1_UpdateOptions(ref),
+		"k8s.io/apimachinery/pkg/apis/meta/v1.WatchEvent":                   schema_pkg_apis_meta_v1_WatchEvent(ref),
+		"k8s.io/apimachinery/pkg/runtime.RawExtension":                      schema_k8sio_apimachinery_pkg_runtime_RawExtension(ref),
+		"k8s.io/apimachinery/pkg/runtime.TypeMeta":                          schema_k8sio_apimachinery_pkg_runtime_TypeMeta(ref),
+		"k8s.io/apimachinery/pkg/runtime.Unknown":                           schema_k8sio_apimachinery_pkg_runtime_Unknown(ref),
+		"k8s.io/apimachinery/pkg/version.Info":                              schema_k8sio_apimachinery_pkg_version_Info(ref),
 	}
 }
 
@@ -361,7 +361,7 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 					},
 					"maximumRunning": {
 						SchemaProps: spec.SchemaProps{
-							Description: "MaximumRunning is the maximum number of running syncs allowed for this blob.",
+							Description: "MaximumRunning is the maximum number of running chunks allowed for this blob.",
 							Default:     2,
 							Type:        []string{"integer"},
 							Format:      "int64",
@@ -369,7 +369,7 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 					},
 					"maximumPending": {
 						SchemaProps: spec.SchemaProps{
-							Description: "MaximumPending is the maximum number of pending syncs allowed for this blob.",
+							Description: "MaximumPending is the maximum number of pending chunks allowed for this blob.",
 							Default:     1,
 							Type:        []string{"integer"},
 							Format:      "int64",
@@ -377,7 +377,7 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 					},
 					"retryCount": {
 						SchemaProps: spec.SchemaProps{
-							Description: "RetryCount is the number of times the sync has been retried.",
+							Description: "RetryCount is the number of times the chunk has been retried.",
 							Default:     5,
 							Type:        []string{"integer"},
 							Format:      "int64",
@@ -509,41 +509,11 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 	}
 }
 
-func schema_pkg_apis_task_v1alpha1_Condition(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_task_v1alpha1_Chunk(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "Condition contains details for one aspect of the current state of this API Resource.",
-				Type:        []string{"object"},
-				Properties: map[string]spec.Schema{
-					"type": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Type of condition in CamelCase or in foo.example.com/CamelCase. Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be useful (see .node.status.conditions), the ability to deconflict is important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)",
-							Default:     "",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
-					"message": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Message is a human readable message indicating details about the transition. This may be an empty string.",
-							Default:     "",
-							Type:        []string{"string"},
-							Format:      "",
-						},
-					},
-				},
-				Required: []string{"type", "message"},
-			},
-		},
-	}
-}
-
-func schema_pkg_apis_task_v1alpha1_Sync(ref common.ReferenceCallback) common.OpenAPIDefinition {
-	return common.OpenAPIDefinition{
-		Schema: spec.Schema{
-			SchemaProps: spec.SchemaProps{
-				Description: "Sync is an API that describes the staged change of a resource",
+				Description: "Chunk is an API that describes the staged change of a resource",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -571,14 +541,14 @@ func schema_pkg_apis_task_v1alpha1_Sync(ref common.ReferenceCallback) common.Ope
 						SchemaProps: spec.SchemaProps{
 							Description: "Spec holds information about the request being evaluated.",
 							Default:     map[string]interface{}{},
-							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncSpec"),
+							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkSpec"),
 						},
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Status holds status for the Sync",
+							Description: "Status holds status for the Chunk",
 							Default:     map[string]interface{}{},
-							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncStatus"),
+							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkStatus"),
 						},
 					},
 				},
@@ -586,29 +556,29 @@ func schema_pkg_apis_task_v1alpha1_Sync(ref common.ReferenceCallback) common.Ope
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncSpec", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncStatus", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkSpec", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkStatus", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
 	}
 }
 
-func schema_pkg_apis_task_v1alpha1_SyncHTTP(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_task_v1alpha1_ChunkHTTP(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "SyncHTTP defines the HTTP request/response configuration for Sync",
+				Description: "ChunkHTTP defines the HTTP request/response configuration for Chunk",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"request": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Request defines the HTTP request parameters",
 							Default:     map[string]interface{}{},
-							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncHTTPRequest"),
+							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPRequest"),
 						},
 					},
 					"response": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Response defines the expected HTTP response for validation",
 							Default:     map[string]interface{}{},
-							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncHTTPResponse"),
+							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPResponse"),
 						},
 					},
 				},
@@ -616,15 +586,15 @@ func schema_pkg_apis_task_v1alpha1_SyncHTTP(ref common.ReferenceCallback) common
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncHTTPRequest", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncHTTPResponse"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPRequest", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPResponse"},
 	}
 }
 
-func schema_pkg_apis_task_v1alpha1_SyncHTTPRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_task_v1alpha1_ChunkHTTPRequest(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "SyncHTTPRequest defines the HTTP request parameters for Sync",
+				Description: "ChunkHTTPRequest defines the HTTP request parameters for Chunk",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"method": {
@@ -666,11 +636,11 @@ func schema_pkg_apis_task_v1alpha1_SyncHTTPRequest(ref common.ReferenceCallback)
 	}
 }
 
-func schema_pkg_apis_task_v1alpha1_SyncHTTPResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_task_v1alpha1_ChunkHTTPResponse(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "SyncHTTPResponse defines the expected HTTP response for validation",
+				Description: "ChunkHTTPResponse defines the expected HTTP response for validation",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"statusCode": {
@@ -704,11 +674,11 @@ func schema_pkg_apis_task_v1alpha1_SyncHTTPResponse(ref common.ReferenceCallback
 	}
 }
 
-func schema_pkg_apis_task_v1alpha1_SyncList(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_task_v1alpha1_ChunkList(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "SyncList contains a list of Sync",
+				Description: "ChunkList contains a list of Chunk",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -738,7 +708,7 @@ func schema_pkg_apis_task_v1alpha1_SyncList(ref common.ReferenceCallback) common
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
 										Default: map[string]interface{}{},
-										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Sync"),
+										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Chunk"),
 									},
 								},
 							},
@@ -749,15 +719,15 @@ func schema_pkg_apis_task_v1alpha1_SyncList(ref common.ReferenceCallback) common
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Sync", "k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Chunk", "k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta"},
 	}
 }
 
-func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "SyncSpec defines the specification for Sync.",
+				Description: "ChunkSpec defines the specification for Chunk.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"handlerName": {
@@ -770,20 +740,20 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 					},
 					"source": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Source is the source of the sync.",
+							Description: "Source is the source of the chunk.",
 							Default:     map[string]interface{}{},
-							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncHTTP"),
+							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTP"),
 						},
 					},
 					"destination": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Destination is the destination of the sync.",
+							Description: "Destination is the destination of the chunk.",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
 									SchemaProps: spec.SchemaProps{
 										Default: map[string]interface{}{},
-										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncHTTP"),
+										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTP"),
 									},
 								},
 							},
@@ -791,7 +761,7 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 					},
 					"priority": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Priority represents the relative importance of this sync when multiple syncs exist.",
+							Description: "Priority represents the relative importance of this chunk when multiple chunks exist.",
 							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
@@ -799,7 +769,7 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 					},
 					"total": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Total represents the total amount of work to be done for this sync.",
+							Description: "Total represents the total amount of work to be done for this chunk.",
 							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
@@ -814,7 +784,7 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 					},
 					"chunksNumber": {
 						SchemaProps: spec.SchemaProps{
-							Description: "ChunksNumber represents the total number of chunks that the sync is part of in a multipart operation.",
+							Description: "ChunksNumber represents the total number of chunks that the chunk is part of in a multipart operation.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -835,7 +805,7 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 					},
 					"retryCount": {
 						SchemaProps: spec.SchemaProps{
-							Description: "RetryCount is the number of times the sync has been retried.",
+							Description: "RetryCount is the number of times the chunk has been retried.",
 							Default:     5,
 							Type:        []string{"integer"},
 							Format:      "int64",
@@ -846,27 +816,27 @@ func schema_pkg_apis_task_v1alpha1_SyncSpec(ref common.ReferenceCallback) common
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.SyncHTTP"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTP"},
 	}
 }
 
-func schema_pkg_apis_task_v1alpha1_SyncStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_task_v1alpha1_ChunkStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "SyncStatus holds status for the Sync",
+				Description: "ChunkStatus holds status for the Chunk",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"phase": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Phase represents the current phase of the sync.",
+							Description: "Phase represents the current phase of the chunk.",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
 					"progress": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Progress is the progress of the sync.",
+							Description: "Progress is the progress of the chunk.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -924,7 +894,7 @@ func schema_pkg_apis_task_v1alpha1_SyncStatus(ref common.ReferenceCallback) comm
 					},
 					"retryCount": {
 						SchemaProps: spec.SchemaProps{
-							Description: "RetryCount is the number of times the sync has been retried.",
+							Description: "RetryCount is the number of times the chunk has been retried.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -941,7 +911,7 @@ func schema_pkg_apis_task_v1alpha1_SyncStatus(ref common.ReferenceCallback) comm
 							},
 						},
 						SchemaProps: spec.SchemaProps{
-							Description: "Conditions holds conditions for the Sync.",
+							Description: "Conditions holds conditions for the Chunk.",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -958,6 +928,36 @@ func schema_pkg_apis_task_v1alpha1_SyncStatus(ref common.ReferenceCallback) comm
 		},
 		Dependencies: []string{
 			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"},
+	}
+}
+
+func schema_pkg_apis_task_v1alpha1_Condition(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "Condition contains details for one aspect of the current state of this API Resource.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"type": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Type of condition in CamelCase or in foo.example.com/CamelCase. Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be useful (see .node.status.conditions), the ability to deconflict is important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"message": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Message is a human readable message indicating details about the transition. This may be an empty string.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"type", "message"},
+			},
+		},
 	}
 }
 

@@ -29,7 +29,7 @@ import (
 type TaskV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	BlobsGetter
-	SyncsGetter
+	ChunksGetter
 }
 
 // TaskV1alpha1Client is used to interact with features provided by the task.opencidn.daocloud.io group.
@@ -41,8 +41,8 @@ func (c *TaskV1alpha1Client) Blobs() BlobInterface {
 	return newBlobs(c)
 }
 
-func (c *TaskV1alpha1Client) Syncs() SyncInterface {
-	return newSyncs(c)
+func (c *TaskV1alpha1Client) Chunks() ChunkInterface {
+	return newChunks(c)
 }
 
 // NewForConfig creates a new TaskV1alpha1Client for the given config.

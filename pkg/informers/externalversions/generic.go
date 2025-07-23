@@ -55,8 +55,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	// Group=task.opencidn.daocloud.io, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("blobs"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Task().V1alpha1().Blobs().Informer()}, nil
-	case v1alpha1.SchemeGroupVersion.WithResource("syncs"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Task().V1alpha1().Syncs().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("chunks"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Task().V1alpha1().Chunks().Informer()}, nil
 
 	}
 

@@ -20,4 +20,4 @@ package v1alpha1
 
 type BlobExpansion interface{}
 
-type SyncExpansion interface{}
+type ChunkExpansion interface{}

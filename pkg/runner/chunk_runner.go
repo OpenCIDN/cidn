@@ -47,118 +47,118 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// SyncRunner executes Sync tasks
-type SyncRunner struct {
-	handlerName  string
-	client       versioned.Interface
-	syncInformer informers.SyncInformer
-	httpClient   *http.Client
-	signal       chan struct{}
+// ChunkRunner executes Chunk tasks
+type ChunkRunner struct {
+	handlerName   string
+	client        versioned.Interface
+	chunkInformer informers.ChunkInformer
+	httpClient    *http.Client
+	signal        chan struct{}
 }
 
-// NewSyncRunner creates a new Runner instance
-func NewSyncRunner(
+// NewChunkRunner creates a new Runner instance
+func NewChunkRunner(
 	handlerName string,
 	clientset versioned.Interface,
 	sharedInformerFactory externalversions.SharedInformerFactory,
-) *SyncRunner {
-	r := &SyncRunner{
-		handlerName:  handlerName,
-		client:       clientset,
-		syncInformer: sharedInformerFactory.Task().V1alpha1().Syncs(),
-		httpClient:   http.DefaultClient,
-		signal:       make(chan struct{}, 1),
+) *ChunkRunner {
+	r := &ChunkRunner{
+		handlerName:   handlerName,
+		client:        clientset,
+		chunkInformer: sharedInformerFactory.Task().V1alpha1().Chunks(),
+		httpClient:    http.DefaultClient,
+		signal:        make(chan struct{}, 1),
 	}
 
-	r.syncInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	r.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			r.enqueueSync()
+			r.enqueueChunk()
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			r.enqueueSync()
+			r.enqueueChunk()
 		},
 	})
 
 	return r
 }
 
-func (r *SyncRunner) enqueueSync() {
+func (r *ChunkRunner) enqueueChunk() {
 	select {
 	case r.signal <- struct{}{}:
 	default:
 	}
 }
 
-// Release releases the current held sync
-func (r *SyncRunner) Release(ctx context.Context) error {
-	syncs, err := r.syncInformer.Lister().List(labels.Everything())
+// Release releases the current held chunk
+func (r *ChunkRunner) Release(ctx context.Context) error {
+	chunks, err := r.chunkInformer.Lister().List(labels.Everything())
 	if err != nil {
 		return fmt.Errorf("failed to list blobs: %w", err)
 	}
 
 	var wg sync.WaitGroup
 
-	for _, sync := range syncs {
-		if sync.Spec.HandlerName != r.handlerName {
+	for _, chunk := range chunks {
+		if chunk.Spec.HandlerName != r.handlerName {
 			continue
 		}
 
-		if sync.Status.Phase != v1alpha1.SyncPhasePending && sync.Status.Phase != v1alpha1.SyncPhaseRunning {
+		if chunk.Status.Phase != v1alpha1.ChunkPhasePending && chunk.Status.Phase != v1alpha1.ChunkPhaseRunning {
 			continue
 		}
 
-		klog.Infof("Releasing sync %s (current phase: %s)", sync.Name, sync.Status.Phase)
+		klog.Infof("Releasing chunk %s (current phase: %s)", chunk.Name, chunk.Status.Phase)
 		wg.Add(1)
-		go func(s *v1alpha1.Sync) {
+		go func(s *v1alpha1.Chunk) {
 			defer wg.Done()
 
-			syncCopy := s.DeepCopy()
-			syncCopy.Spec.HandlerName = ""
-			syncCopy.Status.Phase = v1alpha1.SyncPhasePending
-			syncCopy.Status.Conditions = nil
-			_, err := r.client.TaskV1alpha1().Syncs().Update(ctx, syncCopy, metav1.UpdateOptions{})
+			chunkCopy := s.DeepCopy()
+			chunkCopy.Spec.HandlerName = ""
+			chunkCopy.Status.Phase = v1alpha1.ChunkPhasePending
+			chunkCopy.Status.Conditions = nil
+			_, err := r.client.TaskV1alpha1().Chunks().Update(ctx, chunkCopy, metav1.UpdateOptions{})
 			if err != nil {
 				if apierrors.IsConflict(err) {
-					latest, getErr := r.client.TaskV1alpha1().Syncs().Get(ctx, syncCopy.Name, metav1.GetOptions{})
+					latest, getErr := r.client.TaskV1alpha1().Chunks().Get(ctx, chunkCopy.Name, metav1.GetOptions{})
 					if getErr != nil {
-						klog.Errorf("failed to get latest sync %s: %v", syncCopy.Name, getErr)
+						klog.Errorf("failed to get latest chunk %s: %v", chunkCopy.Name, getErr)
 						return
 					}
 					latest.Spec.HandlerName = ""
-					latest.Status.Phase = v1alpha1.SyncPhasePending
+					latest.Status.Phase = v1alpha1.ChunkPhasePending
 					latest.Status.Conditions = nil
-					_, err = r.client.TaskV1alpha1().Syncs().Update(ctx, latest, metav1.UpdateOptions{})
+					_, err = r.client.TaskV1alpha1().Chunks().Update(ctx, latest, metav1.UpdateOptions{})
 					if err != nil {
-						klog.Errorf("failed to update sync %s: %v", latest.Name, err)
+						klog.Errorf("failed to update chunk %s: %v", latest.Name, err)
 						return
 					}
 				}
-				klog.Errorf("failed to release sync %s: %v", s.Name, err)
+				klog.Errorf("failed to release chunk %s: %v", s.Name, err)
 			}
-		}(sync)
+		}(chunk)
 	}
 
 	return nil
 }
 
 // Shutdown stops the runner
-func (r *SyncRunner) Shutdown(ctx context.Context) error {
+func (r *ChunkRunner) Shutdown(ctx context.Context) error {
 	return r.Release(ctx)
 }
 
 // Run starts the runner
-func (r *SyncRunner) Start(ctx context.Context) error {
+func (r *ChunkRunner) Start(ctx context.Context) error {
 	go r.runWorker(ctx)
 
 	return nil
 }
 
-func (r *SyncRunner) runWorker(ctx context.Context) {
+func (r *ChunkRunner) runWorker(ctx context.Context) {
 	for r.processNextItem(ctx) {
 	}
 }
 
-func (r *SyncRunner) processNextItem(ctx context.Context) bool {
+func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	if ctx.Err() != nil {
 		return false
 	}
@@ -185,13 +185,13 @@ func (r *SyncRunner) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (r *SyncRunner) updateSync(ctx context.Context, sync *v1alpha1.Sync) (*v1alpha1.Sync, error) {
-	return r.client.TaskV1alpha1().Syncs().Update(ctx, sync, metav1.UpdateOptions{})
+func (r *ChunkRunner) updateChunk(ctx context.Context, chunk *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+	return r.client.TaskV1alpha1().Chunks().Update(ctx, chunk, metav1.UpdateOptions{})
 }
 
-// buildRequest constructs an HTTP request from SyncHTTP configuration
-func (r *SyncRunner) buildRequest(ctx context.Context, syncHTTP *v1alpha1.SyncHTTP, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, syncHTTP.Request.Method, syncHTTP.Request.URL, body)
+// buildRequest constructs an HTTP request from ChunkHTTP configuration
+func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.ChunkHTTP, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, chunkHTTP.Request.Method, chunkHTTP.Request.URL, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
@@ -201,7 +201,7 @@ func (r *SyncRunner) buildRequest(ctx context.Context, syncHTTP *v1alpha1.SyncHT
 	req.Header.Set("User-Agent", versions.DefaultUserAgent())
 
 	// Add custom headers from configuration
-	for k, v := range syncHTTP.Request.Headers {
+	for k, v := range chunkHTTP.Request.Headers {
 		req.Header.Set(k, v)
 	}
 
@@ -218,17 +218,17 @@ func (r *SyncRunner) buildRequest(ctx context.Context, syncHTTP *v1alpha1.SyncHT
 	return req, nil
 }
 
-func (r *SyncRunner) getSync(name string) (*v1alpha1.Sync, error) {
-	sync, err := r.syncInformer.Lister().Get(name)
+func (r *ChunkRunner) getChunk(name string) (*v1alpha1.Chunk, error) {
+	chunk, err := r.chunkInformer.Lister().Get(name)
 	if err != nil {
 		return nil, err
 	}
 
-	return sync.DeepCopy(), nil
+	return chunk.DeepCopy(), nil
 }
 
-func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *state) io.ReadCloser {
-	srcReq, err := r.buildRequest(ctx, &sync.Spec.Source, nil)
+func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) io.ReadCloser {
+	srcReq, err := r.buildRequest(ctx, &chunk.Spec.Source, nil)
 	if err != nil {
 		retry, err := utils.IsNetWorkError(err)
 		if retry {
@@ -253,10 +253,10 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 		return nil
 	}
 
-	if sync.Spec.Source.Response.StatusCode != 0 {
-		if srcResp.StatusCode != sync.Spec.Source.Response.StatusCode {
+	if chunk.Spec.Source.Response.StatusCode != 0 {
+		if srcResp.StatusCode != chunk.Spec.Source.Response.StatusCode {
 			err := fmt.Errorf("unexpected status code: got %d, want %d",
-				srcResp.StatusCode, sync.Spec.Source.Response.StatusCode)
+				srcResp.StatusCode, chunk.Spec.Source.Response.StatusCode)
 
 			s.handleProcessError("", err)
 
@@ -277,8 +277,8 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 		}
 	}
 
-	if srcResp.ContentLength != sync.Spec.Total {
-		err := fmt.Errorf("content length mismatch: got %d, want %d", srcResp.ContentLength, sync.Spec.Total)
+	if srcResp.ContentLength != chunk.Spec.Total {
+		err := fmt.Errorf("content length mismatch: got %d, want %d", srcResp.ContentLength, chunk.Spec.Total)
 		s.handleProcessError("ContentLengthMismatch", err)
 
 		if srcResp.Body != nil {
@@ -287,7 +287,7 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 		return nil
 	}
 
-	for k, v := range sync.Spec.Source.Response.Headers {
+	for k, v := range chunk.Spec.Source.Response.Headers {
 		respVal := srcResp.Header.Get(k)
 		if respVal != v {
 			err := fmt.Errorf("header %s mismatch: got %s, want %s", k, respVal, v)
@@ -303,7 +303,7 @@ func (r *SyncRunner) sourceRequest(ctx context.Context, sync *v1alpha1.Sync, s *
 	return srcResp.Body
 }
 
-func (r *SyncRunner) destinationRequest(ctx context.Context, dest *v1alpha1.SyncHTTP, dr io.Reader) (string, error) {
+func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr io.Reader) (string, error) {
 	destReq, err := r.buildRequest(ctx, dest, dr)
 	if err != nil {
 		if retry, err := utils.IsNetWorkError(err); !retry {
@@ -356,12 +356,12 @@ func (r *SyncRunner) destinationRequest(ctx context.Context, dest *v1alpha1.Sync
 	return etag, nil
 }
 
-func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues <-chan struct{}) {
-	klog.Infof("Processing sync %s (handler: %s)", sync.Name, sync.Spec.HandlerName)
-	defer klog.Infof("Finish processing sync %s", sync.Name)
+func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, continues <-chan struct{}) {
+	klog.Infof("Processing chunk %s (handler: %s)", chunk.Name, chunk.Spec.HandlerName)
+	defer klog.Infof("Finish processing chunk %s", chunk.Name)
 	defer func() { <-continues }()
 
-	s := newState(sync)
+	s := newState(chunk)
 
 	var gsr *ReadCount
 	var gdrs []*ReadCount
@@ -372,12 +372,12 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 	}, s, &gsr, &gdrs)
 	defer stopProgress()
 
-	body := r.sourceRequest(ctx, sync, s)
+	body := r.sourceRequest(ctx, chunk, s)
 	if body == nil {
 		return
 	}
 
-	f, err := os.CreateTemp("", "cidn-sync-")
+	f, err := os.CreateTemp("", "cidn-chunk-")
 	if err == nil {
 		defer func() {
 			f.Close()
@@ -398,9 +398,9 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 		return swmr.Close()
 	})
 
-	etags := make([]string, len(sync.Spec.Destination))
-	drs := make([]*ReadCount, 0, len(sync.Spec.Destination))
-	for i, dest := range sync.Spec.Destination {
+	etags := make([]string, len(chunk.Spec.Destination))
+	drs := make([]*ReadCount, 0, len(chunk.Spec.Destination))
+	for i, dest := range chunk.Spec.Destination {
 		dest := dest
 		if dest.Request.Method == "" {
 			continue
@@ -418,7 +418,7 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 		})
 	}
 
-	s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 		gsr = sr
 		gdrs = drs
 
@@ -431,47 +431,47 @@ func (r *SyncRunner) process(ctx context.Context, sync *v1alpha1.Sync, continues
 		return
 	}
 
-	r.handleSha256AndFinalize(ctx, sync, s, swmr, etags, continues)
+	r.handleSha256AndFinalize(ctx, chunk, s, swmr, etags, continues)
 }
 
-func (r *SyncRunner) startProgressUpdater(ctx context.Context, cancel func(), s *state, gsr **ReadCount, gdrs *[]*ReadCount) func() {
-	syncFunc := func() {
-		s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s *state, gsr **ReadCount, gdrs *[]*ReadCount) func() {
+	chunkFunc := func() {
+		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 
 			if *gsr != nil {
 				updateProgress(&ss.Status, &ss.Spec, *gsr, *gdrs)
 			}
 
-			newSync, err := r.updateSync(ctx, ss)
+			newChunk, err := r.updateChunk(ctx, ss)
 			if err != nil {
 				if !apierrors.IsConflict(err) {
-					klog.Warningf("Failed to update sync %s: %v", ss.Name, err)
+					klog.Warningf("Failed to update chunk %s: %v", ss.Name, err)
 					return ss, nil
 				}
-				newSync, err = r.getSync(ss.Name)
+				newChunk, err = r.getChunk(ss.Name)
 				if err != nil {
 					if apierrors.IsNotFound(err) {
 						cancel()
-						klog.Warningf("Sync %s not found, may have been deleted", ss.Name)
+						klog.Warningf("Chunk %s not found, may have been deleted", ss.Name)
 						return ss, nil
 					}
-					klog.Warningf("Failed to get sync %s: %v", ss.Name, err)
+					klog.Warningf("Failed to get chunk %s: %v", ss.Name, err)
 					return ss, nil
 				}
 
-				if newSync.Spec.HandlerName != r.handlerName {
+				if newChunk.Spec.HandlerName != r.handlerName {
 					cancel()
-					klog.Warningf("Sync %s has been acquired by another handler %s", ss.Name, newSync.Spec.HandlerName)
+					klog.Warningf("Chunk %s has been acquired by another handler %s", ss.Name, newChunk.Spec.HandlerName)
 					return ss, nil
 				}
-				newSync.Status = ss.Status
-				newSync, err = r.updateSync(ctx, newSync)
+				newChunk.Status = ss.Status
+				newChunk, err = r.updateChunk(ctx, newChunk)
 				if err != nil {
-					klog.Warningf("Failed to update sync %s after retry: %v", ss.Name, err)
+					klog.Warningf("Failed to update chunk %s after retry: %v", ss.Name, err)
 					return ss, nil
 				}
 			}
-			return newSync, nil
+			return newChunk, nil
 		})
 	}
 
@@ -483,11 +483,11 @@ func (r *SyncRunner) startProgressUpdater(ctx context.Context, cancel func(), s 
 		for {
 			select {
 			case <-ticker.C:
-				syncFunc()
+				chunkFunc()
 				dur = time.Second + time.Duration(rand.Intn(100))*time.Millisecond
 				ticker.Reset(dur)
 			case <-stop:
-				syncFunc()
+				chunkFunc()
 				return
 			case <-ctx.Done():
 				return
@@ -497,49 +497,49 @@ func (r *SyncRunner) startProgressUpdater(ctx context.Context, cancel func(), s 
 	return func() { close(stop) }
 }
 
-func (r *SyncRunner) handleSha256AndFinalize(ctx context.Context, sync *v1alpha1.Sync, s *state, swmr ioswmr.SWMR, etags []string, continues <-chan struct{}) {
-	if sync.Spec.Sha256PartialPreviousName == "" {
-		s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+func (r *ChunkRunner) handleSha256AndFinalize(ctx context.Context, chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string, continues <-chan struct{}) {
+	if chunk.Spec.Sha256PartialPreviousName == "" {
+		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 			ss.Status.Etags = etags
-			ss.Status.Phase = v1alpha1.SyncPhaseSucceeded
+			ss.Status.Phase = v1alpha1.ChunkPhaseSucceeded
 			return ss, nil
 		})
 		return
 	}
-	if sync.Spec.Sha256PartialPreviousName == "-" {
-		s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+	if chunk.Spec.Sha256PartialPreviousName == "-" {
+		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 			var err error
 			ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, nil, swmr.NewReader())
 			if err != nil {
 				return nil, err
 			}
 			ss.Status.Etags = etags
-			ss.Status.Phase = v1alpha1.SyncPhaseSucceeded
+			ss.Status.Phase = v1alpha1.ChunkPhaseSucceeded
 			return ss, nil
 		})
 		return
 	}
-	psync, err := r.getSync(sync.Spec.Sha256PartialPreviousName)
+	pchunk, err := r.getChunk(chunk.Spec.Sha256PartialPreviousName)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			s.handleProcessError("", err)
 			return
 		}
 	} else {
-		if psync.Status.Phase == v1alpha1.SyncPhaseSucceeded {
-			if len(psync.Status.Sha256Partial) == 0 {
-				err := fmt.Errorf("partial sync %q has no sha256 partial data", sync.Spec.Sha256PartialPreviousName)
+		if pchunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
+			if len(pchunk.Status.Sha256Partial) == 0 {
+				err := fmt.Errorf("partial chunk %q has no sha256 partial data", chunk.Spec.Sha256PartialPreviousName)
 				s.handleProcessError("MissingSha256PartialData", err)
 				return
 			}
-			s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 				var err error
-				ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, psync.Status.Sha256Partial, swmr.NewReader())
+				ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, pchunk.Status.Sha256Partial, swmr.NewReader())
 				if err != nil {
 					return nil, err
 				}
 				ss.Status.Etags = etags
-				ss.Status.Phase = v1alpha1.SyncPhaseSucceeded
+				ss.Status.Phase = v1alpha1.ChunkPhaseSucceeded
 				return ss, nil
 			})
 			return
@@ -547,16 +547,16 @@ func (r *SyncRunner) handleSha256AndFinalize(ctx context.Context, sync *v1alpha1
 	}
 
 	<-continues
-	r.waitForPartialSync(ctx, sync, s, swmr, etags)
+	r.waitForPartialChunk(ctx, chunk, s, swmr, etags)
 }
 
-func (r *SyncRunner) waitForPartialSync(ctx context.Context, sync *v1alpha1.Sync, s *state, swmr ioswmr.SWMR, etags []string) {
+func (r *ChunkRunner) waitForPartialChunk(ctx context.Context, chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string) {
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 		time.Sleep(time.Second)
-		psync, err := r.getSync(sync.Spec.Sha256PartialPreviousName)
+		pchunk, err := r.getChunk(chunk.Spec.Sha256PartialPreviousName)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				s.handleProcessError("", err)
@@ -564,29 +564,29 @@ func (r *SyncRunner) waitForPartialSync(ctx context.Context, sync *v1alpha1.Sync
 			}
 			continue
 		}
-		if psync.Status.Phase != v1alpha1.SyncPhaseSucceeded {
+		if pchunk.Status.Phase != v1alpha1.ChunkPhaseSucceeded {
 			continue
 		}
-		if len(psync.Status.Sha256Partial) == 0 {
-			err := fmt.Errorf("partial sync %q has no sha256 partial data", sync.Spec.Sha256PartialPreviousName)
+		if len(pchunk.Status.Sha256Partial) == 0 {
+			err := fmt.Errorf("partial chunk %q has no sha256 partial data", chunk.Spec.Sha256PartialPreviousName)
 			s.handleProcessError("MissingSha256PartialData", err)
 			return
 		}
-		s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 			var err error
-			ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, psync.Status.Sha256Partial, swmr.NewReader())
+			ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, pchunk.Status.Sha256Partial, swmr.NewReader())
 			if err != nil {
 				return nil, err
 			}
 			ss.Status.Etags = etags
-			ss.Status.Phase = v1alpha1.SyncPhaseSucceeded
+			ss.Status.Phase = v1alpha1.ChunkPhaseSucceeded
 			return ss, nil
 		})
 		return
 	}
 }
 
-func updateProgress(status *v1alpha1.SyncStatus, spec *v1alpha1.SyncSpec, sr *ReadCount, drs []*ReadCount) {
+func updateProgress(status *v1alpha1.ChunkStatus, spec *v1alpha1.ChunkSpec, sr *ReadCount, drs []*ReadCount) {
 	var progress int64
 	sourceProgress := sr.Count()
 
@@ -633,57 +633,57 @@ func updateSha256(sha256 string, sha256Partial []byte, reader io.Reader) (string
 	return sha256, nil, nil
 }
 
-func (r *SyncRunner) getPending(ctx context.Context) (*v1alpha1.Sync, error) {
-	syncs, err := r.getPendingList()
+func (r *ChunkRunner) getPending(ctx context.Context) (*v1alpha1.Chunk, error) {
+	chunks, err := r.getPendingList()
 	if err != nil {
 		return nil, err
 	}
 
-	for _, sync := range syncs {
-		sync.Spec.HandlerName = r.handlerName
-		sync.Status.Phase = v1alpha1.SyncPhaseRunning
+	for _, chunk := range chunks {
+		chunk.Spec.HandlerName = r.handlerName
+		chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
 
-		sync, err := r.updateSync(ctx, sync)
+		chunk, err := r.updateChunk(ctx, chunk)
 		if err != nil {
 			if apierrors.IsConflict(err) {
-				// Someone else got the sync first, try next one
+				// Someone else got the chunk first, try next one
 				continue
 			}
 			return nil, err
 		}
 
-		// Successfully acquired the sync
-		return sync, nil
+		// Successfully acquired the chunk
+		return chunk, nil
 	}
 
-	// No pending syncs available
-	return nil, fmt.Errorf("no pending syncs available")
+	// No pending chunks available
+	return nil, fmt.Errorf("no pending chunks available")
 }
 
-// getPendingList returns all Syncs in Pending state, sorted by weight and creation time
-func (r *SyncRunner) getPendingList() ([]*v1alpha1.Sync, error) {
-	syncs, err := r.syncInformer.Lister().List(labels.Everything())
+// getPendingList returns all Chunks in Pending state, sorted by weight and creation time
+func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
+	chunks, err := r.chunkInformer.Lister().List(labels.Everything())
 	if err != nil {
 		return nil, err
 	}
 
-	if len(syncs) == 0 {
+	if len(chunks) == 0 {
 		return nil, nil
 	}
 
-	var pendingSyncs []*v1alpha1.Sync
+	var pendingChunks []*v1alpha1.Chunk
 
 	// Filter for Pending state
-	for _, sync := range syncs {
-		if sync.Spec.HandlerName == "" && sync.Status.Phase == v1alpha1.SyncPhasePending {
-			pendingSyncs = append(pendingSyncs, sync)
+	for _, chunk := range chunks {
+		if chunk.Spec.HandlerName == "" && chunk.Status.Phase == v1alpha1.ChunkPhasePending {
+			pendingChunks = append(pendingChunks, chunk)
 		}
 	}
 
 	// Sort by weight (descending) and creation time (ascending)
-	sort.Slice(pendingSyncs, func(i, j int) bool {
-		a := pendingSyncs[i]
-		b := pendingSyncs[j]
+	sort.Slice(pendingChunks, func(i, j int) bool {
+		a := pendingChunks[i]
+		b := pendingChunks[j]
 		if a.Spec.Priority != b.Spec.Priority {
 			return a.Spec.Priority > b.Spec.Priority
 		}
@@ -691,7 +691,7 @@ func (r *SyncRunner) getPendingList() ([]*v1alpha1.Sync, error) {
 		return a.CreationTimestamp.Before(&b.CreationTimestamp)
 	})
 
-	return pendingSyncs, nil
+	return pendingChunks, nil
 }
 
 type hashEncoding interface {
@@ -705,17 +705,17 @@ func newSha256() hashEncoding {
 }
 
 type state struct {
-	ss  *v1alpha1.Sync
+	ss  *v1alpha1.Chunk
 	mut sync.Mutex
 }
 
-func newState(s *v1alpha1.Sync) *state {
+func newState(s *v1alpha1.Chunk) *state {
 	return &state{
 		ss: s.DeepCopy(),
 	}
 }
 
-func (s *state) Update(fun func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error)) {
+func (s *state) Update(fun func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error)) {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
@@ -727,11 +727,11 @@ func (s *state) Update(fun func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error)) {
 	}
 }
 
-func handleProcessError(ss *v1alpha1.SyncStatus, typ string, err error) {
+func handleProcessError(ss *v1alpha1.ChunkStatus, typ string, err error) {
 	if typ == "" {
 		typ = "Process"
 	}
-	ss.Phase = v1alpha1.SyncPhaseFailed
+	ss.Phase = v1alpha1.ChunkPhaseFailed
 	ss.Conditions = v1alpha1.AppendConditions(ss.Conditions, v1alpha1.Condition{
 		Type:    typ,
 		Message: err.Error(),
@@ -739,14 +739,14 @@ func handleProcessError(ss *v1alpha1.SyncStatus, typ string, err error) {
 }
 
 func (s *state) handleProcessError(typ string, err error) {
-	s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 		handleProcessError(&ss.Status, typ, err)
 		return ss, nil
 	})
 }
 
 func (s *state) handleProcessErrorAndRetryable(typ string, err error) {
-	s.Update(func(ss *v1alpha1.Sync) (*v1alpha1.Sync, error) {
+	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 		handleProcessError(&ss.Status, typ, err)
 
 		if ss.Spec.ChunksNumber > 1 {

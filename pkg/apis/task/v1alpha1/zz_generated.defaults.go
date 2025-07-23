@@ -31,8 +31,8 @@ import (
 func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&Blob{}, func(obj interface{}) { SetObjectDefaults_Blob(obj.(*Blob)) })
 	scheme.AddTypeDefaultingFunc(&BlobList{}, func(obj interface{}) { SetObjectDefaults_BlobList(obj.(*BlobList)) })
-	scheme.AddTypeDefaultingFunc(&Sync{}, func(obj interface{}) { SetObjectDefaults_Sync(obj.(*Sync)) })
-	scheme.AddTypeDefaultingFunc(&SyncList{}, func(obj interface{}) { SetObjectDefaults_SyncList(obj.(*SyncList)) })
+	scheme.AddTypeDefaultingFunc(&Chunk{}, func(obj interface{}) { SetObjectDefaults_Chunk(obj.(*Chunk)) })
+	scheme.AddTypeDefaultingFunc(&ChunkList{}, func(obj interface{}) { SetObjectDefaults_ChunkList(obj.(*ChunkList)) })
 	return nil
 }
 
@@ -55,15 +55,15 @@ func SetObjectDefaults_BlobList(in *BlobList) {
 	}
 }
 
-func SetObjectDefaults_Sync(in *Sync) {
+func SetObjectDefaults_Chunk(in *Chunk) {
 	if in.Spec.RetryCount == 0 {
 		in.Spec.RetryCount = 5
 	}
 }
 
-func SetObjectDefaults_SyncList(in *SyncList) {
+func SetObjectDefaults_ChunkList(in *ChunkList) {
 	for i := range in.Items {
 		a := &in.Items[i]
-		SetObjectDefaults_Sync(a)
+		SetObjectDefaults_Chunk(a)
 	}
 }
