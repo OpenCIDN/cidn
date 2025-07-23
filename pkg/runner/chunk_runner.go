@@ -116,7 +116,7 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 			chunkCopy.Status.HandlerName = ""
 			chunkCopy.Status.Phase = v1alpha1.ChunkPhasePending
 			chunkCopy.Status.Conditions = nil
-			_, err := r.client.TaskV1alpha1().Chunks().Update(ctx, chunkCopy, metav1.UpdateOptions{})
+			_, err := r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunkCopy, metav1.UpdateOptions{})
 			if err != nil {
 				if apierrors.IsConflict(err) {
 					latest, getErr := r.client.TaskV1alpha1().Chunks().Get(ctx, chunkCopy.Name, metav1.GetOptions{})
@@ -127,7 +127,7 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 					latest.Status.HandlerName = ""
 					latest.Status.Phase = v1alpha1.ChunkPhasePending
 					latest.Status.Conditions = nil
-					_, err = r.client.TaskV1alpha1().Chunks().Update(ctx, latest, metav1.UpdateOptions{})
+					_, err = r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, latest, metav1.UpdateOptions{})
 					if err != nil {
 						klog.Errorf("failed to update chunk %s: %v", latest.Name, err)
 						return
@@ -164,6 +164,8 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	}
 	s, err := r.getPending(context.Background())
 	if err != nil {
+		klog.Errorf("failed to get pending chunk: %v", err)
+
 		select {
 		case <-r.signal:
 		case <-ctx.Done():
@@ -186,7 +188,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 }
 
 func (r *ChunkRunner) updateChunk(ctx context.Context, chunk *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
-	return r.client.TaskV1alpha1().Chunks().Update(ctx, chunk, metav1.UpdateOptions{})
+	return r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
 }
 
 // buildRequest constructs an HTTP request from ChunkHTTP configuration
@@ -676,7 +678,7 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 	// Filter for Pending state
 	for _, chunk := range chunks {
 		if chunk.Status.HandlerName == "" && chunk.Status.Phase == v1alpha1.ChunkPhasePending {
-			pendingChunks = append(pendingChunks, chunk)
+			pendingChunks = append(pendingChunks, chunk.DeepCopy())
 		}
 	}
 

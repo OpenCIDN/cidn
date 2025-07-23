@@ -101,7 +101,7 @@ func (r *HeadRunner) Release(ctx context.Context) error {
 			blobCopy.Status.HandlerName = ""
 			blobCopy.Status.Phase = v1alpha1.BlobPhasePending
 			blobCopy.Status.Conditions = nil
-			_, err := r.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
+			_, err := r.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blobCopy, metav1.UpdateOptions{})
 			if err != nil {
 				if apierrors.IsConflict(err) {
 					latest, getErr := r.client.TaskV1alpha1().Blobs().Get(ctx, blobCopy.Name, metav1.GetOptions{})
@@ -112,7 +112,7 @@ func (r *HeadRunner) Release(ctx context.Context) error {
 					latest.Status.HandlerName = ""
 					latest.Status.Phase = v1alpha1.BlobPhasePending
 					latest.Status.Conditions = nil
-					_, err = r.client.TaskV1alpha1().Blobs().Update(ctx, latest, metav1.UpdateOptions{})
+					_, err = r.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, latest, metav1.UpdateOptions{})
 					if err != nil {
 						klog.Errorf("failed to update blob %s: %v", latest.Name, err)
 						return
@@ -179,7 +179,7 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 		blobCopy := blob.DeepCopy()
 		blobCopy.Status.HandlerName = r.handlerName
 		blobCopy.Status.Phase = v1alpha1.BlobPhaseRunning
-		_, err = r.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
+		_, err = r.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blobCopy, metav1.UpdateOptions{})
 		return err
 	}
 
@@ -208,20 +208,26 @@ func (r *HeadRunner) processBlob(ctx context.Context, key string) error {
 				},
 			)
 		}
-		_, err = r.client.TaskV1alpha1().Blobs().Update(context.Background(), blobCopy, metav1.UpdateOptions{})
+		_, err = r.client.TaskV1alpha1().Blobs().UpdateStatus(context.Background(), blobCopy, metav1.UpdateOptions{})
 		return err
 	}
 
 	blobCopy := blob.DeepCopy()
 	blobCopy.Spec.Total = fi.Size
 	blobCopy.Spec.Source[0].Etag = fi.Etag
-	blobCopy.Status.HandlerName = ""
-	blobCopy.Status.Phase = v1alpha1.BlobPhasePending
 	if !fi.Range {
-		blobCopy.Spec.ChunkSize = 0
+		blob.Spec.ChunkSize = 0
 	}
 
-	_, err = r.client.TaskV1alpha1().Blobs().Update(context.Background(), blobCopy, metav1.UpdateOptions{})
+	blobCopy, err = r.client.TaskV1alpha1().Blobs().Update(context.Background(), blobCopy, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+
+	blobCopy.Status.HandlerName = ""
+	blobCopy.Status.Phase = v1alpha1.BlobPhasePending
+
+	_, err = r.client.TaskV1alpha1().Blobs().UpdateStatus(context.Background(), blobCopy, metav1.UpdateOptions{})
 	return err
 }
 

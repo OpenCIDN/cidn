@@ -39,6 +39,8 @@ type BlobsGetter interface {
 type BlobInterface interface {
 	Create(ctx context.Context, blob *taskv1alpha1.Blob, opts v1.CreateOptions) (*taskv1alpha1.Blob, error)
 	Update(ctx context.Context, blob *taskv1alpha1.Blob, opts v1.UpdateOptions) (*taskv1alpha1.Blob, error)
+	// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
+	UpdateStatus(ctx context.Context, blob *taskv1alpha1.Blob, opts v1.UpdateOptions) (*taskv1alpha1.Blob, error)
 	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
 	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
 	Get(ctx context.Context, name string, opts v1.GetOptions) (*taskv1alpha1.Blob, error)

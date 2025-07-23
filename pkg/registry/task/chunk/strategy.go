@@ -78,6 +78,10 @@ func (*chunkStrategy) PrepareForCreate(ctx context.Context, obj runtime.Object) 
 }
 
 func (*chunkStrategy) PrepareForUpdate(ctx context.Context, obj, old runtime.Object) {
+	newChunk := obj.(*v1alpha1.Chunk)
+	oldChunk := old.(*v1alpha1.Chunk)
+
+	newChunk.Status = oldChunk.Status
 }
 
 func (*chunkStrategy) Validate(ctx context.Context, obj runtime.Object) field.ErrorList {
@@ -231,4 +235,23 @@ func (*chunkStrategy) ConvertToTable(ctx context.Context, object runtime.Object,
 	}
 
 	return table, nil
+}
+
+// chunkStatusStrategy implements the logic for chunk status updates.
+type chunkStatusStrategy struct {
+	*chunkStrategy
+}
+
+// NewStatusStrategy creates a chunkStatusStrategy instance.
+func NewStatusStrategy(strategy *chunkStrategy) *chunkStatusStrategy {
+	return &chunkStatusStrategy{strategy}
+}
+
+// PrepareForUpdate clears fields that are not allowed to be set by end users on update of status.
+func (*chunkStatusStrategy) PrepareForUpdate(ctx context.Context, obj, old runtime.Object) {
+	newChunk := obj.(*v1alpha1.Chunk)
+	oldChunk := old.(*v1alpha1.Chunk)
+
+	// Status changes are not allowed to update spec
+	newChunk.Spec = oldChunk.Spec
 }

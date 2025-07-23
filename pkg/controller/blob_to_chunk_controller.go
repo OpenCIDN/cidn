@@ -271,7 +271,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 	if len(chunk.Spec.Destination) == 0 {
 		blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
 		blob.Status.Progress = blob.Spec.Total
-		_, err := c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
+		_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to update blob status: %v", err)
 		}
@@ -462,7 +462,7 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 		if allEmpty {
 			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
 			blob.Status.Progress = blob.Spec.Total
-			_, err := c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
+			_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
 			if err != nil {
 				return fmt.Errorf("failed to update blob status: %v", err)
 			}

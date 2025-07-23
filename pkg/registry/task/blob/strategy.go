@@ -78,6 +78,10 @@ func (*blobStrategy) PrepareForCreate(ctx context.Context, obj runtime.Object) {
 }
 
 func (*blobStrategy) PrepareForUpdate(ctx context.Context, obj, old runtime.Object) {
+	newBlob := obj.(*v1alpha1.Blob)
+	oldBlob := old.(*v1alpha1.Blob)
+
+	newBlob.Status = oldBlob.Status
 }
 
 func (*blobStrategy) Validate(ctx context.Context, obj runtime.Object) field.ErrorList {
@@ -296,4 +300,22 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 	}
 
 	return table, nil
+}
+
+type blobStatusStrategy struct {
+	*blobStrategy
+}
+
+// NewStatusStrategy creates a blobStatusStrategy instance.
+func NewStatusStrategy(strategy *blobStrategy) *blobStatusStrategy {
+	return &blobStatusStrategy{strategy}
+}
+
+// PrepareForUpdate clears fields that are not allowed to be set by end users on update of status.
+func (*blobStatusStrategy) PrepareForUpdate(ctx context.Context, obj, old runtime.Object) {
+	newBlob := obj.(*v1alpha1.Blob)
+	oldBlob := old.(*v1alpha1.Blob)
+
+	// Status changes are not allowed to update spec
+	newBlob.Spec = oldBlob.Spec
 }

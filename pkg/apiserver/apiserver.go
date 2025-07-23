@@ -97,19 +97,21 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(v1alpha1.GroupName, Scheme, metav1.ParameterCodec, Codecs)
 
-	chunkStorage, err := chunk.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
+	chunkStorage, chunkStatusStorage, err := chunk.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
 	if err != nil {
 		return nil, err
 	}
 
-	blobStorage, err := blob.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
+	blobStorage, blobStatusStorage, err := blob.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
 	if err != nil {
 		return nil, err
 	}
 
 	apiGroupInfo.VersionedResourcesStorageMap["v1alpha1"] = map[string]rest.Storage{
-		"chunks": chunkStorage,
-		"blobs":  blobStorage,
+		"chunks":        chunkStorage,
+		"chunks/status": chunkStatusStorage,
+		"blobs":         blobStorage,
+		"blobs/status":  blobStatusStorage,
 	}
 
 	if err := genericServer.InstallAPIGroup(&apiGroupInfo); err != nil {

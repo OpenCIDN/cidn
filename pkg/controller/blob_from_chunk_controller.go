@@ -154,7 +154,7 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 			return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
 		}
 	}
-	_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
+	_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to update blob status: %v", err)
 	}

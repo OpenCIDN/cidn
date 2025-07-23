@@ -95,7 +95,7 @@ func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
 			blobCopy.Status.HandlerName = ""
 			blobCopy.Status.Phase = v1alpha1.BlobPhasePending
 			blobCopy.Status.Conditions = nil
-			_, err := c.client.TaskV1alpha1().Blobs().Update(ctx, blobCopy, metav1.UpdateOptions{})
+			_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blobCopy, metav1.UpdateOptions{})
 			if err != nil {
 				if apierrors.IsConflict(err) {
 					latest, getErr := c.client.TaskV1alpha1().Blobs().Get(ctx, blobCopy.Name, metav1.GetOptions{})
@@ -106,7 +106,7 @@ func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
 					latest.Status.HandlerName = ""
 					latest.Status.Phase = v1alpha1.BlobPhasePending
 					latest.Status.Conditions = nil
-					_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, latest, metav1.UpdateOptions{})
+					_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, latest, metav1.UpdateOptions{})
 					if err != nil {
 						klog.Errorf("failed to update blob %s: %v", latest.Name, err)
 						return
@@ -176,7 +176,7 @@ func (c *BlobHoldController) chunkHandler(ctx context.Context, name string) erro
 
 	blob.Status.HandlerName = c.handlerName
 	blob.Status.Phase = v1alpha1.BlobPhaseRunning
-	_, err = c.client.TaskV1alpha1().Blobs().Update(ctx, blob, metav1.UpdateOptions{})
+	_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to update blob %s: %v", blob.Name, err)
 	}
