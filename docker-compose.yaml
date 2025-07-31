@@ -61,6 +61,9 @@ services:
         restart: true
     command:
     - --etcd-servers=http://etcd:2379
+    - --user=admin:admin-pwd,cidn:controller-manager
+    - --user=runner:runner-pwd,cidn:runner
+    - --user=viewer:viewer-pwd,cidn:viewer
     ports:
     - "6443:6443"
     networks:
@@ -78,12 +81,10 @@ services:
         condition: service_started
         restart: true
     command:
-    - --kubeconfig=/kubeconfig.local.yaml
-    - --master=https://apiserver:6443
+    - --master=https://admin:admin-pwd@apiserver:6443
+    - --insecure-skip-tls-verify
     - --storage-url=minio-1://minioadmin:minioadmin@myminio.us-east-1?forcepathstyle=true&secure=false&chunksize=104857600&regionendpoint=http://cidn-minio-1:9000
     - --storage-url=minio-2://minioadmin:minioadmin@myminio.us-east-1?forcepathstyle=true&secure=false&chunksize=104857600&regionendpoint=http://cidn-minio-2:9000
-    volumes:
-    - ./kubeconfig.local.yaml:/kubeconfig.local.yaml:ro
     deploy:
       replicas: 2
     networks:
@@ -106,10 +107,8 @@ services:
         condition: service_started
         restart: true
     command:
-    - --kubeconfig=/kubeconfig.local.yaml
-    - --master=https://apiserver:6443
-    volumes:
-    - ./kubeconfig.local.yaml:/kubeconfig.local.yaml:ro
+    - --master=https://runner:runner-pwd@apiserver:6443
+    - --insecure-skip-tls-verify
     deploy:
       replicas: 8
     networks:
@@ -124,11 +123,9 @@ services:
         condition: service_started
         restart: true
     command:
-    - --kubeconfig=/kubeconfig.local.yaml
-    - --master=https://apiserver:6443
+    - --master=https://viewer:viewer-pwd@apiserver:6443
+    - --insecure-skip-tls-verify
     - --port=8080
-    volumes:
-    - ./kubeconfig.local.yaml:/kubeconfig.local.yaml:ro
     ports:
     - "8080:8080"
     networks:

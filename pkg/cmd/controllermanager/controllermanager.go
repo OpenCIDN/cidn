@@ -31,11 +31,12 @@ import (
 )
 
 type flagpole struct {
-	Kubeconfig string
-	Master     string
-	StorageURL []string
-	QPS        float32
-	Burst      int
+	Kubeconfig            string
+	Master                string
+	InsecureSkipTLSVerify bool
+	StorageURL            []string
+	QPS                   float32
+	Burst                 int
 }
 
 func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
@@ -46,16 +47,16 @@ func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var config *rest.Config
 			var err error
-			if flags.Kubeconfig != "" {
+			if flags.Kubeconfig != "" || flags.Master != "" {
 				config, err = clientcmd.BuildConfigFromFlags(flags.Master, flags.Kubeconfig)
 			} else {
 				config, err = rest.InClusterConfig()
 			}
-
 			if err != nil {
 				return fmt.Errorf("error getting config: %v", err)
 			}
 
+			config.TLSClientConfig.Insecure = flags.InsecureSkipTLSVerify
 			config.QPS = flags.QPS
 			config.Burst = flags.Burst
 
@@ -100,6 +101,7 @@ func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
 
 	cmd.Flags().StringVar(&flags.Kubeconfig, "kubeconfig", flags.Kubeconfig, "Path to the kubeconfig file to use")
 	cmd.Flags().StringVar(&flags.Master, "master", flags.Master, "The address of the Kubernetes API server")
+	cmd.Flags().BoolVar(&flags.InsecureSkipTLSVerify, "insecure-skip-tls-verify", false, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 	cmd.Flags().StringArrayVar(&flags.StorageURL, "storage-url", flags.StorageURL, "The storage URL")
 	cmd.Flags().Float32Var(&flags.QPS, "qps", 100, "Maximum QPS to the master from this client")
 	cmd.Flags().IntVar(&flags.Burst, "burst", 200, "Maximum burst for throttle")

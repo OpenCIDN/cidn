@@ -17,10 +17,14 @@ limitations under the License.
 package apiserver
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"slices"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
+	"github.com/OpenCIDN/cidn/pkg/apiserver/user"
 	generatedopenapi "github.com/OpenCIDN/cidn/pkg/openapi"
 	"github.com/OpenCIDN/cidn/pkg/registry/task/blob"
 	"github.com/OpenCIDN/cidn/pkg/registry/task/chunk"
@@ -28,12 +32,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apiserver/pkg/authentication/authenticator"
+	genericapirequestuser "k8s.io/apiserver/pkg/authentication/user"
+	authorizer "k8s.io/apiserver/pkg/authorization/authorizer"
 	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
 	"k8s.io/apiserver/pkg/registry/rest"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
 	serverstorage "k8s.io/apiserver/pkg/server/storage"
 	utilcompatibility "k8s.io/apiserver/pkg/util/compatibility"
+	"k8s.io/klog/v2"
 )
 
 var (
@@ -124,6 +132,7 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 func NewConfig(
 	secureServing *genericoptions.SecureServingOptionsWithLoopback,
 	etcd *genericoptions.EtcdOptions,
+	users []user.UserValue,
 ) (*Config, error) {
 	err := secureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")})
 	if err != nil {
@@ -160,6 +169,55 @@ func NewConfig(
 	err = etcd.ApplyWithStorageFactoryTo(storageFactory, &apiservercfg.Config)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(users) != 0 {
+		var usersMap = map[[2]string]*user.UserValue{}
+		for _, u := range users {
+			key := [2]string{u.Name, u.Password}
+			if _, ok := usersMap[key]; ok {
+				return nil, fmt.Errorf("duplicated user=%s", u.Name)
+			}
+
+			klog.Infof("User added: %s, Groups: %v", u.Name, u.Groups)
+
+			usersMap[key] = &u
+		}
+
+		apiservercfg.Authentication.Authenticator = authenticator.RequestFunc(func(req *http.Request) (*authenticator.Response, bool, error) {
+			u, p, ok := user.ParseBasicAuth(req.Header.Get("Authorization"))
+			if !ok {
+				klog.Infof("Authorization failed: invalid or missing credentials for ip %s", req.RemoteAddr)
+				return nil, false, nil
+			}
+			ui, ok := usersMap[[2]string{u, p}]
+			if !ok {
+				klog.Infof("Authorization failed: invalid credentials for user %s from ip %s", u, req.RemoteAddr)
+				return nil, false, nil
+			}
+
+			return &authenticator.Response{User: &genericapirequestuser.DefaultInfo{
+				Name:   ui.Name,
+				Groups: ui.Groups,
+			}}, true, nil
+		})
+
+		apiservercfg.Authorization.Authorizer = authorizer.AuthorizerFunc(func(ctx context.Context, a authorizer.Attributes) (authorizer.Decision, string, error) {
+			groups := a.GetUser().GetGroups()
+			if slices.Contains(groups, user.ControllerManagerGroup) {
+				return user.ControllerManagerAuthorizer.Authorize(ctx, a)
+			}
+			if slices.Contains(groups, user.RunnerGroup) {
+				return user.RunnerAuthorizer.Authorize(ctx, a)
+			}
+			if slices.Contains(groups, user.ViewerGroup) {
+				return user.ViewerAuthorizer.Authorize(ctx, a)
+			}
+			klog.Infof("Authorization failed: user %s with groups %v is not authorized for action %s on resource %s", a.GetUser().GetName(), a.GetUser().GetGroups(), a.GetVerb(), a.GetResource())
+			return authorizer.DecisionDeny, "", nil
+		})
+	} else {
+		return nil, fmt.Errorf("no user")
 	}
 
 	return &Config{

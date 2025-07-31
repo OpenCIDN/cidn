@@ -23,6 +23,7 @@ import (
 	"os"
 
 	"github.com/OpenCIDN/cidn/pkg/apiserver"
+	"github.com/OpenCIDN/cidn/pkg/apiserver/user"
 	"github.com/spf13/cobra"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
@@ -38,6 +39,8 @@ type Options struct {
 	SecureServing *genericoptions.SecureServingOptionsWithLoopback
 
 	Etcd *genericoptions.EtcdOptions
+
+	Users user.UsersValue
 }
 
 func (o *Options) Flags() (fs cliflag.NamedFlagSets) {
@@ -45,6 +48,8 @@ func (o *Options) Flags() (fs cliflag.NamedFlagSets) {
 	o.SecureServing.AddFlags(fs.FlagSet("apiserver secure serving"))
 
 	o.Etcd.AddFlags(fs.FlagSet("Etcd"))
+
+	fs.FlagSet("Users").Var(&o.Users, "user", "")
 
 	return fs
 }
@@ -103,7 +108,7 @@ func NewServerCommand(ctx context.Context) *cobra.Command {
 }
 
 func runCommand(ctx context.Context, o *Options) error {
-	servercfg, err := apiserver.NewConfig(o.SecureServing, o.Etcd)
+	servercfg, err := apiserver.NewConfig(o.SecureServing, o.Etcd, o.Users.Users)
 	if err != nil {
 		return err
 	}

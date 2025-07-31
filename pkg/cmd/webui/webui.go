@@ -30,9 +30,10 @@ import (
 )
 
 type flagpole struct {
-	Kubeconfig string
-	Master     string
-	Port       int
+	Kubeconfig            string
+	Master                string
+	InsecureSkipTLSVerify bool
+	Port                  int
 }
 
 func NewWebUICommand(ctx context.Context) *cobra.Command {
@@ -44,15 +45,16 @@ func NewWebUICommand(ctx context.Context) *cobra.Command {
 			var config *rest.Config
 			var err error
 
-			if flags.Kubeconfig != "" {
+			if flags.Kubeconfig != "" || flags.Master != "" {
 				config, err = clientcmd.BuildConfigFromFlags(flags.Master, flags.Kubeconfig)
 			} else {
 				config, err = rest.InClusterConfig()
 			}
-
 			if err != nil {
 				return fmt.Errorf("error getting config: %v", err)
 			}
+
+			config.TLSClientConfig.Insecure = flags.InsecureSkipTLSVerify
 
 			clientset, err := versioned.NewForConfig(config)
 			if err != nil {
@@ -81,6 +83,7 @@ func NewWebUICommand(ctx context.Context) *cobra.Command {
 
 	cmd.Flags().StringVar(&flags.Kubeconfig, "kubeconfig", flags.Kubeconfig, "Path to the kubeconfig file to use")
 	cmd.Flags().StringVar(&flags.Master, "master", flags.Master, "The address of the Kubernetes API server")
+	cmd.Flags().BoolVar(&flags.InsecureSkipTLSVerify, "insecure-skip-tls-verify", false, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 	cmd.Flags().IntVar(&flags.Port, "port", 8080, "The port to serve the web UI on")
 	return cmd
 }
