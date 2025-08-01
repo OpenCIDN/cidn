@@ -50,7 +50,7 @@ func (e *Event) WriteTo(w io.Writer) (int64, error) {
 }
 
 // NewHandler returns an http.Handler serving the WebUI and API endpoints
-func NewHandler(client versioned.Interface) http.Handler {
+func NewHandler(client versioned.Interface, updateInterval time.Duration) http.Handler {
 	sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
 	mux := http.NewServeMux()
 
@@ -79,8 +79,8 @@ func NewHandler(client versioned.Interface) http.Handler {
 
 		// Buffer for aggregated updates
 		var mut sync.Mutex
-		updateBuffer := make(map[string]Event)
-		ticker := time.NewTicker(5 * time.Second)
+		updateBuffer := map[string]*Event{}
+		ticker := time.NewTicker(updateInterval)
 		defer ticker.Stop()
 
 		resourceEventHandlerRegistration, err := informer.AddEventHandler(&cache.ResourceEventHandlerFuncs{
@@ -89,8 +89,12 @@ func NewHandler(client versioned.Interface) http.Handler {
 				if !ok {
 					return
 				}
+
+				mut.Lock()
+				defer mut.Unlock()
 				event := createEvent("ADD", blob)
 				updates <- event
+				updateBuffer[string(blob.UID)] = nil
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
 				oldBlob, ok := oldObj.(*v1alpha1.Blob)
@@ -104,11 +108,12 @@ func NewHandler(client versioned.Interface) http.Handler {
 
 				mut.Lock()
 				defer mut.Unlock()
-				if oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Status.Total {
-					updateBuffer[string(newBlob.UID)] = createEvent("UPDATE", newBlob)
+				event := createEvent("UPDATE", newBlob)
+				_, ok = updateBuffer[string(newBlob.UID)]
+				if ok && oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Status.Total {
+					updateBuffer[string(newBlob.UID)] = &event
 				} else {
-					delete(updateBuffer, string(newBlob.UID))
-					event := createEvent("UPDATE", newBlob)
+					updateBuffer[string(newBlob.UID)] = nil
 					updates <- event
 				}
 			},
@@ -142,6 +147,9 @@ func NewHandler(client versioned.Interface) http.Handler {
 					defer mut.Unlock()
 					if len(updateBuffer) != 0 {
 						for _, event := range updateBuffer {
+							if event == nil {
+								continue
+							}
 							_, err := event.WriteTo(w)
 							if err != nil {
 								fmt.Printf("Error writing event: %v\n", err)

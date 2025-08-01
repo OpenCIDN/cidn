@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/webui"
@@ -34,6 +35,7 @@ type flagpole struct {
 	Master                string
 	InsecureSkipTLSVerify bool
 	Port                  int
+	UpdateInterval        time.Duration
 }
 
 func NewWebUICommand(ctx context.Context) *cobra.Command {
@@ -61,7 +63,7 @@ func NewWebUICommand(ctx context.Context) *cobra.Command {
 				return fmt.Errorf("error creating clientset: %v", err)
 			}
 
-			handler := webui.NewHandler(clientset)
+			handler := webui.NewHandler(clientset, flags.UpdateInterval)
 			server := &http.Server{
 				Addr:    fmt.Sprintf(":%d", flags.Port),
 				Handler: handler,
@@ -85,5 +87,6 @@ func NewWebUICommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVar(&flags.Master, "master", flags.Master, "The address of the Kubernetes API server")
 	cmd.Flags().BoolVar(&flags.InsecureSkipTLSVerify, "insecure-skip-tls-verify", false, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 	cmd.Flags().IntVar(&flags.Port, "port", 8080, "The port to serve the web UI on")
+	cmd.Flags().DurationVar(&flags.UpdateInterval, "update-interval", 1*time.Second, "The rate at which the WebUI pushes events to the frontend")
 	return cmd
 }
