@@ -62,7 +62,7 @@ metadata:
   name: blob.{{.Destination}}.1-1.hash-error
 spec:
   minimumChunkSize: 200000000
-  maximumRunning: 2
+  maximumRunning: 5
   contentSha256: {{.Sha256}}xx
   source:
   - url: http://cidn-nginx-test-1/{{.Source}}
@@ -76,7 +76,7 @@ metadata:
   name: blob.{{.Destination}}.1-1
 spec:
   minimumChunkSize: 100000000
-  maximumRunning: 2
+  maximumRunning: 5
   contentSha256: {{.Sha256}}
   source:
   - url: http://cidn-nginx-test-1/{{.Source}}
@@ -91,7 +91,7 @@ metadata:
   name: blob.{{.Destination}}.2-2
 spec:
   minimumChunkSize: 134217728
-  maximumRunning: 2
+  maximumRunning: 5
   contentSha256: {{.Sha256}}
   source:
   - url: http://cidn-nginx-test-1/{{.Source}}
