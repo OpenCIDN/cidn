@@ -44,6 +44,18 @@ function register-gen() {
   go run k8s.io/code-generator/cmd/register-gen@${KUBE_VERSION} "$@"
 }
 
+function lister-gen() {
+  go run k8s.io/code-generator/cmd/lister-gen@${KUBE_VERSION} "$@"
+}
+
+function informer-gen() {
+  go run k8s.io/code-generator/cmd/informer-gen@${KUBE_VERSION} "$@"
+}
+
+function openapi-gen() {
+  go run k8s.io/kube-openapi/cmd/openapi-gen@v0.0.0-20250318190949-c8a335a9a2ff "$@"
+}
+
 # Clean up previously generated files
 rm -f "${ROOT_DIR}/pkg/apis/task/v1alpha1/zz_generated."*
 rm -rf "${ROOT_DIR}/pkg/clientset"
