@@ -29,3 +29,7 @@ type BlobListerExpansion interface{}
 // ChunkListerExpansion allows custom methods to be added to
 // ChunkLister.
 type ChunkListerExpansion interface{}
+
+// MultipartListerExpansion allows custom methods to be added to
+// MultipartLister.
+type MultipartListerExpansion interface{}

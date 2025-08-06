@@ -40,6 +40,10 @@ func (c *FakeTaskV1alpha1) Chunks() v1alpha1.ChunkInterface {
 	return newFakeChunks(c)
 }
 
+func (c *FakeTaskV1alpha1) Multiparts() v1alpha1.MultipartInterface {
+	return newFakeMultiparts(c)
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeTaskV1alpha1) RESTClient() rest.Interface {

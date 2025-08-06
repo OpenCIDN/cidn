@@ -38,14 +38,15 @@ import (
 )
 
 type BlobToChunkController struct {
-	handlerName    string
-	s3             map[string]*sss.SSS
-	expires        time.Duration
-	client         versioned.Interface
-	blobInformer   informers.BlobInformer
-	chunkInformer  informers.ChunkInformer
-	bearerInformer informers.BearerInformer
-	workqueue      workqueue.TypedDelayingInterface[string]
+	handlerName       string
+	s3                map[string]*sss.SSS
+	expires           time.Duration
+	client            versioned.Interface
+	blobInformer      informers.BlobInformer
+	chunkInformer     informers.ChunkInformer
+	bearerInformer    informers.BearerInformer
+	multipartInformer informers.MultipartInformer
+	workqueue         workqueue.TypedDelayingInterface[string]
 }
 
 func NewBlobToChunkController(
@@ -55,14 +56,15 @@ func NewBlobToChunkController(
 	sharedInformerFactory externalversions.SharedInformerFactory,
 ) *BlobToChunkController {
 	c := &BlobToChunkController{
-		handlerName:    handlerName,
-		s3:             s3,
-		expires:        24 * time.Hour,
-		blobInformer:   sharedInformerFactory.Task().V1alpha1().Blobs(),
-		chunkInformer:  sharedInformerFactory.Task().V1alpha1().Chunks(),
-		bearerInformer: sharedInformerFactory.Task().V1alpha1().Bearers(),
-		client:         client,
-		workqueue:      workqueue.NewTypedDelayingQueue[string](),
+		handlerName:       handlerName,
+		s3:                s3,
+		expires:           24 * time.Hour,
+		blobInformer:      sharedInformerFactory.Task().V1alpha1().Blobs(),
+		chunkInformer:     sharedInformerFactory.Task().V1alpha1().Chunks(),
+		bearerInformer:    sharedInformerFactory.Task().V1alpha1().Bearers(),
+		multipartInformer: sharedInformerFactory.Task().V1alpha1().Multiparts(),
+		client:            client,
+		workqueue:         workqueue.NewTypedDelayingQueue[string](),
 	}
 
 	c.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -86,6 +88,13 @@ func NewBlobToChunkController(
 		},
 	})
 
+	c.multipartInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		DeleteFunc: func(obj interface{}) {
+			multipart := obj.(*v1alpha1.Multipart)
+			key := multipart.Name
+			c.workqueue.Add(key)
+		},
+	})
 	return c
 }
 
@@ -108,6 +117,20 @@ func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
 	})
 	if err != nil {
 		klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
+	}
+
+	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded || blob.Status.Phase == v1alpha1.BlobPhaseFailed {
+		_, err = c.multipartInformer.Lister().Get(blob.Name)
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				klog.Errorf("failed to get multipart for blob %s: %v", blob.Name, err)
+			}
+		} else {
+			err = c.client.TaskV1alpha1().Multiparts().Delete(context.Background(), blob.Name, metav1.DeleteOptions{})
+			if err != nil {
+				klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
+			}
+		}
 	}
 }
 
@@ -565,7 +588,13 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 		toCreate = int(blob.Spec.MaximumPending)
 	}
 
-	if uploadIDs := blob.Status.UploadIDs; len(uploadIDs) == 0 {
+	mp, err := c.multipartInformer.Lister().Get(blob.Name)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+
+		uploadIDs := make([]string, 0, len(blob.Spec.Destination))
 		for _, dst := range blob.Spec.Destination {
 			s3 := c.s3[dst.Name]
 			if s3 == nil {
@@ -607,7 +636,17 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 			return nil
 		}
 
-		blob.Status.UploadIDs = uploadIDs
+		mp = &v1alpha1.Multipart{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: blob.Name,
+			},
+			UploadIDs: uploadIDs,
+		}
+
+		mp, err = c.client.TaskV1alpha1().Multiparts().Create(ctx, mp, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to create multipart: %v", err)
+		}
 	}
 
 	created := 0
@@ -627,8 +666,8 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 		num := i + 1
 		name := fmt.Sprintf("%s:%0*d:%0*x-%0*x", blob.Name, p0, num, s0, start, s0, end)
 
-		if len(blob.Status.UploadEtags) != 0 && len(blob.Status.UploadEtags[i].Etags) != 0 {
-			if i < int64(len(blob.Status.UploadEtags))-1 && len(blob.Status.UploadEtags[i+1].Etags) != 0 {
+		if len(mp.UploadEtags) != 0 && len(mp.UploadEtags[i].Etags) != 0 {
+			if i < int64(len(mp.UploadEtags))-1 && len(mp.UploadEtags[i+1].Etags) != 0 {
 				if _, err := c.chunkInformer.Lister().Get(name); err == nil {
 					g.Go(func() error {
 						err := c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
@@ -654,7 +693,7 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 			return err
 		}
 
-		chunk, err := c.buildChunk(blob, name, num, start, end, lastName, blob.Status.UploadIDs)
+		chunk, err := c.buildChunk(blob, name, num, start, end, lastName, mp.UploadIDs)
 		if err != nil {
 			return err
 		}

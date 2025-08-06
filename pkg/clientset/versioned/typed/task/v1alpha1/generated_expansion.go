@@ -23,3 +23,5 @@ type BearerExpansion interface{}
 type BlobExpansion interface{}
 
 type ChunkExpansion interface{}
+
+type MultipartExpansion interface{}

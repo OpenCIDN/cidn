@@ -31,6 +31,7 @@ type TaskV1alpha1Interface interface {
 	BearersGetter
 	BlobsGetter
 	ChunksGetter
+	MultipartsGetter
 }
 
 // TaskV1alpha1Client is used to interact with features provided by the task.opencidn.daocloud.io group.
@@ -48,6 +49,10 @@ func (c *TaskV1alpha1Client) Blobs() BlobInterface {
 
 func (c *TaskV1alpha1Client) Chunks() ChunkInterface {
 	return newChunks(c)
+}
+
+func (c *TaskV1alpha1Client) Multiparts() MultipartInterface {
+	return newMultiparts(c)
 }
 
 // NewForConfig creates a new TaskV1alpha1Client for the given config.

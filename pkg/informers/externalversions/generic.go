@@ -59,6 +59,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Task().V1alpha1().Blobs().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("chunks"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Task().V1alpha1().Chunks().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("multiparts"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Task().V1alpha1().Multiparts().Informer()}, nil
 
 	}
 

@@ -90,12 +90,6 @@ type BlobStatus struct {
 	// FailedChunks is the number of failed chunks for this blob.
 	FailedChunks int64 `json:"failedChunks,omitempty"`
 
-	// UploadIDs holds the list of upload IDs for multipart uploads
-	UploadIDs []string `json:"uploadIDs,omitempty"`
-
-	// UploadEtags holds the etags of uploaded parts for multipart uploads
-	UploadEtags []UploadEtag `json:"uploadEtags,omitempty"`
-
 	// RetryCount is the number of times the blob has been retried.
 	RetryCount int64 `json:"retryCount,omitempty"`
 
@@ -105,14 +99,6 @@ type BlobStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
-}
-
-// UploadEtag holds the etag information for uploaded parts of a multipart upload
-// +k8s:deepcopy-gen=true
-// +k8s:openapi-gen=true
-type UploadEtag struct {
-	Size  int64    `json:"size,omitempty"`
-	Etags []string `json:"etags,omitempty"`
 }
 
 // BlobSpec defines the specification for Blob.

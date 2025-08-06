@@ -43,12 +43,13 @@ import (
 )
 
 type BlobFromChunkController struct {
-	handlerName   string
-	s3            map[string]*sss.SSS
-	client        versioned.Interface
-	blobInformer  informers.BlobInformer
-	chunkInformer informers.ChunkInformer
-	workqueue     workqueue.TypedDelayingInterface[string]
+	handlerName       string
+	s3                map[string]*sss.SSS
+	client            versioned.Interface
+	blobInformer      informers.BlobInformer
+	chunkInformer     informers.ChunkInformer
+	multipartInformer informers.MultipartInformer
+	workqueue         workqueue.TypedDelayingInterface[string]
 }
 
 func NewBlobFromChunkController(
@@ -58,12 +59,13 @@ func NewBlobFromChunkController(
 	sharedInformerFactory externalversions.SharedInformerFactory,
 ) *BlobFromChunkController {
 	c := &BlobFromChunkController{
-		handlerName:   handlerName,
-		s3:            s3,
-		blobInformer:  sharedInformerFactory.Task().V1alpha1().Blobs(),
-		chunkInformer: sharedInformerFactory.Task().V1alpha1().Chunks(),
-		client:        client,
-		workqueue:     workqueue.NewTypedDelayingQueue[string](),
+		handlerName:       handlerName,
+		s3:                s3,
+		blobInformer:      sharedInformerFactory.Task().V1alpha1().Blobs(),
+		chunkInformer:     sharedInformerFactory.Task().V1alpha1().Chunks(),
+		multipartInformer: sharedInformerFactory.Task().V1alpha1().Multiparts(),
+		client:            client,
+		workqueue:         workqueue.NewTypedDelayingQueue[string](),
 	}
 
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -200,12 +202,6 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 			return fmt.Errorf("failed to update blob status: %v", err)
 		}
 
-		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, chunk.Name, metav1.DeleteOptions{})
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return fmt.Errorf("failed to delete chunk: %w", err)
-			}
-		}
 	case v1alpha1.ChunkPhaseFailed:
 		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.RetryCount < chunk.Spec.RetryCount {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
@@ -299,21 +295,33 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		return fmt.Errorf("failed to list chunks: %w", err)
 	}
 
-	if len(blob.Status.UploadEtags) == 0 {
-		blob.Status.UploadEtags = make([]v1alpha1.UploadEtag, blob.Spec.ChunksNumber)
+	mp, err := c.multipartInformer.Lister().Get(blob.Name)
+	if err != nil {
+		return fmt.Errorf("failed to list multiparts: %w", err)
 	}
 
+	if len(mp.UploadEtags) == 0 {
+		mp.UploadEtags = make([]v1alpha1.UploadEtags, blob.Spec.ChunksNumber)
+	}
+
+	var updateEtag bool
 	var succeededCount, failedCount, pendingCount, runningCount, retryCount int64
 	var progress int64
 	for _, chunk := range chunks {
 		switch chunk.Status.Phase {
 		case v1alpha1.ChunkPhaseSucceeded:
-
-			blob.Status.UploadEtags[chunk.Spec.ChunkIndex-1] = v1alpha1.UploadEtag{
-				Size:  chunk.Spec.Total,
-				Etags: chunk.Status.Etags,
+			if chunk.Spec.ChunkIndex != 0 {
+				index := chunk.Spec.ChunkIndex - 1
+				if mp.UploadEtags[index].Size == 0 {
+					mp.UploadEtags[index] = v1alpha1.UploadEtags{
+						Size:  chunk.Spec.Total,
+						Etags: chunk.Status.Etags,
+					}
+					updateEtag = true
+				}
 			}
 			continue
+
 		case v1alpha1.ChunkPhaseFailed:
 			failedCount++
 		case v1alpha1.ChunkPhasePending:
@@ -326,7 +334,16 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		progress += chunk.Status.Progress
 	}
 
-	for _, e := range blob.Status.UploadEtags {
+	if updateEtag {
+		go func() {
+			_, err = c.client.TaskV1alpha1().Multiparts().Update(ctx, mp, metav1.UpdateOptions{})
+			if err != nil {
+				klog.Errorf("Failed to update multipart %s: %v", mp.Name, err)
+			}
+		}()
+	}
+
+	for _, e := range mp.UploadEtags {
 		if len(e.Etags) != 0 {
 			succeededCount++
 			progress += e.Size
@@ -383,12 +400,12 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		return nil
 	}
 
-	if len(blob.Status.UploadIDs) != 0 &&
+	if len(mp.UploadIDs) != 0 &&
 		blob.Status.Phase == v1alpha1.BlobPhaseRunning &&
 		blob.Status.Progress == blob.Status.Total {
 
 		var totalSize int64
-		for _, etag := range blob.Status.UploadEtags {
+		for _, etag := range mp.UploadEtags {
 			totalSize += etag.Size
 		}
 		if totalSize != blob.Status.Total {
@@ -403,13 +420,13 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		g, _ := errgroup.WithContext(ctx)
 
 		for i, dst := range blob.Spec.Destination {
-			uploadID := blob.Status.UploadIDs[i]
+			uploadID := mp.UploadIDs[i]
 			if uploadID == "" {
 				continue
 			}
 			dst := dst
-			parts := make([]*s3.Part, 0, len(blob.Status.UploadEtags))
-			for j, s := range blob.Status.UploadEtags {
+			parts := make([]*s3.Part, 0, len(mp.UploadEtags))
+			for j, s := range mp.UploadEtags {
 				partNumber := int64(j + 1)
 				parts = append(parts, &s3.Part{
 					ETag:       &s.Etags[i],
@@ -448,9 +465,13 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				Message: err.Error(),
 			})
 		} else {
-			blob.Status.UploadIDs = blob.Status.UploadIDs[:0]
-			blob.Status.UploadEtags = blob.Status.UploadEtags[:0]
 			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+
+			err = c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
+			if err != nil {
+				klog.Errorf("failed to delete multipart %s: %v", blob.Name, err)
+				return nil
+			}
 		}
 	}
 	return nil

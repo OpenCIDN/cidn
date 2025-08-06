@@ -30,6 +30,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/registry/task/bearer"
 	"github.com/OpenCIDN/cidn/pkg/registry/task/blob"
 	"github.com/OpenCIDN/cidn/pkg/registry/task/chunk"
+	"github.com/OpenCIDN/cidn/pkg/registry/task/multipart"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -63,6 +64,8 @@ func addInternalTypes(scheme *runtime.Scheme) error {
 		&v1alpha1.ChunkList{},
 		&v1alpha1.Bearer{},
 		&v1alpha1.BearerList{},
+		&v1alpha1.Multipart{},
+		&v1alpha1.MultipartList{},
 	)
 
 	v1alpha1.RegisterDefaults(Scheme)
@@ -124,6 +127,11 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 		return nil, err
 	}
 
+	multipartStorage, err := multipart.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
+	if err != nil {
+		return nil, err
+	}
+
 	apiGroupInfo.VersionedResourcesStorageMap["v1alpha1"] = map[string]rest.Storage{
 		"chunks":         chunkStorage,
 		"chunks/status":  chunkStatusStorage,
@@ -131,6 +139,7 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 		"blobs/status":   blobStatusStorage,
 		"bearers":        bearerStorage,
 		"bearers/status": bearerStatusStorage,
+		"multiparts":     multipartStorage,
 	}
 
 	if err := genericServer.InstallAPIGroup(&apiGroupInfo); err != nil {

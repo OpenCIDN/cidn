@@ -48,7 +48,9 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkSpec":         schema_pkg_apis_task_v1alpha1_ChunkSpec(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkStatus":       schema_pkg_apis_task_v1alpha1_ChunkStatus(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition":         schema_pkg_apis_task_v1alpha1_Condition(ref),
-		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtag":        schema_pkg_apis_task_v1alpha1_UploadEtag(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Multipart":         schema_pkg_apis_task_v1alpha1_Multipart(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.MultipartList":     schema_pkg_apis_task_v1alpha1_MultipartList(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtags":       schema_pkg_apis_task_v1alpha1_UploadEtags(ref),
 		"k8s.io/apimachinery/pkg/apis/meta/v1.APIGroup":                     schema_pkg_apis_meta_v1_APIGroup(ref),
 		"k8s.io/apimachinery/pkg/apis/meta/v1.APIGroupList":                 schema_pkg_apis_meta_v1_APIGroupList(ref),
 		"k8s.io/apimachinery/pkg/apis/meta/v1.APIResource":                  schema_pkg_apis_meta_v1_APIResource(ref),
@@ -687,35 +689,6 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 							Format:      "int64",
 						},
 					},
-					"uploadIDs": {
-						SchemaProps: spec.SchemaProps{
-							Description: "UploadIDs holds the list of upload IDs for multipart uploads",
-							Type:        []string{"array"},
-							Items: &spec.SchemaOrArray{
-								Schema: &spec.Schema{
-									SchemaProps: spec.SchemaProps{
-										Default: "",
-										Type:    []string{"string"},
-										Format:  "",
-									},
-								},
-							},
-						},
-					},
-					"uploadEtags": {
-						SchemaProps: spec.SchemaProps{
-							Description: "UploadEtags holds the etags of uploaded parts for multipart uploads",
-							Type:        []string{"array"},
-							Items: &spec.SchemaOrArray{
-								Schema: &spec.Schema{
-									SchemaProps: spec.SchemaProps{
-										Default: map[string]interface{}{},
-										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtag"),
-									},
-								},
-							},
-						},
-					},
 					"retryCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "RetryCount is the number of times the blob has been retried.",
@@ -752,7 +725,7 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtag"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"},
 	}
 }
 
@@ -1228,11 +1201,125 @@ func schema_pkg_apis_task_v1alpha1_Condition(ref common.ReferenceCallback) commo
 	}
 }
 
-func schema_pkg_apis_task_v1alpha1_UploadEtag(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_task_v1alpha1_Multipart(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "UploadEtag holds the etag information for uploaded parts of a multipart upload",
+				Description: "Multipart is an API that describes the staged change of a resource",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Standard list metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata",
+							Default:     map[string]interface{}{},
+							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
+						},
+					},
+					"uploadIDs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "UploadIDs holds the list of upload IDs for multipart uploads",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"uploadEtags": {
+						SchemaProps: spec.SchemaProps{
+							Description: "UploadEtags holds the etags of uploaded parts for multipart uploads",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtags"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.UploadEtags", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
+	}
+}
+
+func schema_pkg_apis_task_v1alpha1_MultipartList(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "MultipartList contains a list of Multipart",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta"),
+						},
+					},
+					"items": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Multipart"),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"items"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Multipart", "k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta"},
+	}
+}
+
+func schema_pkg_apis_task_v1alpha1_UploadEtags(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "UploadEtags holds the etag information for uploaded parts of a multipart upload",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"size": {

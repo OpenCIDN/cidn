@@ -30,6 +30,8 @@ type Interface interface {
 	Blobs() BlobInformer
 	// Chunks returns a ChunkInformer.
 	Chunks() ChunkInformer
+	// Multiparts returns a MultipartInformer.
+	Multiparts() MultipartInformer
 }
 
 type version struct {
@@ -56,4 +58,9 @@ func (v *version) Blobs() BlobInformer {
 // Chunks returns a ChunkInformer.
 func (v *version) Chunks() ChunkInformer {
 	return &chunkInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// Multiparts returns a MultipartInformer.
+func (v *version) Multiparts() MultipartInformer {
+	return &multipartInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
