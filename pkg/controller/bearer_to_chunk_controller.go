@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -245,7 +244,7 @@ func addBasicAuth(uri *string, header map[string]string, users map[string]*url.U
 	}
 
 	if u.User != nil {
-		header["Authorization"] = "Basic " + base64.StdEncoding.EncodeToString([]byte(u.User.String()))
+		header["Authorization"] = utils.FormathBasicAuth(u.User)
 		u.User = nil
 		*uri = u.String()
 	}

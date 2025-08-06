@@ -196,11 +196,14 @@ func NewConfig(
 		}
 
 		apiservercfg.Authentication.Authenticator = authenticator.RequestFunc(func(req *http.Request) (*authenticator.Response, bool, error) {
-			u, p, ok := user.ParseBasicAuth(req.Header.Get("Authorization"))
-			if !ok {
+			user := utils.ParseBasicAuth(req.Header.Get("Authorization"))
+			if user == nil {
 				klog.Infof("Authorization failed: invalid or missing credentials for ip %s", req.RemoteAddr)
 				return nil, false, nil
 			}
+
+			u := user.Username()
+			p, _ := user.Password()
 			ui, ok := usersMap[[2]string{u, p}]
 			if !ok {
 				klog.Infof("Authorization failed: invalid credentials for user %s from ip %s", u, req.RemoteAddr)

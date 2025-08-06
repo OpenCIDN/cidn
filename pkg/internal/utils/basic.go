@@ -14,26 +14,34 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package user
+package utils
 
 import (
 	"encoding/base64"
+	"net/url"
 	"strings"
 )
 
-func ParseBasicAuth(auth string) (username, password string, ok bool) {
+func ParseBasicAuth(auth string) *url.Userinfo {
 	const prefix = "Basic "
 	if len(auth) < len(prefix) || !strings.EqualFold(auth[:len(prefix)], prefix) {
-		return "", "", false
+		return nil
 	}
 	c, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
 	if err != nil {
-		return "", "", false
+		return nil
 	}
 	cs := string(c)
-	username, password, ok = strings.Cut(cs, ":")
+	username, password, ok := strings.Cut(cs, ":")
 	if !ok {
-		return "", "", false
+		return url.User(username)
 	}
-	return username, password, true
+	return url.UserPassword(username, password)
+}
+
+func FormathBasicAuth(ui *url.Userinfo) string {
+	if ui == nil {
+		return ""
+	}
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(ui.String()))
 }
