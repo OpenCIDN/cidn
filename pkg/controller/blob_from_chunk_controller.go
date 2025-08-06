@@ -202,7 +202,9 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 
 		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, chunk.Name, metav1.DeleteOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to delete chunk: %w", err)
+			if !apierrors.IsNotFound(err) {
+				return fmt.Errorf("failed to delete chunk: %w", err)
+			}
 		}
 	case v1alpha1.ChunkPhaseFailed:
 		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.RetryCount < chunk.Spec.RetryCount {

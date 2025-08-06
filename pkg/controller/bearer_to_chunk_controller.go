@@ -223,7 +223,9 @@ func (c *BearerToChunkController) toGetChunk(ctx context.Context, bearer *v1alph
 
 	_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
 	if err != nil {
-		return err
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
 	}
 
 	return nil

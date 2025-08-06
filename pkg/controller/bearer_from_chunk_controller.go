@@ -170,7 +170,9 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 
 		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, chunkName, metav1.DeleteOptions{})
 		if err != nil {
-			return fmt.Errorf("failed to update bearer status: %v", err)
+			if !apierrors.IsNotFound(err) {
+				return fmt.Errorf("failed to update bearer status: %v", err)
+			}
 		}
 	case v1alpha1.ChunkPhaseFailed:
 		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.RetryCount < chunk.Spec.RetryCount {

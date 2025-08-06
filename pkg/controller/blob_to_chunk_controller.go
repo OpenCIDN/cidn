@@ -271,7 +271,9 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 
 	_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
 	if err != nil {
-		return err
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
 	}
 
 	return nil
@@ -407,7 +409,9 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 
 	_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
 	if err != nil {
-		return err
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
 	}
 
 	return nil

@@ -135,7 +135,9 @@ func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) e
 	for _, chunk := range chunkList.Items {
 		err := c.client.TaskV1alpha1().Chunks().Delete(context.Background(), chunk.Name, metav1.DeleteOptions{})
 		if err != nil {
-			return err
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
 		}
 	}
 
