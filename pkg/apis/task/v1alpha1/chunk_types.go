@@ -75,6 +75,9 @@ type ChunkStatus struct {
 	// SourceResponse is the response from the source resource
 	SourceResponse *ChunkHTTPResponse `json:"sourceResponse,omitempty"`
 
+	// ResponseBody contains the raw response body from the source resource
+	ResponseBody []byte `json:"responseBody,omitempty"`
+
 	// SourceProgress is the progress of reading the source resource
 	SourceProgress int64 `json:"sourceProgress,omitempty"`
 
@@ -170,6 +173,9 @@ type ChunkSpec struct {
 	// RetryCount is the number of times the chunk has been retried.
 	// +default=5
 	RetryCount int64 `json:"retryCount,omitempty"`
+
+	// InlineResponseBody indicates whether the response body should be inlined in the status
+	InlineResponseBody bool `json:"inlineResponseBody,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

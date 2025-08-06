@@ -28,6 +28,7 @@ import (
 
 type TaskV1alpha1Interface interface {
 	RESTClient() rest.Interface
+	BearersGetter
 	BlobsGetter
 	ChunksGetter
 }
@@ -35,6 +36,10 @@ type TaskV1alpha1Interface interface {
 // TaskV1alpha1Client is used to interact with features provided by the task.opencidn.daocloud.io group.
 type TaskV1alpha1Client struct {
 	restClient rest.Interface
+}
+
+func (c *TaskV1alpha1Client) Bearers() BearerInterface {
+	return newBearers(c)
 }
 
 func (c *TaskV1alpha1Client) Blobs() BlobInterface {

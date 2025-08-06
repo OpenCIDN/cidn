@@ -85,6 +85,7 @@ services:
     - --insecure-skip-tls-verify
     - --storage-url=minio-1://minioadmin:minioadmin@myminio.us-east-1?forcepathstyle=true&secure=false&chunksize=104857600&regionendpoint=http://cidn-minio-1:9000
     - --storage-url=minio-2://minioadmin:minioadmin@myminio.us-east-1?forcepathstyle=true&secure=false&chunksize=104857600&regionendpoint=http://cidn-minio-2:9000
+    - --user=user:pwd,cidn-nginx-test-1,cidn-nginx-test-2
     deploy:
       replicas: 2
     networks:
@@ -157,9 +158,33 @@ configs:
           if ($$request_id ~* "[2]$$") {
             return 444;
           }
+          
+          if ($$http_authorization = "") {
+            add_header 'www-authenticate' 'Bearer realm="http://$$http_host/token",service="registry",scope="pull"' always;
+            return 401;
+          }
+
+          if ($$http_authorization != "Bearer xxx") {
+            add_header 'www-authenticate' 'Bearer realm="http://$$http_host/token",service="registry",scope="pull"' always;
+            return 401;
+          }
+
           limit_rate 10m;
           root   /usr/share/nginx/html;
           index  index.html index.htm;
+        }
+
+        location = /token {
+          if ($$arg_service != "registry") {
+            return 403 "Invalid service";
+          }
+          if ($$arg_scope != "pull") {
+            return 403 "Invalid scope";
+          }
+          if ($$http_authorization != "Basic dXNlcjpwd2Q=") {
+            return 401 "Invalid credentials";
+          }
+          return 200 '{"token":"xxx","expires_in":60,"issued_at":"$$time_iso8601"}';
         }
       }
 networks:

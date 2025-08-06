@@ -29,6 +29,11 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Bearer":            schema_pkg_apis_task_v1alpha1_Bearer(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerList":        schema_pkg_apis_task_v1alpha1_BearerList(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerSpec":        schema_pkg_apis_task_v1alpha1_BearerSpec(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerStatus":      schema_pkg_apis_task_v1alpha1_BearerStatus(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerTokenInfo":   schema_pkg_apis_task_v1alpha1_BearerTokenInfo(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Blob":              schema_pkg_apis_task_v1alpha1_Blob(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobDestination":   schema_pkg_apis_task_v1alpha1_BlobDestination(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobList":          schema_pkg_apis_task_v1alpha1_BlobList(ref),
@@ -97,6 +102,248 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"k8s.io/apimachinery/pkg/runtime.TypeMeta":                          schema_k8sio_apimachinery_pkg_runtime_TypeMeta(ref),
 		"k8s.io/apimachinery/pkg/runtime.Unknown":                           schema_k8sio_apimachinery_pkg_runtime_Unknown(ref),
 		"k8s.io/apimachinery/pkg/version.Info":                              schema_k8sio_apimachinery_pkg_version_Info(ref),
+	}
+}
+
+func schema_pkg_apis_task_v1alpha1_Bearer(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "Bearer is an API that describes the staged change of a resource",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Standard list metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata",
+							Default:     map[string]interface{}{},
+							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
+						},
+					},
+					"spec": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Spec holds information about the request being evaluated.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerSpec"),
+						},
+					},
+					"status": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Status holds status for the Bearer",
+							Default:     map[string]interface{}{},
+							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerStatus"),
+						},
+					},
+				},
+				Required: []string{"spec"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerSpec", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerStatus", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
+	}
+}
+
+func schema_pkg_apis_task_v1alpha1_BearerList(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BearerList contains a list of Bearer",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta"),
+						},
+					},
+					"items": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Bearer"),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"items"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Bearer", "k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta"},
+	}
+}
+
+func schema_pkg_apis_task_v1alpha1_BearerSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BearerSpec defines the specification for Bearer.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"url": {
+						SchemaProps: spec.SchemaProps{
+							Description: "URL is the URL that is being checked for authorization.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"priority": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Priority represents the relative importance of this manifest when multiple manifests exist.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"retryCount": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RetryCount is the number of times the chunk has been retried.",
+							Default:     5,
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+				},
+				Required: []string{"url"},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_task_v1alpha1_BearerStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BearerStatus holds status for the Bearer",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"handlerName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "HandlerName is the name of the handler.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"phase": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Phase represents the current phase of the manifest.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"tokenInfo": {
+						SchemaProps: spec.SchemaProps{
+							Description: "TokenInfo contains information about the authentication token",
+							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerTokenInfo"),
+						},
+					},
+					"retryCount": {
+						SchemaProps: spec.SchemaProps{
+							Description: "RetryCount is the number of times the manifest has been retried.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"conditions": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-map-keys": []interface{}{
+									"type",
+								},
+								"x-kubernetes-list-type":       "map",
+								"x-kubernetes-patch-merge-key": "type",
+								"x-kubernetes-patch-strategy":  "merge",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "Conditions holds conditions for the Bearer.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"handlerName"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerTokenInfo", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"},
+	}
+}
+
+func schema_pkg_apis_task_v1alpha1_BearerTokenInfo(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "BearerTokenInfo contains information about an authentication token",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"token": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Token is the actual authentication token string",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"expires_in": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ExpiresIn is the duration in seconds until the token expires",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"issued_at": {
+						SchemaProps: spec.SchemaProps{
+							Description: "IssuedAt is the timestamp when the token was issued",
+							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
+						},
+					},
+				},
+				Required: []string{"token"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/apis/meta/v1.Time"},
 	}
 }
 
@@ -802,6 +1049,13 @@ func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) commo
 							Format:      "int64",
 						},
 					},
+					"inlineResponseBody": {
+						SchemaProps: spec.SchemaProps{
+							Description: "InlineResponseBody indicates whether the response body should be inlined in the status",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"source", "priority"},
 			},
@@ -844,6 +1098,13 @@ func schema_pkg_apis_task_v1alpha1_ChunkStatus(ref common.ReferenceCallback) com
 						SchemaProps: spec.SchemaProps{
 							Description: "SourceResponse is the response from the source resource",
 							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPResponse"),
+						},
+					},
+					"responseBody": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ResponseBody contains the raw response body from the source resource",
+							Type:        []string{"string"},
+							Format:      "byte",
 						},
 					},
 					"sourceProgress": {

@@ -24,6 +24,8 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
+	// Bearers returns a BearerInformer.
+	Bearers() BearerInformer
 	// Blobs returns a BlobInformer.
 	Blobs() BlobInformer
 	// Chunks returns a ChunkInformer.
@@ -39,6 +41,11 @@ type version struct {
 // New returns a new Interface.
 func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakListOptions internalinterfaces.TweakListOptionsFunc) Interface {
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
+}
+
+// Bearers returns a BearerInformer.
+func (v *version) Bearers() BearerInformer {
+	return &bearerInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // Blobs returns a BlobInformer.

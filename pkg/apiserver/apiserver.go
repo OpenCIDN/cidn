@@ -25,7 +25,9 @@ import (
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/apiserver/user"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	generatedopenapi "github.com/OpenCIDN/cidn/pkg/openapi"
+	"github.com/OpenCIDN/cidn/pkg/registry/task/bearer"
 	"github.com/OpenCIDN/cidn/pkg/registry/task/blob"
 	"github.com/OpenCIDN/cidn/pkg/registry/task/chunk"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -59,6 +61,8 @@ func addInternalTypes(scheme *runtime.Scheme) error {
 		&v1alpha1.BlobList{},
 		&v1alpha1.Chunk{},
 		&v1alpha1.ChunkList{},
+		&v1alpha1.Bearer{},
+		&v1alpha1.BearerList{},
 	)
 
 	v1alpha1.RegisterDefaults(Scheme)
@@ -115,11 +119,18 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 		return nil, err
 	}
 
+	bearerStorage, bearerStatusStorage, err := bearer.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
+	if err != nil {
+		return nil, err
+	}
+
 	apiGroupInfo.VersionedResourcesStorageMap["v1alpha1"] = map[string]rest.Storage{
-		"chunks":        chunkStorage,
-		"chunks/status": chunkStatusStorage,
-		"blobs":         blobStorage,
-		"blobs/status":  blobStatusStorage,
+		"chunks":         chunkStorage,
+		"chunks/status":  chunkStatusStorage,
+		"blobs":          blobStorage,
+		"blobs/status":   blobStatusStorage,
+		"bearers":        bearerStorage,
+		"bearers/status": bearerStatusStorage,
 	}
 
 	if err := genericServer.InstallAPIGroup(&apiGroupInfo); err != nil {
@@ -132,7 +143,7 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 func NewConfig(
 	secureServing *genericoptions.SecureServingOptionsWithLoopback,
 	etcd *genericoptions.EtcdOptions,
-	users []user.UserValue,
+	users []utils.UserValue,
 ) (*Config, error) {
 	err := secureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")})
 	if err != nil {
@@ -172,7 +183,7 @@ func NewConfig(
 	}
 
 	if len(users) != 0 {
-		var usersMap = map[[2]string]*user.UserValue{}
+		var usersMap = map[[2]string]*utils.UserValue{}
 		for _, u := range users {
 			key := [2]string{u.Name, u.Password}
 			if _, ok := usersMap[key]; ok {

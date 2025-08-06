@@ -396,6 +396,13 @@ func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, contin
 
 	if len(chunk.Spec.Destination) == 0 {
 		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+			if chunk.Spec.InlineResponseBody {
+				body, err := io.ReadAll(body)
+				if err != nil {
+					return nil, err
+				}
+				ss.Status.ResponseBody = body
+			}
 			ss.Status.Phase = v1alpha1.ChunkPhaseSucceeded
 			return ss, nil
 		})

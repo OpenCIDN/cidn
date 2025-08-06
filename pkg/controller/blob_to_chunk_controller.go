@@ -38,13 +38,14 @@ import (
 )
 
 type BlobToChunkController struct {
-	handlerName   string
-	s3            map[string]*sss.SSS
-	expires       time.Duration
-	client        versioned.Interface
-	blobInformer  informers.BlobInformer
-	chunkInformer informers.ChunkInformer
-	workqueue     workqueue.TypedDelayingInterface[string]
+	handlerName    string
+	s3             map[string]*sss.SSS
+	expires        time.Duration
+	client         versioned.Interface
+	blobInformer   informers.BlobInformer
+	chunkInformer  informers.ChunkInformer
+	bearerInformer informers.BearerInformer
+	workqueue      workqueue.TypedDelayingInterface[string]
 }
 
 func NewBlobToChunkController(
@@ -54,13 +55,14 @@ func NewBlobToChunkController(
 	sharedInformerFactory externalversions.SharedInformerFactory,
 ) *BlobToChunkController {
 	c := &BlobToChunkController{
-		handlerName:   handlerName,
-		s3:            s3,
-		expires:       24 * time.Hour,
-		blobInformer:  sharedInformerFactory.Task().V1alpha1().Blobs(),
-		chunkInformer: sharedInformerFactory.Task().V1alpha1().Chunks(),
-		client:        client,
-		workqueue:     workqueue.NewTypedDelayingQueue[string](),
+		handlerName:    handlerName,
+		s3:             s3,
+		expires:        24 * time.Hour,
+		blobInformer:   sharedInformerFactory.Task().V1alpha1().Blobs(),
+		chunkInformer:  sharedInformerFactory.Task().V1alpha1().Chunks(),
+		bearerInformer: sharedInformerFactory.Task().V1alpha1().Bearers(),
+		client:         client,
+		workqueue:      workqueue.NewTypedDelayingQueue[string](),
 	}
 
 	c.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -233,6 +235,40 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 		},
 	}
 
+	bearer, err := c.bearerInformer.Lister().Get(blob.Name)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if bearer != nil {
+		if bearer.Status.TokenInfo == nil {
+			if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
+				return fmt.Errorf("bearer %s is not in succeeded phase", bearer.Name)
+			}
+			return fmt.Errorf("bearer %s has no token info", bearer.Name)
+		}
+
+		if bearer.Status.TokenInfo.Token != "" {
+			chunk.Spec.Source.Request.Headers["Authorization"] = "Bearer " + bearer.Status.TokenInfo.Token
+
+			issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
+			expiresIn := bearer.Status.TokenInfo.ExpiresIn
+			since := time.Since(issuedAt)
+			expires := time.Duration(expiresIn) * time.Second * 3 / 4
+
+			if since >= expires {
+				bearer.Status.HandlerName = ""
+				bearer.Status.Phase = v1alpha1.BearerPhasePending
+
+				go func() {
+					_, err := c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, bearer, metav1.UpdateOptions{})
+					if err != nil {
+						klog.Errorf("Failed to update bearer %s status: %v", bearer.Name, err)
+					}
+				}()
+			}
+		}
+	}
+
 	_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
 	if err != nil {
 		return err
@@ -304,8 +340,9 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 
 	chunk.Spec.Source = v1alpha1.ChunkHTTP{
 		Request: v1alpha1.ChunkHTTPRequest{
-			Method: http.MethodGet,
-			URL:    src.URL,
+			Method:  http.MethodGet,
+			URL:     src.URL,
+			Headers: map[string]string{},
 		},
 		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusOK,
@@ -313,6 +350,17 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 				"Content-Length": fmt.Sprintf("%d", blob.Status.Total),
 			},
 		},
+	}
+
+	bearer, err := c.bearerInformer.Lister().Get(blob.Name)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if bearer != nil {
+		if bearer.Status.Phase != v1alpha1.BearerPhaseSucceeded {
+			return fmt.Errorf("bearer %s is not in succeeded phase", bearer.Name)
+		}
+		chunk.Spec.Source.Request.Headers["Authorization"] = "Bearer " + bearer.Status.TokenInfo.Token
 	}
 
 	for _, dst := range blob.Spec.Destination {
@@ -422,6 +470,17 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 				"Content-Range":  fmt.Sprintf("bytes %d-%d/%d", start, end-1, blob.Status.Total),
 			},
 		},
+	}
+
+	bearer, err := c.bearerInformer.Lister().Get(blob.Name)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return nil, err
+	}
+	if bearer != nil {
+		if bearer.Status.Phase != v1alpha1.BearerPhaseSucceeded {
+			return nil, fmt.Errorf("bearer %s is not in succeeded phase", bearer.Name)
+		}
+		chunk.Spec.Source.Request.Headers["Authorization"] = "Bearer " + bearer.Status.TokenInfo.Token
 	}
 
 	for j, dst := range blob.Spec.Destination {

@@ -18,6 +18,10 @@ limitations under the License.
 
 package v1alpha1
 
+// BearerListerExpansion allows custom methods to be added to
+// BearerLister.
+type BearerListerExpansion interface{}
+
 // BlobListerExpansion allows custom methods to be added to
 // BlobLister.
 type BlobListerExpansion interface{}

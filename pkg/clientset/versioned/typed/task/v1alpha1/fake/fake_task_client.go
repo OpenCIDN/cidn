@@ -28,6 +28,10 @@ type FakeTaskV1alpha1 struct {
 	*testing.Fake
 }
 
+func (c *FakeTaskV1alpha1) Bearers() v1alpha1.BearerInterface {
+	return newFakeBearers(c)
+}
+
 func (c *FakeTaskV1alpha1) Blobs() v1alpha1.BlobInterface {
 	return newFakeBlobs(c)
 }

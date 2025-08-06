@@ -29,11 +29,26 @@ import (
 // Public to allow building arbitrary schemes.
 // All generated defaulters are covering - they call all nested defaulters.
 func RegisterDefaults(scheme *runtime.Scheme) error {
+	scheme.AddTypeDefaultingFunc(&Bearer{}, func(obj interface{}) { SetObjectDefaults_Bearer(obj.(*Bearer)) })
+	scheme.AddTypeDefaultingFunc(&BearerList{}, func(obj interface{}) { SetObjectDefaults_BearerList(obj.(*BearerList)) })
 	scheme.AddTypeDefaultingFunc(&Blob{}, func(obj interface{}) { SetObjectDefaults_Blob(obj.(*Blob)) })
 	scheme.AddTypeDefaultingFunc(&BlobList{}, func(obj interface{}) { SetObjectDefaults_BlobList(obj.(*BlobList)) })
 	scheme.AddTypeDefaultingFunc(&Chunk{}, func(obj interface{}) { SetObjectDefaults_Chunk(obj.(*Chunk)) })
 	scheme.AddTypeDefaultingFunc(&ChunkList{}, func(obj interface{}) { SetObjectDefaults_ChunkList(obj.(*ChunkList)) })
 	return nil
+}
+
+func SetObjectDefaults_Bearer(in *Bearer) {
+	if in.Spec.RetryCount == 0 {
+		in.Spec.RetryCount = 5
+	}
+}
+
+func SetObjectDefaults_BearerList(in *BearerList) {
+	for i := range in.Items {
+		a := &in.Items[i]
+		SetObjectDefaults_Bearer(a)
+	}
 }
 
 func SetObjectDefaults_Blob(in *Blob) {

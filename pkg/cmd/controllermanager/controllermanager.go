@@ -37,6 +37,7 @@ type flagpole struct {
 	StorageURL            []string
 	QPS                   float32
 	Burst                 int
+	Users                 utils.UsersValue
 }
 
 func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
@@ -83,7 +84,7 @@ func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
 			ident = "controller-" + ident
 			klog.Infof("Starting controller with identity: %s", ident)
 
-			ctr, err := controller.NewControllerManager(ident, clientset, s3)
+			ctr, err := controller.NewControllerManager(ident, clientset, s3, flags.Users.Users)
 			if err != nil {
 				return fmt.Errorf("error creating controller: %v", err)
 			}
@@ -105,5 +106,6 @@ func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringArrayVar(&flags.StorageURL, "storage-url", flags.StorageURL, "The storage URL")
 	cmd.Flags().Float32Var(&flags.QPS, "qps", 100, "Maximum QPS to the master from this client")
 	cmd.Flags().IntVar(&flags.Burst, "burst", 200, "Maximum burst for throttle")
+	cmd.Flags().Var(&flags.Users, "user", "List of users to domain")
 	return cmd
 }

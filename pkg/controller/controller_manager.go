@@ -21,17 +21,19 @@ import (
 
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	"github.com/wzshiming/sss"
 )
 
 type ControllerManager struct {
+	bearerController  *BearerController
 	blobController    *BlobController
 	releaseController *ReleaseController
 
 	sharedInformerFactory externalversions.SharedInformerFactory
 }
 
-func NewControllerManager(handlerName string, client *versioned.Clientset, s3 map[string]*sss.SSS) (*ControllerManager, error) {
+func NewControllerManager(handlerName string, client *versioned.Clientset, s3 map[string]*sss.SSS, users []utils.UserValue) (*ControllerManager, error) {
 	sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
 	blobController := NewBlobController(
 		handlerName,
@@ -46,15 +48,28 @@ func NewControllerManager(handlerName string, client *versioned.Clientset, s3 ma
 		sharedInformerFactory,
 	)
 
+	bearerController := NewBearerController(
+		handlerName,
+		client,
+		sharedInformerFactory,
+		users,
+	)
+
 	return &ControllerManager{
 		blobController:        blobController,
 		releaseController:     releaseController,
+		bearerController:      bearerController,
 		sharedInformerFactory: sharedInformerFactory,
 	}, nil
 }
 
 func (c *ControllerManager) Shutdown(ctx context.Context) error {
-	err := c.blobController.Shutdown(ctx)
+	err := c.bearerController.Shutdown(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = c.blobController.Shutdown(ctx)
 	if err != nil {
 		return err
 	}
@@ -69,6 +84,11 @@ func (c *ControllerManager) Start(ctx context.Context) error {
 	}
 
 	err = c.releaseController.Start(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = c.bearerController.Start(ctx)
 	if err != nil {
 		return err
 	}

@@ -23,7 +23,7 @@ import (
 	"os"
 
 	"github.com/OpenCIDN/cidn/pkg/apiserver"
-	"github.com/OpenCIDN/cidn/pkg/apiserver/user"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	"github.com/spf13/cobra"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
@@ -40,7 +40,7 @@ type Options struct {
 
 	Etcd *genericoptions.EtcdOptions
 
-	Users user.UsersValue
+	Users utils.UsersValue
 }
 
 func (o *Options) Flags() (fs cliflag.NamedFlagSets) {
