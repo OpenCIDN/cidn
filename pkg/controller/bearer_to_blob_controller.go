@@ -121,7 +121,7 @@ func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) e
 		if chunk.Spec.BearerName != name {
 			continue
 		}
-		if chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
+		if chunk.Status.Phase != v1alpha1.ChunkPhaseFailed && chunk.Status.Phase != v1alpha1.ChunkPhasePending {
 			continue
 		}
 
