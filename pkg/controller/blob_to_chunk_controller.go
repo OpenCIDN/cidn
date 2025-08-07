@@ -193,7 +193,7 @@ func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) e
 }
 
 func buildHeadChunkName(blobName string, i int) string {
-	return fmt.Sprintf("%s:head:%d", blobName, i)
+	return fmt.Sprintf("blob:head:%s:%d", blobName, i)
 }
 
 func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.Blob) error {
@@ -304,7 +304,7 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 }
 
 func buildFullChunkName(blobName string) string {
-	return fmt.Sprintf("%s:full", blobName)
+	return fmt.Sprintf("blob:full:%s", blobName)
 }
 
 func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
@@ -667,7 +667,7 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 		}
 
 		num := i + 1
-		name := fmt.Sprintf("%s:%0*d:%0*x-%0*x", blob.Name, p0, num, s0, start, s0, end)
+		name := fmt.Sprintf("blob:part:%s:%0*d:%0*x-%0*x", blob.Name, p0, num, s0, start, s0, end)
 
 		if len(mp.UploadEtags) != 0 && len(mp.UploadEtags[i].Etags) != 0 {
 			if i < int64(len(mp.UploadEtags))-1 && len(mp.UploadEtags[i+1].Etags) != 0 {
