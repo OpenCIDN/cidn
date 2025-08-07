@@ -237,8 +237,8 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 			},
 		},
 		Spec: v1alpha1.ChunkSpec{
-			Priority:   blob.Spec.Priority,
-			RetryCount: blob.Spec.RetryCount - blob.Status.RetryCount,
+			Priority:     blob.Spec.Priority,
+			MaximumRetry: blob.Spec.MaximumRetry - blob.Status.Retry,
 		},
 		Status: v1alpha1.ChunkStatus{
 			Phase: v1alpha1.ChunkPhasePending,
@@ -319,10 +319,10 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 			},
 		},
 		Spec: v1alpha1.ChunkSpec{
-			Total:      blob.Status.Total,
-			Priority:   blob.Spec.Priority,
-			Sha256:     blob.Spec.ContentSha256,
-			RetryCount: blob.Spec.RetryCount - blob.Status.RetryCount,
+			Total:        blob.Status.Total,
+			Priority:     blob.Spec.Priority,
+			Sha256:       blob.Spec.ContentSha256,
+			MaximumRetry: blob.Spec.MaximumRetry - blob.Status.Retry,
 		},
 		Status: v1alpha1.ChunkStatus{
 			Phase: v1alpha1.ChunkPhasePending,
@@ -430,7 +430,7 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 		Spec: v1alpha1.ChunkSpec{
 			Total:        end - start,
 			Priority:     blob.Spec.Priority,
-			RetryCount:   blob.Spec.RetryCount - blob.Status.RetryCount,
+			MaximumRetry: blob.Spec.MaximumRetry - blob.Status.Retry,
 			ChunkIndex:   num,
 			ChunksNumber: blob.Spec.ChunksNumber,
 		},

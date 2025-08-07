@@ -203,10 +203,10 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 		}
 
 	case v1alpha1.ChunkPhaseFailed:
-		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.RetryCount < chunk.Spec.RetryCount {
+		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.Retry < chunk.Spec.MaximumRetry {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 		} else {
-			blob.Status.RetryCount = chunk.Status.RetryCount
+			blob.Status.Retry = chunk.Status.Retry
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			for _, cond := range chunk.Status.Conditions {
 				if cond.Type == v1alpha1.ConditionTypeRetryable {
@@ -256,11 +256,11 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 		blob.Status.RunningChunks = 0
 		blob.Status.SucceededChunks = 0
 		blob.Status.FailedChunks = 1
-		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.RetryCount < chunk.Spec.RetryCount {
+		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.Retry < chunk.Spec.MaximumRetry {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 			blob.Status.Progress = chunk.Status.Progress
 		} else {
-			blob.Status.RetryCount = chunk.Status.RetryCount
+			blob.Status.Retry = chunk.Status.Retry
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			for _, cond := range chunk.Status.Conditions {
 				if cond.Type == v1alpha1.ConditionTypeRetryable {
@@ -330,7 +330,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 			runningCount++
 		}
 
-		retryCount += chunk.Status.RetryCount
+		retryCount += chunk.Status.Retry
 		progress += chunk.Status.Progress
 	}
 
@@ -357,8 +357,8 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	blob.Status.FailedChunks = failedCount
 
 	if failedCount != 0 {
-		if retryCount >= blob.Spec.RetryCount {
-			blob.Status.RetryCount = blob.Spec.RetryCount
+		if retryCount >= blob.Spec.MaximumRetry {
+			blob.Status.Retry = blob.Spec.MaximumRetry
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			for _, chunk := range chunks {
 				if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
@@ -376,7 +376,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				}
 			}
 			if hasNonRetryableFailure {
-				blob.Status.RetryCount = blob.Spec.RetryCount
+				blob.Status.Retry = blob.Spec.MaximumRetry
 				blob.Status.Phase = v1alpha1.BlobPhaseFailed
 				for _, chunk := range chunks {
 					if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
@@ -485,7 +485,7 @@ func (c *BlobFromChunkController) verifySha256(ctx context.Context, blob *v1alph
 	g, ctx := errgroup.WithContext(ctx)
 
 	for _, dst := range blob.Spec.Destination {
-		if !dst.VerifySha256 {
+		if !dst.ReverifySha256 {
 			continue
 		}
 		dst := dst

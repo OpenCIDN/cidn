@@ -197,18 +197,18 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return 10 * time.Second, fmt.Errorf("failed to update bearer %s: %v", name, err)
 		}
 	case v1alpha1.BearerPhaseFailed:
-		dur := time.Duration(math.Pow(2, float64(bearer.Status.RetryCount))) * time.Second
+		dur := time.Duration(math.Pow(2, float64(bearer.Status.Retry))) * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil
 		}
 
-		if bearer.Status.RetryCount < bearer.Spec.RetryCount {
+		if bearer.Status.Retry < bearer.Spec.MaximumRetry {
 			if _, ok := v1alpha1.GetCondition(bearer.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
 				newBearer := bearer.DeepCopy()
 				newBearer.Status.Phase = v1alpha1.BearerPhasePending
 				newBearer.Status.Conditions = nil
-				newBearer.Status.RetryCount++
+				newBearer.Status.Retry++
 				newBearer.Status.HandlerName = ""
 				klog.Infof("Transitioning bearer %s from Failed to Pending phase and clearing handler", name)
 

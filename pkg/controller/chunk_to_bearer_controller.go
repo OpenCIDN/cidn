@@ -127,7 +127,7 @@ func (c *ChunkToBearerController) toBearer(ctx context.Context, chunk *v1alpha1.
 		return nil
 	}
 
-	if chunk.Spec.RetryCount-chunk.Status.RetryCount <= 0 {
+	if chunk.Spec.MaximumRetry-chunk.Status.Retry <= 0 {
 		return nil
 	}
 
@@ -199,9 +199,9 @@ func (c *ChunkToBearerController) toBearer(ctx context.Context, chunk *v1alpha1.
 			Name: chunk.Spec.BearerName,
 		},
 		Spec: v1alpha1.BearerSpec{
-			URL:        realmURL.String(),
-			Priority:   chunk.Spec.Priority,
-			RetryCount: chunk.Spec.RetryCount - chunk.Status.RetryCount,
+			URL:          realmURL.String(),
+			Priority:     chunk.Spec.Priority,
+			MaximumRetry: chunk.Spec.MaximumRetry - chunk.Status.Retry,
 		},
 		Status: v1alpha1.BearerStatus{
 			Phase: v1alpha1.BearerPhasePending,

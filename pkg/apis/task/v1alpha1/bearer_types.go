@@ -72,8 +72,8 @@ type BearerStatus struct {
 	// TokenInfo contains information about the authentication token
 	TokenInfo *BearerTokenInfo `json:"tokenInfo,omitempty"`
 
-	// RetryCount is the number of times the manifest has been retried.
-	RetryCount int64 `json:"retryCount,omitempty"`
+	// Retry is the number of times the manifest has been retried.
+	Retry int64 `json:"retry,omitempty"`
 
 	// Conditions holds conditions for the Bearer.
 	// +patchMergeKey=type
@@ -93,9 +93,9 @@ type BearerSpec struct {
 	// Priority represents the relative importance of this manifest when multiple manifests exist.
 	Priority int64 `json:"priority,omitempty"`
 
-	// RetryCount is the number of times the chunk has been retried.
-	// +default=5
-	RetryCount int64 `json:"retryCount,omitempty"`
+	// MaximumRetry is the number of times the chunk has been retried.
+	// +default=3
+	MaximumRetry int64 `json:"maximumRetry,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

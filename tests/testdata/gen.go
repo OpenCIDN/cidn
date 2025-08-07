@@ -103,11 +103,11 @@ spec:
   destination:
   - name: minio-1
     path: blob.{{.Destination}}.2-2
-    verifySha256: true
+    reverifySha256: true
     skipIfExists: true
   - name: minio-2
     path: blob.{{.Destination}}.2-2
-    verifySha256: true
+    reverifySha256: true
     skipIfExists: true
 ---
 `))

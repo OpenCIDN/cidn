@@ -182,18 +182,18 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 			return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
 		}
 	case v1alpha1.BlobPhaseFailed:
-		dur := time.Duration(math.Pow(2, float64(blob.Status.RetryCount))) * time.Second
+		dur := time.Duration(math.Pow(2, float64(blob.Status.Retry))) * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil
 		}
 
-		if blob.Status.RetryCount < blob.Spec.RetryCount {
+		if blob.Status.Retry < blob.Spec.MaximumRetry {
 			if _, ok := v1alpha1.GetCondition(blob.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
 				newBlob := blob.DeepCopy()
 				newBlob.Status.Phase = v1alpha1.BlobPhasePending
 				newBlob.Status.Conditions = nil
-				newBlob.Status.RetryCount++
+				newBlob.Status.Retry++
 				newBlob.Status.HandlerName = ""
 				klog.Infof("Transitioning blob %s from Failed to Pending phase and clearing handler", name)
 

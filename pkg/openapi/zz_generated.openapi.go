@@ -229,10 +229,10 @@ func schema_pkg_apis_task_v1alpha1_BearerSpec(ref common.ReferenceCallback) comm
 							Format:      "int64",
 						},
 					},
-					"retryCount": {
+					"maximumRetry": {
 						SchemaProps: spec.SchemaProps{
-							Description: "RetryCount is the number of times the chunk has been retried.",
-							Default:     5,
+							Description: "MaximumRetry is the number of times the chunk has been retried.",
+							Default:     3,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -272,9 +272,9 @@ func schema_pkg_apis_task_v1alpha1_BearerStatus(ref common.ReferenceCallback) co
 							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerTokenInfo"),
 						},
 					},
-					"retryCount": {
+					"retry": {
 						SchemaProps: spec.SchemaProps{
-							Description: "RetryCount is the number of times the manifest has been retried.",
+							Description: "Retry is the number of times the manifest has been retried.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -423,9 +423,9 @@ func schema_pkg_apis_task_v1alpha1_BlobDestination(ref common.ReferenceCallback)
 							Format:      "",
 						},
 					},
-					"verifySha256": {
+					"reverifySha256": {
 						SchemaProps: spec.SchemaProps{
-							Description: "VerifySha256 indicates whether the blob's content should be verified with SHA256 checksum. If true, the blob will be verified after download using the ContentSha256 value.",
+							Description: "ReverifySha256 indicates whether the blob's content should be verified with SHA256 checksum. If true, the blob will be verified after download using the ContentSha256 value.",
 							Type:        []string{"boolean"},
 							Format:      "",
 						},
@@ -608,10 +608,10 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "int64",
 						},
 					},
-					"retryCount": {
+					"maximumRetry": {
 						SchemaProps: spec.SchemaProps{
-							Description: "RetryCount is the number of times the chunk has been retried.",
-							Default:     5,
+							Description: "MaximumRetry is the number of times the chunk has been retried.",
+							Default:     3,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -696,9 +696,9 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 							Format:      "int64",
 						},
 					},
-					"retryCount": {
+					"retry": {
 						SchemaProps: spec.SchemaProps{
-							Description: "RetryCount is the number of times the blob has been retried.",
+							Description: "Retry is the number of times the blob has been retried.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -1028,10 +1028,9 @@ func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) commo
 							Format:      "",
 						},
 					},
-					"retryCount": {
+					"maximumRetry": {
 						SchemaProps: spec.SchemaProps{
-							Description: "RetryCount is the number of times the chunk has been retried.",
-							Default:     5,
+							Description: "MaximumRetry is the number of times the chunk has been retried.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -1145,9 +1144,9 @@ func schema_pkg_apis_task_v1alpha1_ChunkStatus(ref common.ReferenceCallback) com
 							},
 						},
 					},
-					"retryCount": {
+					"retry": {
 						SchemaProps: spec.SchemaProps{
-							Description: "RetryCount is the number of times the chunk has been retried.",
+							Description: "Retry is the number of times the chunk has been retried.",
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},

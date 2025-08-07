@@ -181,18 +181,18 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
 		}
 	case v1alpha1.ChunkPhaseFailed:
-		dur := time.Duration(math.Pow(2, float64(chunk.Status.RetryCount))) * time.Second
+		dur := time.Duration(math.Pow(2, float64(chunk.Status.Retry))) * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil
 		}
 
-		if chunk.Status.RetryCount < chunk.Spec.RetryCount {
+		if chunk.Status.Retry < chunk.Spec.MaximumRetry {
 			if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
 				newChunk := chunk.DeepCopy()
 				newChunk.Status.Phase = v1alpha1.ChunkPhasePending
 				newChunk.Status.Conditions = nil
-				newChunk.Status.RetryCount++
+				newChunk.Status.Retry++
 				newChunk.Status.HandlerName = ""
 				klog.Infof("Transitioning chunk %s from Failed to Pending phase and clearing handler", name)
 

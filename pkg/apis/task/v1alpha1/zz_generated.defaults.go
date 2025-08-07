@@ -33,14 +33,12 @@ func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&BearerList{}, func(obj interface{}) { SetObjectDefaults_BearerList(obj.(*BearerList)) })
 	scheme.AddTypeDefaultingFunc(&Blob{}, func(obj interface{}) { SetObjectDefaults_Blob(obj.(*Blob)) })
 	scheme.AddTypeDefaultingFunc(&BlobList{}, func(obj interface{}) { SetObjectDefaults_BlobList(obj.(*BlobList)) })
-	scheme.AddTypeDefaultingFunc(&Chunk{}, func(obj interface{}) { SetObjectDefaults_Chunk(obj.(*Chunk)) })
-	scheme.AddTypeDefaultingFunc(&ChunkList{}, func(obj interface{}) { SetObjectDefaults_ChunkList(obj.(*ChunkList)) })
 	return nil
 }
 
 func SetObjectDefaults_Bearer(in *Bearer) {
-	if in.Spec.RetryCount == 0 {
-		in.Spec.RetryCount = 5
+	if in.Spec.MaximumRetry == 0 {
+		in.Spec.MaximumRetry = 3
 	}
 }
 
@@ -58,8 +56,8 @@ func SetObjectDefaults_Blob(in *Blob) {
 	if in.Spec.MaximumPending == 0 {
 		in.Spec.MaximumPending = 1
 	}
-	if in.Spec.RetryCount == 0 {
-		in.Spec.RetryCount = 5
+	if in.Spec.MaximumRetry == 0 {
+		in.Spec.MaximumRetry = 3
 	}
 }
 
@@ -67,18 +65,5 @@ func SetObjectDefaults_BlobList(in *BlobList) {
 	for i := range in.Items {
 		a := &in.Items[i]
 		SetObjectDefaults_Blob(a)
-	}
-}
-
-func SetObjectDefaults_Chunk(in *Chunk) {
-	if in.Spec.RetryCount == 0 {
-		in.Spec.RetryCount = 5
-	}
-}
-
-func SetObjectDefaults_ChunkList(in *ChunkList) {
-	for i := range in.Items {
-		a := &in.Items[i]
-		SetObjectDefaults_Chunk(a)
 	}
 }

@@ -175,10 +175,10 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 			}
 		}
 	case v1alpha1.ChunkPhaseFailed:
-		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.RetryCount < chunk.Spec.RetryCount {
+		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.Retry < chunk.Spec.MaximumRetry {
 			bearer.Status.Phase = v1alpha1.BearerPhaseRunning
 		} else {
-			bearer.Status.RetryCount = chunk.Status.RetryCount
+			bearer.Status.Retry = chunk.Status.Retry
 			bearer.Status.Phase = v1alpha1.BearerPhaseFailed
 			for _, cond := range chunk.Status.Conditions {
 				if cond.Type == v1alpha1.ConditionTypeRetryable {

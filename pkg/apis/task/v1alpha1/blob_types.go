@@ -90,8 +90,8 @@ type BlobStatus struct {
 	// FailedChunks is the number of failed chunks for this blob.
 	FailedChunks int64 `json:"failedChunks,omitempty"`
 
-	// RetryCount is the number of times the blob has been retried.
-	RetryCount int64 `json:"retryCount,omitempty"`
+	// Retry is the number of times the blob has been retried.
+	Retry int64 `json:"retry,omitempty"`
 
 	// Conditions holds conditions for the Blob.
 	// +patchMergeKey=type
@@ -134,9 +134,9 @@ type BlobSpec struct {
 	// +default=1
 	MaximumPending int64 `json:"maximumPending,omitempty"`
 
-	// RetryCount is the number of times the chunk has been retried.
-	// +default=5
-	RetryCount int64 `json:"retryCount,omitempty"`
+	// MaximumRetry is the number of times the chunk has been retried.
+	// +default=3
+	MaximumRetry int64 `json:"maximumRetry,omitempty"`
 }
 
 // BlobSource defines the source for a blob.
@@ -160,9 +160,9 @@ type BlobDestination struct {
 	// Path is the filesystem path where the blob should be stored.
 	Path string `json:"path"`
 
-	// VerifySha256 indicates whether the blob's content should be verified with SHA256 checksum.
+	// ReverifySha256 indicates whether the blob's content should be verified with SHA256 checksum.
 	// If true, the blob will be verified after download using the ContentSha256 value.
-	VerifySha256 bool `json:"verifySha256,omitempty"`
+	ReverifySha256 bool `json:"reverifySha256,omitempty"`
 
 	// SkipIfExists indicates whether to skip the download if the blob already exists at the destination.
 	SkipIfExists bool `json:"skipIfExists,omitempty"`

@@ -93,8 +93,8 @@ type ChunkStatus struct {
 	// Etag is the ETag of the resource snapshot being verified.
 	Etags []string `json:"etags,omitempty"`
 
-	// RetryCount is the number of times the chunk has been retried.
-	RetryCount int64 `json:"retryCount,omitempty"`
+	// Retry is the number of times the chunk has been retried.
+	Retry int64 `json:"retry,omitempty"`
 
 	// Conditions holds conditions for the Chunk.
 	// +patchMergeKey=type
@@ -173,9 +173,8 @@ type ChunkSpec struct {
 	// Sha256 is the expected SHA256 hash of the complete content
 	Sha256 string `json:"sha256,omitempty"`
 
-	// RetryCount is the number of times the chunk has been retried.
-	// +default=5
-	RetryCount int64 `json:"retryCount,omitempty"`
+	// MaximumRetry is the number of times the chunk has been retried.
+	MaximumRetry int64 `json:"maximumRetry,omitempty"`
 
 	// InlineResponseBody indicates whether the response body should be inlined in the status
 	InlineResponseBody bool `json:"inlineResponseBody,omitempty"`
