@@ -508,6 +508,13 @@ func schema_pkg_apis_task_v1alpha1_BlobSource(ref common.ReferenceCallback) comm
 							Format:      "",
 						},
 					},
+					"bearerName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "BearerName is the name of the Bearer resource that should be used for authentication.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"url"},
 			},
@@ -955,6 +962,13 @@ func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) commo
 							Description: "Source is the source of the chunk.",
 							Default:     map[string]interface{}{},
 							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTP"),
+						},
+					},
+					"bearerName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "BearerName is the name of the Bearer resource that should be used for authentication.",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 					"destination": {

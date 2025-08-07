@@ -145,6 +145,9 @@ type BlobSpec struct {
 type BlobSource struct {
 	// URL is the source URL of the blob.
 	URL string `json:"url"`
+
+	// BearerName is the name of the Bearer resource that should be used for authentication.
+	BearerName string `json:"bearerName,omitempty"`
 }
 
 // BlobDestination defines the destination for a blob.

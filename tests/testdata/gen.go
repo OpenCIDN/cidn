@@ -66,6 +66,7 @@ spec:
   contentSha256: {{.Sha256}}xx
   source:
   - url: http://cidn-nginx-test-1/{{.Source}}
+    bearerName: cidn-nginx-test-1-{{.Source}}
   destination:
   - name: minio-1
     path: blob.{{.Destination}}.1-1.hash-error
@@ -80,6 +81,7 @@ spec:
   contentSha256: {{.Sha256}}
   source:
   - url: http://cidn-nginx-test-1/{{.Source}}
+    bearerName: cidn-nginx-test-1-{{.Source}}
   destination:
   - name: minio-1
     path: blob.{{.Destination}}.1-1
@@ -95,7 +97,9 @@ spec:
   contentSha256: {{.Sha256}}
   source:
   - url: http://cidn-nginx-test-1/{{.Source}}
+    bearerName: cidn-nginx-test-1-{{.Source}}
   - url: http://cidn-nginx-test-2/{{.Source}}
+    bearerName: cidn-nginx-test-2-{{.Source}}
   destination:
   - name: minio-1
     path: blob.{{.Destination}}.2-2

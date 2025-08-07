@@ -27,7 +27,6 @@ import (
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -111,29 +110,31 @@ func (c *BearerToBlobController) processNextItem(ctx context.Context) bool {
 }
 
 func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) error {
-	blob, err := c.blobInformer.Lister().Get(name)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-
-	if blob.Status.Phase != v1alpha1.BlobPhaseFailed {
-		return nil
-	}
-
-	chunkList, err := c.client.TaskV1alpha1().Chunks().List(context.Background(), metav1.ListOptions{
-		LabelSelector: labels.Set{
-			BlobUIDLabelKey: string(blob.UID),
-		}.String(),
-	})
+	chunkList, err := c.client.TaskV1alpha1().Chunks().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
+
+	blobList := map[string]struct{}{}
 
 	for _, chunk := range chunkList.Items {
-		err := c.client.TaskV1alpha1().Chunks().Delete(context.Background(), chunk.Name, metav1.DeleteOptions{})
+		if chunk.Spec.BearerName != name {
+			continue
+		}
+		if chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
+			continue
+		}
+
+		if chunk.Annotations == nil {
+			continue
+		}
+
+		blobName := chunk.Annotations[BlobNameAnnotationKey]
+		if blobName == "" {
+			continue
+		}
+		blobList[blobName] = struct{}{}
+		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, chunk.Name, metav1.DeleteOptions{})
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				return err
@@ -141,14 +142,20 @@ func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) e
 		}
 	}
 
-	blob.Status = v1alpha1.BlobStatus{
-		Phase: v1alpha1.BlobPhasePending,
-		Total: blob.Status.Total,
-	}
+	for blobName := range blobList {
+		blob, err := c.blobInformer.Lister().Get(blobName)
+		if err != nil {
+			continue
+		}
 
-	_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
-	if err != nil {
-		return err
+		blob.Status.HandlerName = ""
+		blob.Status.Phase = v1alpha1.BlobPhasePending
+		blob.Status.Conditions = nil
+
+		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

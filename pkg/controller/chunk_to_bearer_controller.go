@@ -147,14 +147,11 @@ func (c *ChunkToBearerController) toBearer(ctx context.Context, chunk *v1alpha1.
 		return nil
 	}
 
-	blobName := chunk.Annotations[BlobNameAnnotationKey]
-	if blobName == "" {
+	if chunk.Spec.BearerName == "" {
 		return nil
 	}
 
-	bearerName := blobName
-
-	_, err := c.bearerInformer.Lister().Get(bearerName)
+	_, err := c.bearerInformer.Lister().Get(chunk.Spec.BearerName)
 	if err == nil {
 		return nil
 	}
@@ -199,7 +196,7 @@ func (c *ChunkToBearerController) toBearer(ctx context.Context, chunk *v1alpha1.
 
 	bearer := &v1alpha1.Bearer{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: bearerName,
+			Name: chunk.Spec.BearerName,
 		},
 		Spec: v1alpha1.BearerSpec{
 			URL:        realmURL.String(),

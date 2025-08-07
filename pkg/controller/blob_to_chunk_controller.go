@@ -245,6 +245,7 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 		},
 	}
 
+	chunk.Spec.BearerName = src.BearerName
 	chunk.Spec.Source = v1alpha1.ChunkHTTP{
 		Request: v1alpha1.ChunkHTTPRequest{
 			Method: http.MethodHead,
@@ -258,7 +259,7 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 		},
 	}
 
-	bearer, err := c.bearerInformer.Lister().Get(blob.Name)
+	bearer, err := c.bearerInformer.Lister().Get(src.BearerName)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
@@ -363,6 +364,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 
 	src := blob.Spec.Source[0]
 
+	chunk.Spec.BearerName = src.BearerName
 	chunk.Spec.Source = v1alpha1.ChunkHTTP{
 		Request: v1alpha1.ChunkHTTPRequest{
 			Method:  http.MethodGet,
@@ -377,7 +379,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 		},
 	}
 
-	bearer, err := c.bearerInformer.Lister().Get(blob.Name)
+	bearer, err := c.bearerInformer.Lister().Get(src.BearerName)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
@@ -482,6 +484,7 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 
 	src := blob.Spec.Source[num%int64(len(blob.Spec.Source))]
 
+	chunk.Spec.BearerName = src.BearerName
 	chunk.Spec.Source = v1alpha1.ChunkHTTP{
 		Request: v1alpha1.ChunkHTTPRequest{
 			Method: http.MethodGet,
@@ -499,7 +502,7 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 		},
 	}
 
-	bearer, err := c.bearerInformer.Lister().Get(blob.Name)
+	bearer, err := c.bearerInformer.Lister().Get(src.BearerName)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return nil, err
 	}

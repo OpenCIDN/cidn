@@ -148,6 +148,9 @@ type ChunkSpec struct {
 	// Source is the source of the chunk.
 	Source ChunkHTTP `json:"source"`
 
+	// BearerName is the name of the Bearer resource that should be used for authentication.
+	BearerName string `json:"bearerName,omitempty"`
+
 	// Destination is the destination of the chunk.
 	Destination []ChunkHTTP `json:"destination,omitempty"`
 

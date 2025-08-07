@@ -162,7 +162,7 @@ func (c *BearerToChunkController) chunkHandler(ctx context.Context, name string)
 }
 
 func buildBearerChunkName(authorizationName string) string {
-	return fmt.Sprintf("%s:bearer", authorizationName)
+	return fmt.Sprintf("bearer:%s", authorizationName)
 }
 
 func (c *BearerToChunkController) toGetChunk(ctx context.Context, bearer *v1alpha1.Bearer) error {
