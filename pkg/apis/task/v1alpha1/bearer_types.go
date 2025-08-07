@@ -91,7 +91,7 @@ type BearerSpec struct {
 	URL string `json:"url"`
 
 	// Priority represents the relative importance of this manifest when multiple manifests exist.
-	Priority int64 `json:"priority,omitempty"`
+	Priority int64 `json:"priority"`
 
 	// MaximumRetry is the number of times the chunk has been retried.
 	// +default=3

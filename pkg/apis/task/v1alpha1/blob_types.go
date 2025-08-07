@@ -112,7 +112,7 @@ type BlobSpec struct {
 	Destination []BlobDestination `json:"destination"`
 
 	// Priority represents the relative importance of this blob when multiple blobs exist.
-	Priority int64 `json:"priority,omitempty"`
+	Priority int64 `json:"priority"`
 
 	// MinimumChunkSize represents the minimum size of each chunk when splitting the blob.
 	MinimumChunkSize int64 `json:"minimumChunkSize,omitempty"`

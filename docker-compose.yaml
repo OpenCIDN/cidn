@@ -175,6 +175,12 @@ configs:
         }
 
         location = /token {
+          if ($$request_id ~* "[1]$$") {
+            return 500;
+          }
+          if ($$request_id ~* "[2]$$") {
+            return 444;
+          }
           if ($$arg_service != "registry") {
             return 403 "Invalid service";
           }
@@ -184,7 +190,7 @@ configs:
           if ($$http_authorization != "Basic dXNlcjpwd2Q=") {
             return 401 "Invalid credentials";
           }
-          return 200 '{"token":"xxx-$$hostname","expires_in":10,"issued_at":"$$time_iso8601"}';
+          return 200 '{"token":"xxx-$$hostname","expires_in":60,"issued_at":"$$time_iso8601"}';
         }
       }
 networks:
