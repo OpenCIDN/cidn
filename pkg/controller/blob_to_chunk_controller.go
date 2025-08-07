@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -564,6 +565,69 @@ func (c *BlobToChunkController) tryAddBearer(chunk *v1alpha1.Chunk) error {
 	return nil
 }
 
+func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.Blob) (*v1alpha1.Multipart, error) {
+	destinationNames := make([]string, 0, len(blob.Spec.Destination))
+	uploadIDs := make([]string, 0, len(blob.Spec.Destination))
+	for _, dst := range blob.Spec.Destination {
+		s3 := c.s3[dst.Name]
+		if s3 == nil {
+			return nil, fmt.Errorf("s3 client for destination %q not found", dst.Name)
+		}
+
+		destinationNames = append(destinationNames, dst.Name)
+
+		if dst.SkipIfExists {
+			fi, err := s3.StatHead(ctx, dst.Path)
+			if err == nil && fi.Size() == blob.Status.Total {
+				uploadIDs = append(uploadIDs, "")
+				continue
+			}
+		}
+
+		mp, err := s3.GetMultipart(ctx, dst.Path)
+		if err != nil {
+			mp, err = s3.NewMultipart(ctx, dst.Path)
+			if err != nil {
+				return nil, err
+			}
+		}
+		uploadIDs = append(uploadIDs, mp.UploadID())
+	}
+
+	allEmpty := true
+	for _, id := range uploadIDs {
+		if id != "" {
+			allEmpty = false
+			break
+		}
+	}
+	if allEmpty {
+		blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+		blob.Status.Progress = blob.Status.Total
+		_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to update blob status: %v", err)
+		}
+		return nil, nil
+	}
+
+	mp := &v1alpha1.Multipart{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: blob.Name,
+		},
+		DestinationNames: destinationNames,
+		UploadIDs:        uploadIDs,
+		UploadEtags:      make([]v1alpha1.UploadEtags, blob.Spec.ChunksNumber),
+	}
+
+	mp, err := c.client.TaskV1alpha1().Multiparts().Create(ctx, mp, metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create multipart: %v", err)
+	}
+
+	return mp, nil
+}
+
 func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blob) error {
 	chunks, err := c.chunkInformer.Lister().List(labels.SelectorFromSet(labels.Set{
 		BlobUIDLabelKey: string(blob.UID),
@@ -608,58 +672,39 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 			return err
 		}
 
-		uploadIDs := make([]string, 0, len(blob.Spec.Destination))
+		mp, err = c.toMultipart(ctx, blob)
+		if err != nil {
+			return err
+		}
+
+		if mp == nil {
+			return nil
+		}
+	} else {
+		destinationNames := make([]string, 0, len(blob.Spec.Destination))
 		for _, dst := range blob.Spec.Destination {
 			s3 := c.s3[dst.Name]
 			if s3 == nil {
 				return fmt.Errorf("s3 client for destination %q not found", dst.Name)
 			}
+			destinationNames = append(destinationNames, dst.Name)
+		}
 
-			if dst.SkipIfExists {
-				fi, err := s3.StatHead(ctx, dst.Path)
-				if err == nil && fi.Size() == blob.Status.Total {
-					uploadIDs = append(uploadIDs, "")
-					continue
-				}
-			}
-
-			mp, err := s3.GetMultipart(ctx, dst.Path)
+		if !slices.Equal(destinationNames, mp.DestinationNames) ||
+			blob.Spec.ChunksNumber != int64(len(mp.UploadEtags)) {
+			err := c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
 			if err != nil {
-				mp, err = s3.NewMultipart(ctx, dst.Path)
-				if err != nil {
-					return err
-				}
+				return err
 			}
-			uploadIDs = append(uploadIDs, mp.UploadID())
-		}
 
-		allEmpty := true
-		for _, id := range uploadIDs {
-			if id != "" {
-				allEmpty = false
-				break
-			}
-		}
-		if allEmpty {
-			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
-			blob.Status.Progress = blob.Status.Total
-			_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+			mp, err = c.toMultipart(ctx, blob)
 			if err != nil {
-				return fmt.Errorf("failed to update blob status: %v", err)
+				return err
 			}
-			return nil
-		}
 
-		mp = &v1alpha1.Multipart{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: blob.Name,
-			},
-			UploadIDs: uploadIDs,
-		}
-
-		mp, err = c.client.TaskV1alpha1().Multiparts().Create(ctx, mp, metav1.CreateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to create multipart: %v", err)
+			if mp == nil {
+				return nil
+			}
 		}
 	}
 

@@ -501,6 +501,11 @@ func (in *Multipart) DeepCopyInto(out *Multipart) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	if in.DestinationNames != nil {
+		in, out := &in.DestinationNames, &out.DestinationNames
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.UploadIDs != nil {
 		in, out := &in.UploadIDs, &out.UploadIDs
 		*out = make([]string, len(*in))

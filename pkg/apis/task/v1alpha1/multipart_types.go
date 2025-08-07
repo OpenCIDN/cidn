@@ -38,6 +38,9 @@ type Multipart struct {
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// DestinationNames contains the names of destination resources for multipart uploads
+	DestinationNames []string `json:"destinationNames,omitempty"`
+
 	// UploadIDs holds the list of upload IDs for multipart uploads
 	UploadIDs []string `json:"uploadIDs,omitempty"`
 

@@ -1242,6 +1242,21 @@ func schema_pkg_apis_task_v1alpha1_Multipart(ref common.ReferenceCallback) commo
 							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
 						},
 					},
+					"destinationNames": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DestinationNames contains the names of destination resources for multipart uploads",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
 					"uploadIDs": {
 						SchemaProps: spec.SchemaProps{
 							Description: "UploadIDs holds the list of upload IDs for multipart uploads",
@@ -1255,6 +1270,34 @@ func schema_pkg_apis_task_v1alpha1_Multipart(ref common.ReferenceCallback) commo
 									},
 								},
 							},
+						},
+					},
+					"total": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Total represents the total amount of work to be done for this blob.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"chunkSize": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ChunkSize represents the size of each chunk when splitting the blob.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"lastChunkSize": {
+						SchemaProps: spec.SchemaProps{
+							Description: "LastChunkSize represents the size of the last chunk when splitting the blob, which may be smaller than the regular chunk size.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"chunksNumber": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ChunksNumber represents the total number of chunks that the blob will be split into.",
+							Type:        []string{"integer"},
+							Format:      "int64",
 						},
 					},
 					"uploadEtags": {
@@ -1335,12 +1378,6 @@ func schema_pkg_apis_task_v1alpha1_UploadEtags(ref common.ReferenceCallback) com
 				Description: "UploadEtags holds the etag information for uploaded parts of a multipart upload",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
-					"size": {
-						SchemaProps: spec.SchemaProps{
-							Type:   []string{"integer"},
-							Format: "int64",
-						},
-					},
 					"etags": {
 						SchemaProps: spec.SchemaProps{
 							Type: []string{"array"},

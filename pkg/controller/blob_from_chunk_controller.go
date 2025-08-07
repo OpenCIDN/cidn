@@ -300,10 +300,6 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		return fmt.Errorf("failed to list multiparts: %w", err)
 	}
 
-	if len(mp.UploadEtags) == 0 {
-		mp.UploadEtags = make([]v1alpha1.UploadEtags, blob.Spec.ChunksNumber)
-	}
-
 	var updateEtag bool
 	var succeededCount, failedCount, pendingCount, runningCount, retryCount int64
 	var progress int64
