@@ -259,38 +259,9 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 		},
 	}
 
-	bearer, err := c.bearerInformer.Lister().Get(src.BearerName)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	if bearer != nil {
-		if bearer.Status.TokenInfo == nil {
-			if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
-				return fmt.Errorf("bearer %s is not in succeeded phase", bearer.Name)
-			}
-			return fmt.Errorf("bearer %s has no token info", bearer.Name)
-		}
-
-		if bearer.Status.TokenInfo.Token != "" {
-			chunk.Spec.Source.Request.Headers["Authorization"] = "Bearer " + bearer.Status.TokenInfo.Token
-
-			issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
-			expiresIn := bearer.Status.TokenInfo.ExpiresIn
-			since := time.Since(issuedAt)
-			expires := time.Duration(expiresIn) * time.Second * 3 / 4
-
-			if since >= expires {
-				bearer.Status.HandlerName = ""
-				bearer.Status.Phase = v1alpha1.BearerPhasePending
-
-				go func() {
-					_, err := c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, bearer, metav1.UpdateOptions{})
-					if err != nil {
-						klog.Errorf("Failed to update bearer %s status: %v", bearer.Name, err)
-					}
-				}()
-			}
-		}
+	err = c.tryAddBearer(chunk)
+	if err != nil {
+		return fmt.Errorf("failed to add bearer to chunk: %w", err)
 	}
 
 	_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
@@ -379,15 +350,9 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 		},
 	}
 
-	bearer, err := c.bearerInformer.Lister().Get(src.BearerName)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	if bearer != nil {
-		if bearer.Status.Phase != v1alpha1.BearerPhaseSucceeded {
-			return fmt.Errorf("bearer %s is not in succeeded phase", bearer.Name)
-		}
-		chunk.Spec.Source.Request.Headers["Authorization"] = "Bearer " + bearer.Status.TokenInfo.Token
+	err = c.tryAddBearer(chunk)
+	if err != nil {
+		return fmt.Errorf("failed to add bearer to chunk: %w", err)
 	}
 
 	for _, dst := range blob.Spec.Destination {
@@ -502,15 +467,9 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 		},
 	}
 
-	bearer, err := c.bearerInformer.Lister().Get(src.BearerName)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return nil, err
-	}
-	if bearer != nil {
-		if bearer.Status.Phase != v1alpha1.BearerPhaseSucceeded {
-			return nil, fmt.Errorf("bearer %s is not in succeeded phase", bearer.Name)
-		}
-		chunk.Spec.Source.Request.Headers["Authorization"] = "Bearer " + bearer.Status.TokenInfo.Token
+	err := c.tryAddBearer(chunk)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add bearer to chunk: %w", err)
 	}
 
 	for j, dst := range blob.Spec.Destination {
@@ -551,6 +510,58 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 	}
 
 	return chunk, nil
+}
+
+func (c *BlobToChunkController) tryAddBearer(chunk *v1alpha1.Chunk) error {
+	if chunk.Spec.BearerName == "" {
+		return nil
+	}
+	bearer, err := c.bearerInformer.Lister().Get(chunk.Spec.BearerName)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if bearer != nil {
+		if bearer.Status.TokenInfo == nil {
+			if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
+				return fmt.Errorf("bearer %s is not in succeeded phase", bearer.Name)
+			}
+			return fmt.Errorf("bearer %s has no token info", bearer.Name)
+		}
+
+		if bearer.Status.TokenInfo.Token != "" {
+			chunk.Spec.Source.Request.Headers["Authorization"] = "Bearer " + bearer.Status.TokenInfo.Token
+
+			issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
+			expiresIn := bearer.Status.TokenInfo.ExpiresIn
+			since := time.Since(issuedAt)
+			expires := time.Duration(expiresIn) * time.Second
+
+			if since >= expires {
+				bearer.Status.HandlerName = ""
+				bearer.Status.Phase = v1alpha1.BearerPhasePending
+				_, err := c.client.TaskV1alpha1().Bearers().UpdateStatus(context.Background(), bearer, metav1.UpdateOptions{})
+				if err != nil {
+					return err
+				}
+
+				return fmt.Errorf("bearer token has expired, waiting for next refresh")
+			}
+
+			if since >= expires*3/4 {
+				bearer.Status.HandlerName = ""
+				bearer.Status.Phase = v1alpha1.BearerPhasePending
+
+				go func() {
+					_, err := c.client.TaskV1alpha1().Bearers().UpdateStatus(context.Background(), bearer, metav1.UpdateOptions{})
+					if err != nil {
+						klog.Errorf("Failed to update bearer %s status: %v", bearer.Name, err)
+					}
+				}()
+			}
+		}
+	}
+
+	return nil
 }
 
 func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blob) error {
