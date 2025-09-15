@@ -15,6 +15,9 @@ jobs:
         go-version-file: go.mod
     - name: Build Cross Platform
       uses: wzshiming/action-go-build-cross-plantform@v1
+      env:
+        SRC_BUILD_ARCHS: "amd64 arm64"
+        SRC_BUILD_PLATFORMS: "linux"
     - name: Upload Release Assets
       uses: wzshiming/action-upload-release-assets@v1
       env:
