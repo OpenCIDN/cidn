@@ -211,10 +211,10 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 		blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
 
 	case v1alpha1.ChunkPhaseFailed:
+		blob.Status.Retry = chunk.Status.Retry
 		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.Retry < chunk.Spec.MaximumRetry {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 		} else {
-			blob.Status.Retry = chunk.Status.Retry
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			for _, cond := range chunk.Status.Conditions {
 				if cond.Type == v1alpha1.ConditionTypeRetryable {
@@ -259,11 +259,11 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 		blob.Status.RunningChunks = 0
 		blob.Status.SucceededChunks = 0
 		blob.Status.FailedChunks = 1
+		blob.Status.Retry = chunk.Status.Retry
 		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.Retry < chunk.Spec.MaximumRetry {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 			blob.Status.Progress = chunk.Status.Progress
 		} else {
-			blob.Status.Retry = chunk.Status.Retry
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			for _, cond := range chunk.Status.Conditions {
 				if cond.Type == v1alpha1.ConditionTypeRetryable {
