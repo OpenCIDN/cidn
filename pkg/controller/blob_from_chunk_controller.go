@@ -143,10 +143,19 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 	}
 
 	if blob.Status.Total == 0 {
-		err = c.fromHeadChunk(ctx, blob)
+		updateBlob := blob.DeepCopy()
+		err = c.fromHeadChunk(ctx, updateBlob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+			return fmt.Errorf("failed to update blob status for blob %s: %w", updateBlob.Name, err)
 		}
+
+		if !reflect.DeepEqual(updateBlob.Status, blob.Status) {
+			_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, updateBlob, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to update blob status total: %w", err)
+			}
+		}
+
 		return nil
 	}
 
@@ -154,20 +163,24 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 		return nil
 	}
 
+	updateBlob := blob.DeepCopy()
+
 	if blob.Spec.ChunksNumber != 1 && blob.Status.AcceptRanges {
-		err = c.fromChunks(ctx, blob)
+		err = c.fromChunks(ctx, updateBlob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+			return fmt.Errorf("failed to update blob status for blob %s: %w", updateBlob.Name, err)
 		}
 	} else {
-		err = c.fromOneChunk(ctx, blob)
+		err = c.fromOneChunk(ctx, updateBlob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+			return fmt.Errorf("failed to update blob status for blob %s: %w", updateBlob.Name, err)
 		}
 	}
-	_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to update blob status: %v", err)
+	if !reflect.DeepEqual(updateBlob.Status, blob.Status) {
+		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, updateBlob, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update blob status: %w", err)
+		}
 	}
 
 	return nil
@@ -197,11 +210,6 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 		blob.Status.Total = total
 		blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
 
-		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to update blob status: %v", err)
-		}
-
 	case v1alpha1.ChunkPhaseFailed:
 		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.Retry < chunk.Spec.MaximumRetry {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
@@ -214,11 +222,6 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 				}
 				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, cond)
 			}
-		}
-
-		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to update blob status: %v", err)
 		}
 	}
 	return nil
