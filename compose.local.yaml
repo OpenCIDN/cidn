@@ -52,7 +52,9 @@ services:
     restart: unless-stopped
     stop_signal: SIGINT
     stop_grace_period: 3s
-    image: m.daocloud.io/ghcr.io/opencidn/cidn/apiserver:v0.0.1
+    build:
+      context: .
+      dockerfile: images/apiserver/Dockerfile
     depends_on:
       etcd:
         condition: service_started
@@ -71,7 +73,9 @@ services:
     restart: unless-stopped
     stop_signal: SIGINT
     stop_grace_period: 10s
-    image: m.daocloud.io/ghcr.io/opencidn/cidn/controller-manager:v0.0.1
+    build:
+      context: .
+      dockerfile: images/controller-manager/Dockerfile
     depends_on:
       apiserver:
         condition: service_started
@@ -90,7 +94,9 @@ services:
     restart: unless-stopped
     stop_signal: SIGINT
     stop_grace_period: 10s
-    image: m.daocloud.io/ghcr.io/opencidn/cidn/runner:v0.0.1
+    build:
+      context: .
+      dockerfile: images/runner/Dockerfile
     depends_on:
       apiserver:
         condition: service_started
@@ -110,7 +116,9 @@ services:
       runner-tier: {}
   webui:
     restart: unless-stopped
-    image: m.daocloud.io/ghcr.io/opencidn/cidn/webui:v0.0.1
+    build:
+      context: .
+      dockerfile: images/webui/Dockerfile
     depends_on:
       apiserver:
         condition: service_started
