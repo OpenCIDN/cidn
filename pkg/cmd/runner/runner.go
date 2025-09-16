@@ -18,6 +18,7 @@ package runner
 
 import (
 	"fmt"
+	"time"
 
 	"context"
 
@@ -34,6 +35,7 @@ type flagpole struct {
 	Kubeconfig            string
 	Master                string
 	InsecureSkipTLSVerify bool
+	Duration              time.Duration
 }
 
 func NewRunnerCommand(ctx context.Context) *cobra.Command {
@@ -42,7 +44,6 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 		Use:   "runner",
 		Short: "Run the chunk runner",
 		RunE: func(cmd *cobra.Command, args []string) error {
-
 			ident, err := utils.Identity()
 			if err != nil {
 				return fmt.Errorf("error getting identity: %v", err)
@@ -65,7 +66,7 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 			}
 
 			ident = "runner-" + ident
-			klog.Infof("Starting runner with identity: %s", ident)
+			klog.Infof("Starting runner with identity: %s for duration: %v", ident, flags.Duration)
 
 			runner := runner.NewRunner(ident, clientset)
 
@@ -74,7 +75,14 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 				return fmt.Errorf("error running runner: %v", err)
 			}
 
-			<-ctx.Done()
+			if flags.Duration > 0 {
+				durationCtx, cancel := context.WithTimeout(ctx, flags.Duration)
+				defer cancel()
+				<-durationCtx.Done()
+			} else {
+				<-ctx.Done()
+			}
+
 			return runner.Shutdown(context.Background())
 		},
 	}
@@ -82,5 +90,6 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVar(&flags.Kubeconfig, "kubeconfig", flags.Kubeconfig, "Path to the kubeconfig file to use")
 	cmd.Flags().StringVar(&flags.Master, "master", flags.Master, "The address of the Kubernetes API server")
 	cmd.Flags().BoolVar(&flags.InsecureSkipTLSVerify, "insecure-skip-tls-verify", false, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
+	cmd.Flags().DurationVar(&flags.Duration, "duration", 0, "Duration for which the runner should run (e.g., 5m, 1h). If 0, runs indefinitely until context cancellation")
 	return cmd
 }
