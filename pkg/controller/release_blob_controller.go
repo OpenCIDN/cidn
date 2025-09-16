@@ -203,6 +203,16 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 				}
 			}
 		}
+	case v1alpha1.BlobPhaseSucceeded:
+		if time.Since(lastSeenTime) < time.Hour {
+			return time.Hour - time.Since(lastSeenTime), nil
+		}
+
+		klog.Infof("Deleting succeeded blob %s after 1 hour", name)
+		err = c.client.TaskV1alpha1().Blobs().Delete(ctx, name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
+		}
 	}
 	return 0, nil
 }
