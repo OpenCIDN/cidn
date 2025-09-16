@@ -294,7 +294,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		}
 	}
 
-	if chunk.Spec.Total != 0 && srcResp.ContentLength != chunk.Spec.Total {
+	if chunk.Spec.Total != 0 && srcResp.ContentLength > 0 && srcResp.ContentLength != chunk.Spec.Total {
 		err := fmt.Errorf("content length mismatch: got %d, want %d", srcResp.ContentLength, chunk.Spec.Total)
 		s.handleProcessError("ContentLengthMismatch", err)
 
