@@ -178,3 +178,8 @@ type BlobList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Blob `json:"items"`
 }
+
+const (
+	// BlobDisplayNameAnnotation is the annotation key for the display name of a blob.
+	BlobDisplayNameAnnotation = "blob.task.opencidn.daocloud.io/display-name"
+)

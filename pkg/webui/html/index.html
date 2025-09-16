@@ -541,13 +541,14 @@
 
         const generateItemContent = (data, elementId) => {
             const name = data.name;
+            const displayName = data.displayName || name;
             const size = data.total || 0;
             const progress = data.progress || 0;
             const errors = data.errors || [];
 
             const header = `
                 <div class="data-header">
-                    ${name}
+                    ${displayName}
                     <a href="#${elementId}" class="anchor-link">#</a>
                 </div>
             `;

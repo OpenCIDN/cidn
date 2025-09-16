@@ -192,7 +192,8 @@ func createEvent(eventType string, blob *v1alpha1.Blob) Event {
 // cleanedBlob is a reduced view of Blob for the WebUI
 // Only relevant fields are exposed
 type cleanedBlob struct {
-	Name string `json:"name"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName,omitempty"`
 
 	Priority     int64 `json:"priority,omitempty"`
 	Total        int64 `json:"total"`
@@ -214,6 +215,11 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 
 	// Set metadata
 	cleaned.Name = blob.Name
+
+	if blob.Annotations != nil {
+		cleaned.DisplayName = blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
+	}
+
 	// Set spec fields
 	cleaned.Priority = blob.Spec.Priority
 	cleaned.Total = blob.Status.Total
