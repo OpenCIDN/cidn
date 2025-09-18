@@ -345,10 +345,12 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 		},
 		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusOK,
-			Headers: map[string]string{
-				"Content-Length": fmt.Sprintf("%d", blob.Status.Total),
-			},
+			Headers:    map[string]string{},
 		},
+	}
+
+	if blob.Status.Total > 0 {
+		chunk.Spec.Source.Response.Headers["Content-Length"] = fmt.Sprintf("%d", blob.Status.Total)
 	}
 
 	err = c.tryAddBearer(chunk)
