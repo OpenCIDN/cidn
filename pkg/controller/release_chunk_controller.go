@@ -154,8 +154,10 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 	}
 	switch chunk.Status.Phase {
 	case v1alpha1.ChunkPhaseRunning:
-		if time.Since(lastSeenTime) < 30*time.Second {
-			return 30*time.Second - time.Since(lastSeenTime), nil
+		dur := 30 * time.Second
+		sub := time.Since(lastSeenTime)
+		if sub < dur {
+			return dur - sub, nil
 		}
 
 		newChunk := chunk.DeepCopy()
@@ -167,8 +169,10 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
 		}
 	case v1alpha1.ChunkPhaseUnknown:
-		if time.Since(lastSeenTime) < 20*time.Second {
-			return 20*time.Second - time.Since(lastSeenTime), nil
+		dur := 20 * time.Second
+		sub := time.Since(lastSeenTime)
+		if sub < dur {
+			return dur - sub, nil
 		}
 
 		newChunk := chunk.DeepCopy()
