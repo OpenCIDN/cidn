@@ -94,12 +94,6 @@ func (c *ReleaseBlobController) enqueueBlob(obj interface{}) {
 		return
 	}
 
-	if blob.Status.Phase != v1alpha1.BlobPhaseRunning &&
-		blob.Status.Phase != v1alpha1.BlobPhaseUnknown &&
-		blob.Status.Phase != v1alpha1.BlobPhaseFailed {
-		return
-	}
-
 	key := blob.Name
 
 	c.lastSeenMut.Lock()
