@@ -193,7 +193,7 @@ func (r *ChunkRunner) updateChunk(ctx context.Context, chunk *v1alpha1.Chunk) (*
 }
 
 // buildRequest constructs an HTTP request from ChunkHTTP configuration
-func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.ChunkHTTP, body io.Reader) (*http.Request, error) {
+func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.ChunkHTTP, body io.Reader, count int64) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, chunkHTTP.Request.Method, chunkHTTP.Request.URL, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
@@ -209,7 +209,9 @@ func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.Chun
 	}
 
 	if body != nil && req.ContentLength == 0 {
-		if cl := req.Header.Get("Content-Length"); cl != "" {
+		if count != 0 {
+			req.ContentLength = count
+		} else if cl := req.Header.Get("Content-Length"); cl != "" {
 			contentLength, err := strconv.ParseInt(cl, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid Content-Length header: %v", err)
@@ -231,7 +233,7 @@ func (r *ChunkRunner) getChunk(name string) (*v1alpha1.Chunk, error) {
 }
 
 func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) io.ReadCloser {
-	srcReq, err := r.buildRequest(ctx, &chunk.Spec.Source, nil)
+	srcReq, err := r.buildRequest(ctx, &chunk.Spec.Source, nil, 0)
 	if err != nil {
 		retry, err := utils.IsNetWorkError(err)
 		if retry {
@@ -322,14 +324,14 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 	return srcResp.Body
 }
 
-func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr io.Reader) (string, error) {
-	destReq, err := r.buildRequest(ctx, dest, dr)
+func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr io.Reader, count int64) (string, error) {
+	destReq, err := r.buildRequest(ctx, dest, dr, count)
 	if err != nil {
 		if retry, err := utils.IsNetWorkError(err); !retry {
 			return "", err
 		}
 
-		destReq, err = r.buildRequest(ctx, dest, dr)
+		destReq, err = r.buildRequest(ctx, dest, dr, count)
 		if err != nil {
 			return "", err
 		}
@@ -434,22 +436,14 @@ func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, contin
 
 	etags := make([]string, len(chunk.Spec.Destination))
 	drs := make([]*ReadCount, 0, len(chunk.Spec.Destination))
-	for i, dest := range chunk.Spec.Destination {
+
+	for _, dest := range chunk.Spec.Destination {
 		dest := dest
 		if dest.Request.Method == "" {
 			continue
 		}
-		i := i
 		dr := NewReadCount(ctx, swmr.NewReader())
 		drs = append(drs, dr)
-		g.Go(func() error {
-			etag, err := r.destinationRequest(ctx, &dest, dr)
-			if err != nil {
-				return err
-			}
-			etags[i] = etag
-			return nil
-		})
 	}
 
 	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
@@ -458,6 +452,34 @@ func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, contin
 
 		return ss, nil
 	})
+
+	var count int64
+	if chunk.Spec.Total <= 0 {
+		err = g.Wait()
+		if err != nil {
+			s.handleProcessError("", err)
+			return
+		}
+
+		count = sr.Count()
+	}
+
+	for i, dest := range chunk.Spec.Destination {
+		dest := dest
+		if dest.Request.Method == "" {
+			continue
+		}
+		i := i
+		dr := drs[i]
+		g.Go(func() error {
+			etag, err := r.destinationRequest(ctx, &dest, dr, count)
+			if err != nil {
+				return err
+			}
+			etags[i] = etag
+			return nil
+		})
+	}
 
 	err = g.Wait()
 	if err != nil {
