@@ -271,7 +271,7 @@ func (*blobStrategy) ConvertToTable(ctx context.Context, object runtime.Object, 
 			} else if blob.Status.Total > 0 {
 				progress = fmt.Sprintf("%s/%s", humanize.IBytes(uint64(blob.Status.Progress)), humanize.IBytes(uint64(blob.Status.Total)))
 			} else {
-				progress = fmt.Sprintf("%s/<unknow>", humanize.IBytes(uint64(blob.Status.Progress)))
+				progress = humanize.IBytes(uint64(blob.Status.Progress))
 			}
 		}
 
