@@ -345,9 +345,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 		},
 		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusOK,
-			Headers: map[string]string{
-				"Content-Length": fmt.Sprintf("%d", blob.Status.Total),
-			},
+			Headers:    map[string]string{},
 		},
 	}
 
@@ -462,8 +460,7 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusPartialContent,
 			Headers: map[string]string{
-				"Content-Length": fmt.Sprintf("%d", end-start),
-				"Content-Range":  fmt.Sprintf("bytes %d-%d/%d", start, end-1, blob.Status.Total),
+				"Content-Range": fmt.Sprintf("bytes %d-%d/%d", start, end-1, blob.Status.Total),
 			},
 		},
 	}
