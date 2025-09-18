@@ -468,11 +468,11 @@
             error ? `<span class="error-text">${error}</span>` : '';
 
         const highlightProgress = (progress, total) =>
-            `<span title="Progress in bytes">${highlightBytes(progress)} / ${highlightBytes(total)}</span>`;
+            total > 0 ? `<span title="Progress in bytes">${highlightBytes(progress)} / ${highlightBytes(total)}</span>` : `<span title="Progress in bytes">${highlightBytes(progress)}</span>`;
 
         const highlightSpeed = (speed, remainingTime) =>
             speed ? `<span title="Estimated remaining time, Download speed">
-                ${svgIcon('clock')} ${formatRemainingTime(remainingTime)}
+                ${remainingTime ? `${svgIcon('clock')} ${formatRemainingTime(remainingTime)}` : ''}
                 ${svgIcon('download')} ${highlightBytes(speed)} / s
                 </span>` : '<span></span>';
 
@@ -566,11 +566,13 @@
                             const progressDiff = progress - prev.progress;
                             if (timeDiff > 0 && progressDiff > 0) {
                                 speed = progressDiff / timeDiff;
-                                remainingTime = (size - progress) / speed;
-                                if (prev.remainingTime) {
-                                    remainingTime = (remainingTime * 9 + prev.remainingTime) / 10;
+                                if (size > 0) {
+                                    remainingTime = (size - progress) / speed;
+                                    if (prev.remainingTime) {
+                                        remainingTime = (remainingTime * 9 + prev.remainingTime) / 10;
+                                    }
+                                    remainingTime = Math.round(remainingTime);
                                 }
-                                remainingTime = Math.round(remainingTime);
                             }
                         }
                         progressData[data.name] = {
@@ -591,7 +593,7 @@
                             ${highlightSpeed(speed, remainingTime)} 
                             ${data.chunksNumber ? highlightChunksInfo(data) : `<span></span>`}
                         </div>
-                        <div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>`;
+                    ${size > 0 ? `<div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>` : ''}`;
                 }
                 case 'Failed':
                     return `${header}

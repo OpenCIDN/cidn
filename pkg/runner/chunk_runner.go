@@ -193,7 +193,7 @@ func (r *ChunkRunner) updateChunk(ctx context.Context, chunk *v1alpha1.Chunk) (*
 }
 
 // buildRequest constructs an HTTP request from ChunkHTTP configuration
-func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.ChunkHTTP, body io.Reader) (*http.Request, error) {
+func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.ChunkHTTP, body io.Reader, contentLength int64) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, chunkHTTP.Request.Method, chunkHTTP.Request.URL, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
@@ -202,20 +202,11 @@ func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.Chun
 	// Set default headers
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", versions.DefaultUserAgent())
+	req.ContentLength = contentLength
 
 	// Add custom headers from configuration
 	for k, v := range chunkHTTP.Request.Headers {
 		req.Header.Set(k, v)
-	}
-
-	if body != nil && req.ContentLength == 0 {
-		if cl := req.Header.Get("Content-Length"); cl != "" {
-			contentLength, err := strconv.ParseInt(cl, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid Content-Length header: %v", err)
-			}
-			req.ContentLength = contentLength
-		}
 	}
 
 	return req, nil
@@ -230,8 +221,8 @@ func (r *ChunkRunner) getChunk(name string) (*v1alpha1.Chunk, error) {
 	return chunk.DeepCopy(), nil
 }
 
-func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) io.ReadCloser {
-	srcReq, err := r.buildRequest(ctx, &chunk.Spec.Source, nil)
+func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) (io.ReadCloser, int64) {
+	srcReq, err := r.buildRequest(ctx, &chunk.Spec.Source, nil, 0)
 	if err != nil {
 		retry, err := utils.IsNetWorkError(err)
 		if retry {
@@ -239,7 +230,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		} else {
 			s.handleProcessError("", err)
 		}
-		return nil
+		return nil, 0
 	}
 
 	srcResp, err := r.httpClient.Do(srcReq)
@@ -253,7 +244,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		} else {
 			s.handleProcessError("", err)
 		}
-		return nil
+		return nil, 0
 	}
 
 	headers := map[string]string{}
@@ -280,7 +271,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
 			}
-			return nil
+			return nil, 0
 		}
 	} else {
 		if srcResp.StatusCode >= http.StatusMultipleChoices {
@@ -290,7 +281,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
 			}
-			return nil
+			return nil, 0
 		}
 	}
 
@@ -303,7 +294,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		if srcResp.Body != nil {
 			srcResp.Body.Close()
 		}
-		return nil
+		return nil, 0
 	}
 
 	for k, v := range chunk.Spec.Source.Response.Headers {
@@ -315,21 +306,21 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
 			}
-			return nil
+			return nil, 0
 		}
 	}
 
-	return srcResp.Body
+	return srcResp.Body, srcResp.ContentLength
 }
 
-func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr io.Reader) (string, error) {
-	destReq, err := r.buildRequest(ctx, dest, dr)
+func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr io.Reader, contentLength int64) (string, error) {
+	destReq, err := r.buildRequest(ctx, dest, dr, contentLength)
 	if err != nil {
 		if retry, err := utils.IsNetWorkError(err); !retry {
 			return "", err
 		}
 
-		destReq, err = r.buildRequest(ctx, dest, dr)
+		destReq, err = r.buildRequest(ctx, dest, dr, contentLength)
 		if err != nil {
 			return "", err
 		}
@@ -391,9 +382,22 @@ func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, contin
 	}, s, &gsr, &gdrs)
 	defer stopProgress()
 
-	body := r.sourceRequest(ctx, chunk, s)
+	body, contentLength := r.sourceRequest(ctx, chunk, s)
 	if body == nil {
 		return
+	}
+
+	if contentLength > 0 {
+		if chunk.Spec.Total > 0 && contentLength != chunk.Spec.Total {
+			err := fmt.Errorf("content length mismatch: got %d, want %d", contentLength, chunk.Spec.Total)
+			s.handleProcessError("ContentLengthMismatch", err)
+			body.Close()
+			return
+		}
+	} else {
+		if chunk.Spec.Total > 0 {
+			contentLength = chunk.Spec.Total
+		}
 	}
 
 	if len(chunk.Spec.Destination) == 0 {
@@ -434,22 +438,14 @@ func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, contin
 
 	etags := make([]string, len(chunk.Spec.Destination))
 	drs := make([]*ReadCount, 0, len(chunk.Spec.Destination))
-	for i, dest := range chunk.Spec.Destination {
+
+	for _, dest := range chunk.Spec.Destination {
 		dest := dest
 		if dest.Request.Method == "" {
 			continue
 		}
-		i := i
 		dr := NewReadCount(ctx, swmr.NewReader())
 		drs = append(drs, dr)
-		g.Go(func() error {
-			etag, err := r.destinationRequest(ctx, &dest, dr)
-			if err != nil {
-				return err
-			}
-			etags[i] = etag
-			return nil
-		})
 	}
 
 	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
@@ -458,6 +454,33 @@ func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, contin
 
 		return ss, nil
 	})
+
+	if contentLength <= 0 {
+		err = g.Wait()
+		if err != nil {
+			s.handleProcessError("", err)
+			return
+		}
+
+		contentLength = sr.Count()
+	}
+
+	for i, dest := range chunk.Spec.Destination {
+		dest := dest
+		if dest.Request.Method == "" {
+			continue
+		}
+		i := i
+		dr := drs[i]
+		g.Go(func() error {
+			etag, err := r.destinationRequest(ctx, &dest, dr, contentLength)
+			if err != nil {
+				return err
+			}
+			etags[i] = etag
+			return nil
+		})
+	}
 
 	err = g.Wait()
 	if err != nil {
