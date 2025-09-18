@@ -94,12 +94,6 @@ func (c *ReleaseBlobController) enqueueBlob(obj interface{}) {
 		return
 	}
 
-	if blob.Status.Phase != v1alpha1.BlobPhaseRunning &&
-		blob.Status.Phase != v1alpha1.BlobPhaseUnknown &&
-		blob.Status.Phase != v1alpha1.BlobPhaseFailed {
-		return
-	}
-
 	key := blob.Name
 
 	c.lastSeenMut.Lock()
@@ -206,18 +200,18 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 					return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
 				}
 			}
-		} else {
-			dur := time.Hour
-			sub := time.Since(lastSeenTime)
-			if sub < dur {
-				return dur - sub, nil
-			}
+		}
 
-			klog.Infof("Deleting failed blob %s after 1 hour", name)
-			err = c.client.TaskV1alpha1().Blobs().Delete(ctx, name, metav1.DeleteOptions{})
-			if err != nil && !apierrors.IsNotFound(err) {
-				return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
-			}
+		dur := time.Hour
+		sub := time.Since(lastSeenTime)
+		if sub < dur {
+			return dur - sub, nil
+		}
+
+		klog.Infof("Deleting failed blob %s after 1 hour", name)
+		err = c.client.TaskV1alpha1().Blobs().Delete(ctx, name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
 		}
 	case v1alpha1.BlobPhaseSucceeded:
 		dur := time.Hour
