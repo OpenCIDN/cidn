@@ -345,9 +345,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 		},
 		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusOK,
-			Headers: map[string]string{
-				"Content-Length": fmt.Sprintf("%d", blob.Status.Total),
-			},
+			Headers:    map[string]string{},
 		},
 	}
 
@@ -374,18 +372,22 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 			return err
 		}
 
-		chunk.Spec.Destination = append(chunk.Spec.Destination, v1alpha1.ChunkHTTP{
+		dest := v1alpha1.ChunkHTTP{
 			Request: v1alpha1.ChunkHTTPRequest{
-				Method: http.MethodPut,
-				URL:    d,
-				Headers: map[string]string{
-					"Content-Length": fmt.Sprintf("%d", blob.Status.Total),
-				},
+				Method:  http.MethodPut,
+				URL:     d,
+				Headers: map[string]string{},
 			},
 			Response: v1alpha1.ChunkHTTPResponse{
 				StatusCode: http.StatusOK,
 			},
-		})
+		}
+		if blob.Status.Total > 0 {
+			dest.Request.Headers["Content-Length"] = fmt.Sprintf("%d", blob.Status.Total)
+		}
+
+		chunk.Spec.Destination = append(chunk.Spec.Destination, dest)
+
 	}
 
 	if len(chunk.Spec.Destination) == 0 {
@@ -462,8 +464,7 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusPartialContent,
 			Headers: map[string]string{
-				"Content-Length": fmt.Sprintf("%d", end-start),
-				"Content-Range":  fmt.Sprintf("bytes %d-%d/%d", start, end-1, blob.Status.Total),
+				"Content-Range": fmt.Sprintf("bytes %d-%d/%d", start, end-1, blob.Status.Total),
 			},
 		},
 	}
@@ -496,18 +497,21 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 			return nil, err
 		}
 
-		chunk.Spec.Destination = append(chunk.Spec.Destination, v1alpha1.ChunkHTTP{
+		dest := v1alpha1.ChunkHTTP{
 			Request: v1alpha1.ChunkHTTPRequest{
-				Method: http.MethodPut,
-				URL:    partURL,
-				Headers: map[string]string{
-					"Content-Length": fmt.Sprintf("%d", end-start),
-				},
+				Method:  http.MethodPut,
+				URL:     partURL,
+				Headers: map[string]string{},
 			},
 			Response: v1alpha1.ChunkHTTPResponse{
 				StatusCode: http.StatusOK,
 			},
-		})
+		}
+		if blob.Status.Total > 0 {
+			dest.Request.Headers["Content-Length"] = fmt.Sprintf("%d", blob.Status.Total)
+		}
+
+		chunk.Spec.Destination = append(chunk.Spec.Destination, dest)
 	}
 
 	return chunk, nil

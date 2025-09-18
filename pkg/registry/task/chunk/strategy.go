@@ -179,8 +179,10 @@ func (*chunkStrategy) ConvertToTable(ctx context.Context, object runtime.Object,
 		if chunk.Spec.Total != 0 {
 			if chunk.Status.Progress == chunk.Spec.Total {
 				progress = humanize.IBytes(uint64(chunk.Spec.Total))
-			} else {
+			} else if chunk.Spec.Total > 0 {
 				progress = fmt.Sprintf("%s/%s", humanize.IBytes(uint64(chunk.Status.Progress)), humanize.IBytes(uint64(chunk.Spec.Total)))
+			} else {
+				progress = humanize.IBytes(uint64(chunk.Status.Progress))
 			}
 		}
 

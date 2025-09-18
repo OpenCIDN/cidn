@@ -149,11 +149,9 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 			return fmt.Errorf("failed to update blob status for blob %s: %w", updateBlob.Name, err)
 		}
 
-		if !reflect.DeepEqual(updateBlob.Status, blob.Status) {
-			_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, updateBlob, metav1.UpdateOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to update blob status total: %w", err)
-			}
+		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, updateBlob, metav1.UpdateOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to update blob status total: %w", err)
 		}
 
 		return nil
@@ -202,14 +200,13 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 			return fmt.Errorf("chunk %s succeeded but has no source response", chunkName)
 		}
 
-		total, err := strconv.ParseInt(chunk.Status.SourceResponse.Headers["content-length"], 10, 64)
-		if err != nil {
-			return fmt.Errorf("failed to parse content-length: %w", err)
+		total, _ := strconv.ParseInt(chunk.Status.SourceResponse.Headers["content-length"], 10, 64)
+		if total <= 0 {
+			blob.Status.Total = -1
+		} else {
+			blob.Status.Total = total
+			blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
 		}
-
-		blob.Status.Total = total
-		blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
-
 	case v1alpha1.ChunkPhaseFailed:
 		blob.Status.Retry = chunk.Status.Retry
 		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.Retry < chunk.Spec.MaximumRetry {
