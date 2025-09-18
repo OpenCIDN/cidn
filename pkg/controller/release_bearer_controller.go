@@ -170,8 +170,10 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return 10 * time.Second, fmt.Errorf("failed to update bearer %s: %v", name, err)
 		}
 	case v1alpha1.BearerPhaseRunning:
-		if time.Since(lastSeenTime) < 40*time.Second {
-			return 40*time.Second - time.Since(lastSeenTime), nil
+		dur := 40 * time.Second
+		sub := time.Since(lastSeenTime)
+		if sub < dur {
+			return dur - sub, nil
 		}
 
 		newBearer := bearer.DeepCopy()
@@ -183,8 +185,10 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return 10 * time.Second, fmt.Errorf("failed to update bearer %s: %v", name, err)
 		}
 	case v1alpha1.BearerPhaseUnknown:
-		if time.Since(lastSeenTime) < 20*time.Second {
-			return 20*time.Second - time.Since(lastSeenTime), nil
+		dur := 20 * time.Second
+		sub := time.Since(lastSeenTime)
+		if sub < dur {
+			return dur - sub, nil
 		}
 
 		newBearer := bearer.DeepCopy()

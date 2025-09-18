@@ -155,8 +155,10 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 
 	switch blob.Status.Phase {
 	case v1alpha1.BlobPhaseRunning:
-		if time.Since(lastSeenTime) < 40*time.Second {
-			return 40*time.Second - time.Since(lastSeenTime), nil
+		dur := 40 * time.Second
+		sub := time.Since(lastSeenTime)
+		if sub < dur {
+			return dur - sub, nil
 		}
 
 		newBlob := blob.DeepCopy()
@@ -168,8 +170,10 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 			return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
 		}
 	case v1alpha1.BlobPhaseUnknown:
-		if time.Since(lastSeenTime) < 20*time.Second {
-			return 20*time.Second - time.Since(lastSeenTime), nil
+		dur := 20 * time.Second
+		sub := time.Since(lastSeenTime)
+		if sub < dur {
+			return dur - sub, nil
 		}
 
 		newBlob := blob.DeepCopy()
@@ -203,8 +207,10 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 				}
 			}
 		} else {
-			if time.Since(lastSeenTime) < time.Hour {
-				return time.Hour - time.Since(lastSeenTime), nil
+			dur := time.Hour
+			sub := time.Since(lastSeenTime)
+			if sub < dur {
+				return dur - sub, nil
 			}
 
 			klog.Infof("Deleting failed blob %s after 1 hour", name)
@@ -214,8 +220,10 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 			}
 		}
 	case v1alpha1.BlobPhaseSucceeded:
-		if time.Since(lastSeenTime) < time.Hour {
-			return time.Hour - time.Since(lastSeenTime), nil
+		dur := time.Hour
+		sub := time.Since(lastSeenTime)
+		if sub < dur {
+			return dur - sub, nil
 		}
 
 		klog.Infof("Deleting succeeded blob %s after 1 hour", name)
