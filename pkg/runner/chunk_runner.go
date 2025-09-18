@@ -307,6 +307,13 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 	for k, v := range chunk.Spec.Source.Response.Headers {
 		respVal := srcResp.Header.Get(k)
 		if respVal != v {
+
+			// Skip content-length header check when response value is empty, as this can occur
+			// when requesting resources from https://raw.githubusercontent.com/
+			if respVal == "" && strings.ToLower(k) == "content-length" {
+				continue
+			}
+
 			err := fmt.Errorf("header %s mismatch: got %s, want %s", k, respVal, v)
 			s.handleProcessError("HeaderMismatch", err)
 
