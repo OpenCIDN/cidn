@@ -196,12 +196,12 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 		return fmt.Errorf("failed to get chunk: %w", err)
 	}
 
-	if chunk.Status.SourceResponse == nil {
-		return nil
-	}
-
 	switch chunk.Status.Phase {
 	case v1alpha1.ChunkPhaseSucceeded:
+		if chunk.Status.SourceResponse == nil {
+			return fmt.Errorf("chunk %s succeeded but has no source response", chunkName)
+		}
+
 		total, err := strconv.ParseInt(chunk.Status.SourceResponse.Headers["content-length"], 10, 64)
 		if err != nil {
 			return fmt.Errorf("failed to parse content-length: %w", err)
