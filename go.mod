@@ -7,7 +7,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/spf13/cobra v1.8.1
 	github.com/wzshiming/ioswmr v0.0.0-20250120111738-c884d3ebe493
-	github.com/wzshiming/sss v0.0.0-20250702072007-df8bb6eecdb2
+	github.com/wzshiming/sss v0.3.0
 	golang.org/x/sync v0.13.0
 	k8s.io/apimachinery v0.33.2
 	k8s.io/apiserver v0.33.2
