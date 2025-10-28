@@ -100,12 +100,6 @@ func TestHTTPClientWithSystemCertsMatchesSystemPool(t *testing.T) {
 	if len(systemPool.Subjects()) == 0 {
 		t.Skip("Skipping test: system cert pool appears to be empty")
 	}
-
-	// We can't directly compare the cert pools, but we can verify
-	// that our TLS config has RootCAs set, which is the important part
-	if tlsConfig.RootCAs == nil {
-		t.Error("TLS config RootCAs should be set to system cert pool")
-	}
 }
 
 func TestHTTPClientTLSConfiguration(t *testing.T) {

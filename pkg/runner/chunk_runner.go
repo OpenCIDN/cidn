@@ -68,15 +68,16 @@ func newHTTPClientWithSystemCerts() *http.Client {
 		return http.DefaultClient
 	}
 
+	// Clone the default transport to preserve performance optimizations
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
 	// Create TLS configuration with system certificates
 	tlsConfig := &tls.Config{
 		RootCAs: certPool,
 	}
 
-	// Create a custom transport with the TLS configuration
-	transport := &http.Transport{
-		TLSClientConfig: tlsConfig,
-	}
+	// Update the TLS configuration
+	transport.TLSClientConfig = tlsConfig
 
 	// Return a new HTTP client with the custom transport
 	return &http.Client{
