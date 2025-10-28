@@ -19,6 +19,8 @@ package runner
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding"
 	"encoding/hex"
 	"fmt"
@@ -57,6 +59,31 @@ type ChunkRunner struct {
 	signal        chan struct{}
 }
 
+// newHTTPClientWithSystemCerts creates an HTTP client configured with the system's trusted certificate chain
+func newHTTPClientWithSystemCerts() *http.Client {
+	// Load the system's trusted certificate pool
+	certPool, err := x509.SystemCertPool()
+	if err != nil {
+		klog.Warningf("Failed to load system certificate pool, using default: %v", err)
+		return http.DefaultClient
+	}
+
+	// Create TLS configuration with system certificates
+	tlsConfig := &tls.Config{
+		RootCAs: certPool,
+	}
+
+	// Create a custom transport with the TLS configuration
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+	}
+
+	// Return a new HTTP client with the custom transport
+	return &http.Client{
+		Transport: transport,
+	}
+}
+
 // NewChunkRunner creates a new Runner instance
 func NewChunkRunner(
 	handlerName string,
@@ -67,7 +94,7 @@ func NewChunkRunner(
 		handlerName:   handlerName,
 		client:        clientset,
 		chunkInformer: sharedInformerFactory.Task().V1alpha1().Chunks(),
-		httpClient:    http.DefaultClient,
+		httpClient:    newHTTPClientWithSystemCerts(),
 		signal:        make(chan struct{}, 1),
 	}
 
