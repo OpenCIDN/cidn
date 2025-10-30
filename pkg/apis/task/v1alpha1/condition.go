@@ -73,8 +73,3 @@ func GetCondition(conditions []Condition, conditionType string) (Condition, bool
 	}
 	return Condition{}, false
 }
-
-const (
-	// ConditionTypeRetryable means the operation can be retried as a whole.
-	ConditionTypeRetryable = "Retryable"
-)

@@ -96,6 +96,9 @@ type ChunkStatus struct {
 	// Retry is the number of times the chunk has been retried.
 	Retry int64 `json:"retry,omitempty"`
 
+	// Retryable indicates whether the chunk can be retried.
+	Retryable bool `json:"retryable,omitempty"`
+
 	// Conditions holds conditions for the Chunk.
 	// +patchMergeKey=type
 	// +patchStrategy=merge
