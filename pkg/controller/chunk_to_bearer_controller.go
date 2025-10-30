@@ -127,7 +127,7 @@ func (c *ChunkToBearerController) toBearer(ctx context.Context, chunk *v1alpha1.
 		return nil
 	}
 
-	if chunk.Spec.MaximumRetry-chunk.Status.Retry <= 0 {
+	if !chunk.Status.Retryable {
 		return nil
 	}
 
