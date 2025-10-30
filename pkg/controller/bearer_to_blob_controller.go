@@ -25,7 +25,6 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -130,15 +129,19 @@ func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) e
 		}
 
 		blobName := chunk.Annotations[BlobNameAnnotationKey]
-		if blobName == "" {
-			continue
+		if blobName != "" {
+			blobList[blobName] = struct{}{}
 		}
-		blobList[blobName] = struct{}{}
-		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, chunk.Name, metav1.DeleteOptions{})
+
+		chunk.Status.HandlerName = ""
+		chunk.Status.Phase = v1alpha1.ChunkPhasePending
+		chunk.Status.Retry = 0
+		chunk.Status.Progress = 0
+		chunk.Status.Conditions = nil
+
+		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, &chunk, metav1.UpdateOptions{})
 		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return err
-			}
+			return err
 		}
 	}
 

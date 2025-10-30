@@ -50,11 +50,12 @@ import (
 
 // ChunkRunner executes Chunk tasks
 type ChunkRunner struct {
-	handlerName   string
-	client        versioned.Interface
-	chunkInformer informers.ChunkInformer
-	httpClient    *http.Client
-	signal        chan struct{}
+	handlerName    string
+	client         versioned.Interface
+	chunkInformer  informers.ChunkInformer
+	bearerInformer informers.BearerInformer
+	httpClient     *http.Client
+	signal         chan struct{}
 }
 
 // NewChunkRunner creates a new Runner instance
@@ -64,11 +65,12 @@ func NewChunkRunner(
 	sharedInformerFactory externalversions.SharedInformerFactory,
 ) *ChunkRunner {
 	r := &ChunkRunner{
-		handlerName:   handlerName,
-		client:        clientset,
-		chunkInformer: sharedInformerFactory.Task().V1alpha1().Chunks(),
-		httpClient:    http.DefaultClient,
-		signal:        make(chan struct{}, 1),
+		handlerName:    handlerName,
+		client:         clientset,
+		chunkInformer:  sharedInformerFactory.Task().V1alpha1().Chunks(),
+		bearerInformer: sharedInformerFactory.Task().V1alpha1().Bearers(),
+		httpClient:     http.DefaultClient,
+		signal:         make(chan struct{}, 1),
 	}
 
 	r.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -221,7 +223,72 @@ func (r *ChunkRunner) getChunk(name string) (*v1alpha1.Chunk, error) {
 	return chunk.DeepCopy(), nil
 }
 
+// tryAddBearer fetches the bearer token and adds the Authorization header to the chunk
+func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) error {
+	if chunk.Spec.BearerName == "" {
+		return nil
+	}
+	bearer, err := r.bearerInformer.Lister().Get(chunk.Spec.BearerName)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if bearer != nil {
+		if bearer.Status.TokenInfo == nil {
+			if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
+				return fmt.Errorf("bearer %s is in succeeded phase but has no token info", bearer.Name)
+			}
+			return fmt.Errorf("bearer %s is not in succeeded phase (current: %s)", bearer.Name, bearer.Status.Phase)
+		}
+
+		if bearer.Status.TokenInfo.Token != "" {
+			if chunk.Spec.Source.Request.Headers == nil {
+				chunk.Spec.Source.Request.Headers = make(map[string]string)
+			}
+			chunk.Spec.Source.Request.Headers["Authorization"] = "Bearer " + bearer.Status.TokenInfo.Token
+
+			issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
+			expiresIn := bearer.Status.TokenInfo.ExpiresIn
+			since := time.Since(issuedAt)
+			expires := time.Duration(expiresIn) * time.Second
+
+			if since >= expires {
+				bearer = bearer.DeepCopy()
+				bearer.Status.HandlerName = ""
+				bearer.Status.Phase = v1alpha1.BearerPhasePending
+				_, err := r.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, bearer, metav1.UpdateOptions{})
+				if err != nil {
+					return err
+				}
+
+				return fmt.Errorf("bearer token has expired, waiting for next refresh")
+			}
+
+			if since >= expires*3/4 {
+				bearer = bearer.DeepCopy()
+				bearer.Status.HandlerName = ""
+				bearer.Status.Phase = v1alpha1.BearerPhasePending
+
+				_, err := r.client.TaskV1alpha1().Bearers().UpdateStatus(context.Background(), bearer, metav1.UpdateOptions{})
+				if err != nil {
+					klog.Errorf("Failed to update bearer %s status: %v", bearer.Name, err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) (io.ReadCloser, int64) {
+	err := r.tryAddBearer(ctx, chunk)
+	if err != nil {
+		s.handleProcessErrorAndRetryable("", err)
+		return nil, 0
+	}
+
 	srcReq, err := r.buildRequest(ctx, &chunk.Spec.Source, nil, 0)
 	if err != nil {
 		retry, err := utils.IsNetWorkError(err)
