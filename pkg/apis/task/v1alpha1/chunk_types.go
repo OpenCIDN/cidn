@@ -190,3 +190,8 @@ type ChunkList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Chunk `json:"items"`
 }
+
+const (
+	// ChunkDisplayNameAnnotation is the annotation key for the display name of a chunk.
+	ChunkDisplayNameAnnotation = "chunk.task.opencidn.daocloud.io/display-name"
+)

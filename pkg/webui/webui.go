@@ -64,8 +64,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 	// Add API endpoints
 	blobInformer := sharedInformerFactory.Task().V1alpha1().Blobs()
-	informer := blobInformer.Informer()
-	go informer.RunWithContext(context.Background())
+	blobInf := blobInformer.Informer()
+	go blobInf.RunWithContext(context.Background())
+
+	chunkInformer := sharedInformerFactory.Task().V1alpha1().Chunks()
+	chunkInf := chunkInformer.Informer()
+	go chunkInf.RunWithContext(context.Background())
 
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		// Set headers for Server-Sent Events
@@ -83,7 +87,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 		ticker := time.NewTicker(updateInterval)
 		defer ticker.Stop()
 
-		resourceEventHandlerRegistration, err := informer.AddEventHandler(&cache.ResourceEventHandlerFuncs{
+		resourceEventHandlerRegistration, err := blobInf.AddEventHandler(&cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				blob, ok := obj.(*v1alpha1.Blob)
 				if !ok {
@@ -135,7 +139,61 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 			return
 		}
 
-		defer informer.RemoveEventHandler(resourceEventHandlerRegistration)
+		defer blobInf.RemoveEventHandler(resourceEventHandlerRegistration)
+
+		chunkEventHandlerRegistration, err := chunkInf.AddEventHandler(&cache.ResourceEventHandlerFuncs{
+			AddFunc: func(obj interface{}) {
+				chunk, ok := obj.(*v1alpha1.Chunk)
+				if !ok {
+					return
+				}
+
+				mut.Lock()
+				defer mut.Unlock()
+				event := createChunkEvent("ADD", chunk)
+				updates <- event
+				updateBuffer[string(chunk.UID)] = nil
+			},
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				oldChunk, ok := oldObj.(*v1alpha1.Chunk)
+				if !ok {
+					return
+				}
+				newChunk, ok := newObj.(*v1alpha1.Chunk)
+				if !ok {
+					return
+				}
+
+				mut.Lock()
+				defer mut.Unlock()
+				event := createChunkEvent("UPDATE", newChunk)
+				_, ok = updateBuffer[string(newChunk.UID)]
+				if ok && oldChunk.Status.Phase == newChunk.Status.Phase && newChunk.Status.Progress != newChunk.Spec.Total {
+					updateBuffer[string(newChunk.UID)] = &event
+				} else {
+					updateBuffer[string(newChunk.UID)] = nil
+					updates <- event
+				}
+			},
+			DeleteFunc: func(obj interface{}) {
+				chunk, ok := obj.(*v1alpha1.Chunk)
+				if !ok {
+					return
+				}
+
+				mut.Lock()
+				defer mut.Unlock()
+				delete(updateBuffer, string(chunk.UID))
+				event := createChunkEvent("DELETE", chunk)
+				updates <- event
+			},
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to add chunk event handler: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		defer chunkInf.RemoveEventHandler(chunkEventHandlerRegistration)
 
 		// Stream updates to client
 		flusher := w.(http.Flusher)
@@ -244,6 +302,70 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 	if len(blob.Status.Conditions) > 0 {
 		cleaned.Errors = make([]string, 0, len(blob.Status.Conditions))
 		for _, condition := range blob.Status.Conditions {
+			cleaned.Errors = append(cleaned.Errors, fmt.Sprintf("%s: %s", condition.Type, condition.Message))
+		}
+	}
+
+	return cleaned
+}
+
+// createChunkEvent constructs an Event for a given chunk and event type
+func createChunkEvent(eventType string, chunk *v1alpha1.Chunk) Event {
+	event := Event{
+		Type: eventType,
+		ID:   string(chunk.UID),
+	}
+	if eventType != "DELETE" {
+		data, _ := json.Marshal(cleanChunkForWebUI(chunk))
+		event.Data = data
+	}
+	return event
+}
+
+// cleanedChunk is a reduced view of Chunk for the WebUI
+// Only relevant fields are exposed
+type cleanedChunk struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName,omitempty"`
+
+	Priority   int64 `json:"priority,omitempty"`
+	Total      int64 `json:"total"`
+	ChunkIndex int64 `json:"chunkIndex,omitempty"`
+
+	Phase    v1alpha1.ChunkPhase `json:"phase"`
+	Progress int64               `json:"progress,omitempty"`
+
+	Errors []string `json:"errors,omitempty"`
+}
+
+// cleanChunkForWebUI extracts and normalizes fields for the WebUI
+func cleanChunkForWebUI(chunk *v1alpha1.Chunk) *cleanedChunk {
+	cleaned := &cleanedChunk{}
+
+	// Set metadata
+	cleaned.Name = chunk.Name
+
+	if chunk.Annotations != nil {
+		cleaned.DisplayName = chunk.Annotations[v1alpha1.ChunkDisplayNameAnnotation]
+	}
+
+	// Set spec fields
+	cleaned.Priority = chunk.Spec.Priority
+	cleaned.Total = chunk.Spec.Total
+	cleaned.ChunkIndex = chunk.Spec.ChunkIndex
+
+	// Set status fields
+	cleaned.Phase = chunk.Status.Phase
+	cleaned.Progress = chunk.Status.Progress
+
+	if cleaned.Phase == v1alpha1.ChunkPhaseRunning &&
+		cleaned.Progress == 0 {
+		cleaned.Phase = v1alpha1.ChunkPhasePending
+	}
+
+	if len(chunk.Status.Conditions) > 0 {
+		cleaned.Errors = make([]string, 0, len(chunk.Status.Conditions))
+		for _, condition := range chunk.Status.Conditions {
 			cleaned.Errors = append(cleaned.Errors, fmt.Sprintf("%s: %s", condition.Type, condition.Message))
 		}
 	}
