@@ -81,6 +81,14 @@ func NewChunkRunner(
 			r.enqueueChunk()
 		},
 	})
+	r.bearerInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			r.enqueueChunk()
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			r.enqueueChunk()
+		},
+	})
 
 	return r
 }

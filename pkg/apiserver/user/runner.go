@@ -40,17 +40,13 @@ func (runnerAuthorizer) Authorize(ctx context.Context, a authorizer.Attributes) 
 	}
 
 	switch a.GetResource() {
-	case "chunks":
+	case "chunks", "bearers":
 		switch a.GetSubresource() {
 		case "":
 			if a.IsReadOnly() {
 				return authorizer.DecisionAllow, "", nil
 			}
 		case "status":
-			return authorizer.DecisionAllow, "", nil
-		}
-	case "bearers":
-		if a.IsReadOnly() {
 			return authorizer.DecisionAllow, "", nil
 		}
 	}
