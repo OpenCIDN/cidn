@@ -207,20 +207,10 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return dur - sub, nil
 		}
 
-		if bearer.Status.Retry < bearer.Spec.MaximumRetry {
-			if _, ok := v1alpha1.GetCondition(bearer.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
-				newBearer := bearer.DeepCopy()
-				newBearer.Status.Phase = v1alpha1.BearerPhasePending
-				newBearer.Status.Conditions = nil
-				newBearer.Status.Retry++
-				newBearer.Status.HandlerName = ""
-				klog.Infof("Transitioning bearer %s from Failed to Pending phase and clearing handler", name)
-
-				_, err = c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, newBearer, metav1.UpdateOptions{})
-				if err != nil {
-					return 10 * time.Second, fmt.Errorf("failed to update bearer %s: %v", name, err)
-				}
-			}
+		klog.Infof("Deleting failed blob %s after 1 hour", name)
+		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
 		}
 	}
 	return 0, nil

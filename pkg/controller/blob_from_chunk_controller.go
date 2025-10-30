@@ -209,16 +209,11 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 		}
 	case v1alpha1.ChunkPhaseFailed:
 		blob.Status.Retry = chunk.Status.Retry
-		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.Retry < chunk.Spec.MaximumRetry {
+		if chunk.Status.Retryable && chunk.Status.Retry < chunk.Spec.MaximumRetry {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
-			for _, cond := range chunk.Status.Conditions {
-				if cond.Type == v1alpha1.ConditionTypeRetryable {
-					continue
-				}
-				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, cond)
-			}
+			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
 		}
 	}
 	return nil
@@ -257,17 +252,12 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 		blob.Status.SucceededChunks = 0
 		blob.Status.FailedChunks = 1
 		blob.Status.Retry = chunk.Status.Retry
-		if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok && chunk.Status.Retry < chunk.Spec.MaximumRetry {
+		if chunk.Status.Retryable && chunk.Status.Retry < chunk.Spec.MaximumRetry {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 			blob.Status.Progress = chunk.Status.Progress
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
-			for _, cond := range chunk.Status.Conditions {
-				if cond.Type == v1alpha1.ConditionTypeRetryable {
-					continue
-				}
-				blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, cond)
-			}
+			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
 		}
 	case v1alpha1.ChunkPhaseRunning, v1alpha1.ChunkPhaseUnknown:
 		blob.Status.PendingChunks = 0
@@ -365,7 +355,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 			hasNonRetryableFailure := false
 			for _, chunk := range chunks {
 				if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
-					if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); !ok {
+					if !chunk.Status.Retryable {
 						hasNonRetryableFailure = true
 						break
 					}
@@ -376,12 +366,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				blob.Status.Phase = v1alpha1.BlobPhaseFailed
 				for _, chunk := range chunks {
 					if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
-						for _, cond := range chunk.Status.Conditions {
-							if cond.Type == v1alpha1.ConditionTypeRetryable {
-								continue
-							}
-							blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, cond)
-						}
+						blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
 					}
 				}
 			} else {

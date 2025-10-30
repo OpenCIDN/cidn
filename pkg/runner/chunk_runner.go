@@ -880,22 +880,7 @@ func (s *state) handleProcessError(typ string, err error) {
 func (s *state) handleProcessErrorAndRetryable(typ string, err error) {
 	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 		handleProcessError(&ss.Status, typ, err)
-
-		if ss.Spec.ChunksNumber > 1 {
-			ss.Status.Conditions = v1alpha1.AppendConditions(ss.Status.Conditions,
-				v1alpha1.Condition{
-					Type:    v1alpha1.ConditionTypeRetryable,
-					Message: fmt.Sprintf("Retryable, Retry count: %d, chunk: %d/%d", ss.Status.Retry, ss.Spec.ChunkIndex, ss.Spec.ChunksNumber),
-				},
-			)
-		} else {
-			ss.Status.Conditions = v1alpha1.AppendConditions(ss.Status.Conditions,
-				v1alpha1.Condition{
-					Type:    v1alpha1.ConditionTypeRetryable,
-					Message: fmt.Sprintf("Retryable, Retry count: %d", ss.Status.Retry),
-				},
-			)
-		}
+		ss.Status.Retryable = true
 
 		return ss, nil
 	})

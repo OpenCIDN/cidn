@@ -192,7 +192,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 		}
 
 		if chunk.Status.Retry < chunk.Spec.MaximumRetry {
-			if _, ok := v1alpha1.GetCondition(chunk.Status.Conditions, v1alpha1.ConditionTypeRetryable); ok {
+			if chunk.Status.Retryable {
 				newChunk := chunk.DeepCopy()
 				newChunk.Status.Phase = v1alpha1.ChunkPhasePending
 				newChunk.Status.Conditions = nil

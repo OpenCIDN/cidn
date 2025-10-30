@@ -1153,6 +1153,13 @@ func schema_pkg_apis_task_v1alpha1_ChunkStatus(ref common.ReferenceCallback) com
 							Format:      "int64",
 						},
 					},
+					"retryable": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Retryable indicates whether the chunk can be retried.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 					"conditions": {
 						VendorExtensible: spec.VendorExtensible{
 							Extensions: spec.Extensions{
