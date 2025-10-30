@@ -168,6 +168,8 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				defer mut.Unlock()
 				event := createChunkEvent("UPDATE", newChunk)
 				_, ok = updateBuffer[string(newChunk.UID)]
+				// Buffer intermediate progress updates for the same phase
+				// Note: Chunk.Spec.Total vs Blob.Status.Total - chunks store total in spec
 				if ok && oldChunk.Status.Phase == newChunk.Status.Phase && newChunk.Status.Progress != newChunk.Spec.Total {
 					updateBuffer[string(newChunk.UID)] = &event
 				} else {
@@ -241,7 +243,11 @@ func createEvent(eventType string, blob *v1alpha1.Blob) Event {
 		ID:   string(blob.UID),
 	}
 	if eventType != "DELETE" {
-		data, _ := json.Marshal(cleanBlobForWebUI(blob))
+		data, err := json.Marshal(cleanBlobForWebUI(blob))
+		if err != nil {
+			fmt.Printf("Error marshaling blob data: %v\n", err)
+			data = []byte("{}")
+		}
 		event.Data = data
 	}
 	return event
@@ -316,7 +322,11 @@ func createChunkEvent(eventType string, chunk *v1alpha1.Chunk) Event {
 		ID:   string(chunk.UID),
 	}
 	if eventType != "DELETE" {
-		data, _ := json.Marshal(cleanChunkForWebUI(chunk))
+		data, err := json.Marshal(cleanChunkForWebUI(chunk))
+		if err != nil {
+			fmt.Printf("Error marshaling chunk data: %v\n", err)
+			data = []byte("{}")
+		}
 		event.Data = data
 	}
 	return event
