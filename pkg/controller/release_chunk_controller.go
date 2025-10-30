@@ -191,19 +191,17 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			return dur - sub, nil
 		}
 
-		if chunk.Status.Retry < chunk.Spec.MaximumRetry {
-			if chunk.Status.Retryable {
-				newChunk := chunk.DeepCopy()
-				newChunk.Status.Phase = v1alpha1.ChunkPhasePending
-				newChunk.Status.Conditions = nil
-				newChunk.Status.Retry++
-				newChunk.Status.HandlerName = ""
-				klog.Infof("Transitioning chunk %s from Failed to Pending phase and clearing handler", name)
+		if chunk.Status.Retryable {
+			newChunk := chunk.DeepCopy()
+			newChunk.Status.Phase = v1alpha1.ChunkPhasePending
+			newChunk.Status.Conditions = nil
+			newChunk.Status.Retry++
+			newChunk.Status.HandlerName = ""
+			klog.Infof("Transitioning chunk %s from Failed to Pending phase and clearing handler", name)
 
-				_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
-				if err != nil {
-					return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
-				}
+			_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
+			if err != nil {
+				return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
 			}
 		}
 	}

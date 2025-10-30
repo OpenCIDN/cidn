@@ -209,7 +209,7 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 		}
 	case v1alpha1.ChunkPhaseFailed:
 		blob.Status.Retry = chunk.Status.Retry
-		if chunk.Status.Retryable && chunk.Status.Retry < chunk.Spec.MaximumRetry {
+		if chunk.Status.Retryable {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
@@ -252,7 +252,7 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 		blob.Status.SucceededChunks = 0
 		blob.Status.FailedChunks = 1
 		blob.Status.Retry = chunk.Status.Retry
-		if chunk.Status.Retryable && chunk.Status.Retry < chunk.Spec.MaximumRetry {
+		if chunk.Status.Retryable {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 			blob.Status.Progress = chunk.Status.Progress
 		} else {

@@ -338,11 +338,18 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 
 	if chunk.Spec.Source.Response.StatusCode != 0 {
 		if srcResp.StatusCode != chunk.Spec.Source.Response.StatusCode {
-			err := fmt.Errorf("unexpected status code: got %d, want %d",
-				srcResp.StatusCode, chunk.Spec.Source.Response.StatusCode)
+			if srcResp.StatusCode == http.StatusUnauthorized &&
+				srcReq.Header.Get("Authorization") == "" &&
+				chunk.Spec.BearerName != "" {
+				err := fmt.Errorf("unauthorized access to source URL")
+				s.handleProcessErrorAndRetryable("Unauthorized", err)
 
-			s.handleProcessError("", err)
+			} else {
+				err := fmt.Errorf("unexpected status code: got %d, want %d",
+					srcResp.StatusCode, chunk.Spec.Source.Response.StatusCode)
 
+				s.handleProcessError("", err)
+			}
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
 			}
@@ -350,8 +357,15 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		}
 	} else {
 		if srcResp.StatusCode >= http.StatusMultipleChoices {
-			err := fmt.Errorf("source returned error status code: %d", srcResp.StatusCode)
-			s.handleProcessError("", err)
+			if srcResp.StatusCode == http.StatusUnauthorized &&
+				srcReq.Header.Get("Authorization") == "" &&
+				chunk.Spec.BearerName != "" {
+				err := fmt.Errorf("unauthorized access to source URL")
+				s.handleProcessErrorAndRetryable("Unauthorized", err)
+			} else {
+				err := fmt.Errorf("source returned error status code: %d", srcResp.StatusCode)
+				s.handleProcessError("", err)
+			}
 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
@@ -880,8 +894,11 @@ func (s *state) handleProcessError(typ string, err error) {
 func (s *state) handleProcessErrorAndRetryable(typ string, err error) {
 	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 		handleProcessError(&ss.Status, typ, err)
-		ss.Status.Retryable = true
-
+		if ss.Status.Retry < ss.Spec.MaximumRetry {
+			ss.Status.Retryable = true
+		} else {
+			ss.Status.Retryable = false
+		}
 		return ss, nil
 	})
 }
