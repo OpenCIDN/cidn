@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -46,6 +47,13 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+)
+
+var (
+	// ErrBearerTokenExpired indicates that the bearer token has expired
+	ErrBearerTokenExpired = errors.New("bearer token has expired, waiting for next refresh")
+	// ErrBearerNotReady indicates that the bearer is not yet in a succeeded phase
+	ErrBearerNotReady = errors.New("bearer is not ready")
 )
 
 // ChunkRunner executes Chunk tasks
@@ -234,7 +242,7 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 			if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
 				return fmt.Errorf("bearer %s is in succeeded phase but has no token info", bearer.Name)
 			}
-			return fmt.Errorf("bearer %s is not in succeeded phase (current: %s)", bearer.Name, bearer.Status.Phase)
+			return fmt.Errorf("%w: bearer %s is not in succeeded phase (current: %s)", ErrBearerNotReady, bearer.Name, bearer.Status.Phase)
 		}
 
 		if bearer.Status.TokenInfo.Token != "" {
@@ -258,7 +266,7 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 					return err
 				}
 
-				return fmt.Errorf("bearer token has expired, waiting for next refresh")
+				return ErrBearerTokenExpired
 			}
 
 			if since >= expires*3/4 {
@@ -280,6 +288,34 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) (io.ReadCloser, int64) {
 	err := r.tryAddBearer(ctx, chunk)
 	if err != nil {
+		if errors.Is(err, ErrBearerTokenExpired) {
+			// Release the chunk back to Pending state for retry when bearer is refreshed
+			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+				klog.Infof("Releasing chunk %s due to expired bearer token", ss.Name)
+				ss.Status.HandlerName = ""
+				ss.Status.Phase = v1alpha1.ChunkPhasePending
+				ss.Status.Conditions = v1alpha1.AppendConditions(ss.Status.Conditions, v1alpha1.Condition{
+					Type:    "BearerExpired",
+					Message: err.Error(),
+				})
+				return ss, nil
+			})
+			return nil, 0
+		}
+		if errors.Is(err, ErrBearerNotReady) {
+			// Release the chunk back to Pending state to wait for bearer to be ready
+			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+				klog.Infof("Releasing chunk %s because bearer is not ready", ss.Name)
+				ss.Status.HandlerName = ""
+				ss.Status.Phase = v1alpha1.ChunkPhasePending
+				ss.Status.Conditions = v1alpha1.AppendConditions(ss.Status.Conditions, v1alpha1.Condition{
+					Type:    "BearerNotReady",
+					Message: err.Error(),
+				})
+				return ss, nil
+			})
+			return nil, 0
+		}
 		s.handleProcessErrorAndRetryable("", err)
 		return nil, 0
 	}
