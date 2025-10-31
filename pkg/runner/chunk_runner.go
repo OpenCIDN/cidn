@@ -263,10 +263,12 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 			expires := time.Duration(expiresIn) * time.Second
 
 			if since >= expires {
-				bearer = bearer.DeepCopy()
-				bearer.Status.HandlerName = ""
-				bearer.Status.Phase = v1alpha1.BearerPhasePending
-				_, err := r.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, bearer, metav1.UpdateOptions{})
+				bearerName := bearer.Name
+				_, err := utils.UpdateBearerStatusWithRetry(ctx, r.client, bearerName, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+					b.Status.HandlerName = ""
+					b.Status.Phase = v1alpha1.BearerPhasePending
+					return b
+				})
 				if err != nil {
 					return err
 				}
@@ -275,13 +277,14 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 			}
 
 			if since >= expires*3/4 {
-				bearer = bearer.DeepCopy()
-				bearer.Status.HandlerName = ""
-				bearer.Status.Phase = v1alpha1.BearerPhasePending
-
-				_, err := r.client.TaskV1alpha1().Bearers().UpdateStatus(context.Background(), bearer, metav1.UpdateOptions{})
+				bearerName := bearer.Name
+				_, err := utils.UpdateBearerStatusWithRetry(context.Background(), r.client, bearerName, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+					b.Status.HandlerName = ""
+					b.Status.Phase = v1alpha1.BearerPhasePending
+					return b
+				})
 				if err != nil {
-					klog.Errorf("Failed to update bearer %s status: %v", bearer.Name, err)
+					klog.Errorf("Failed to update bearer %s status: %v", bearerName, err)
 				}
 			}
 		}

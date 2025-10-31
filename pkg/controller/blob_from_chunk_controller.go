@@ -143,13 +143,15 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 	}
 
 	if blob.Status.Total == 0 {
-		updateBlob := blob.DeepCopy()
-		err = c.fromHeadChunk(ctx, updateBlob)
+		err = c.fromHeadChunk(ctx, blob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %w", updateBlob.Name, err)
+			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
 		}
 
-		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, updateBlob, metav1.UpdateOptions{})
+		_, err = updateBlobStatusWithRetry(ctx, c.client, blob.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status = blob.Status
+			return b
+		})
 		if err != nil {
 			return fmt.Errorf("failed to update blob status total: %w", err)
 		}
@@ -161,24 +163,27 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 		return nil
 	}
 
-	updateBlob := blob.DeepCopy()
-
 	if blob.Spec.ChunksNumber != 1 && blob.Status.AcceptRanges {
-		err = c.fromChunks(ctx, updateBlob)
+		err = c.fromChunks(ctx, blob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %w", updateBlob.Name, err)
+			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
 		}
 	} else {
-		err = c.fromOneChunk(ctx, updateBlob)
+		err = c.fromOneChunk(ctx, blob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %w", updateBlob.Name, err)
+			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
 		}
 	}
-	if !reflect.DeepEqual(updateBlob.Status, blob.Status) {
-		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, updateBlob, metav1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to update blob status: %w", err)
+	
+	originalStatus := blob.Status
+	_, err = updateBlobStatusWithRetry(ctx, c.client, blob.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+		if !reflect.DeepEqual(originalStatus, b.Status) {
+			b.Status = originalStatus
 		}
+		return b
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update blob status: %w", err)
 	}
 
 	return nil

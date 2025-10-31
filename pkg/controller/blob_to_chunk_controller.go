@@ -379,9 +379,11 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 	}
 
 	if len(chunk.Spec.Destination) == 0 {
-		blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
-		blob.Status.Progress = blob.Status.Total
-		_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+		_, err := updateBlobStatusWithRetry(ctx, c.client, blob.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			b.Status.Progress = b.Status.Total
+			return b
+		})
 		if err != nil {
 			return fmt.Errorf("failed to update blob status: %v", err)
 		}
@@ -537,9 +539,11 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 		}
 	}
 	if allEmpty {
-		blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
-		blob.Status.Progress = blob.Status.Total
-		_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+		_, err := updateBlobStatusWithRetry(ctx, c.client, blob.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			b.Status.Progress = b.Status.Total
+			return b
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to update blob status: %v", err)
 		}

@@ -17,7 +17,12 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"math"
+
+	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
+	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 )
 
 func decimalStringLength(n int64) int {
@@ -32,4 +37,34 @@ func hexStringLength(n int64) int {
 		return 1
 	}
 	return int(math.Log2(float64(n))/4) + 1
+}
+
+// updateBearerStatusWithRetry is a convenience wrapper around utils.UpdateBearerStatusWithRetry
+func updateBearerStatusWithRetry(
+	ctx context.Context,
+	client versioned.Interface,
+	name string,
+	modifier func(*v1alpha1.Bearer) *v1alpha1.Bearer,
+) (*v1alpha1.Bearer, error) {
+	return utils.UpdateBearerStatusWithRetry(ctx, client, name, modifier)
+}
+
+// updateBlobStatusWithRetry is a convenience wrapper around utils.UpdateBlobStatusWithRetry
+func updateBlobStatusWithRetry(
+	ctx context.Context,
+	client versioned.Interface,
+	name string,
+	modifier func(*v1alpha1.Blob) *v1alpha1.Blob,
+) (*v1alpha1.Blob, error) {
+	return utils.UpdateBlobStatusWithRetry(ctx, client, name, modifier)
+}
+
+// updateChunkStatusWithRetry is a convenience wrapper around utils.UpdateChunkStatusWithRetry
+func updateChunkStatusWithRetry(
+	ctx context.Context,
+	client versioned.Interface,
+	name string,
+	modifier func(*v1alpha1.Chunk) *v1alpha1.Chunk,
+) (*v1alpha1.Chunk, error) {
+	return utils.UpdateChunkStatusWithRetry(ctx, client, name, modifier)
 }

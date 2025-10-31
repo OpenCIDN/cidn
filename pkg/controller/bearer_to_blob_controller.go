@@ -133,29 +133,27 @@ func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) e
 			blobList[blobName] = struct{}{}
 		}
 
-		chunk.Status.HandlerName = ""
-		chunk.Status.Phase = v1alpha1.ChunkPhasePending
-		chunk.Status.Retry = 0
-		chunk.Status.Progress = 0
-		chunk.Status.Conditions = nil
-
-		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, &chunk, metav1.UpdateOptions{})
+		chunkName := chunk.Name
+		_, err = updateChunkStatusWithRetry(ctx, c.client, chunkName, func(ch *v1alpha1.Chunk) *v1alpha1.Chunk {
+			ch.Status.HandlerName = ""
+			ch.Status.Phase = v1alpha1.ChunkPhasePending
+			ch.Status.Retry = 0
+			ch.Status.Progress = 0
+			ch.Status.Conditions = nil
+			return ch
+		})
 		if err != nil {
 			return err
 		}
 	}
 
 	for blobName := range blobList {
-		blob, err := c.blobInformer.Lister().Get(blobName)
-		if err != nil {
-			continue
-		}
-
-		blob.Status.HandlerName = ""
-		blob.Status.Phase = v1alpha1.BlobPhasePending
-		blob.Status.Conditions = nil
-
-		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+		_, err := updateBlobStatusWithRetry(ctx, c.client, blobName, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status.HandlerName = ""
+			b.Status.Phase = v1alpha1.BlobPhasePending
+			b.Status.Conditions = nil
+			return b
+		})
 		if err != nil {
 			return err
 		}
