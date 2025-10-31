@@ -132,15 +132,8 @@ func aggregateGroupBlob(groupName string, members []*v1alpha1.Blob) *cleanedBlob
 			allErrors = append(allErrors, fmt.Sprintf("%s: %s: %s", blob.Name, condition.Type, condition.Message))
 		}
 
-		// Determine phase
-		phase := blob.Status.Phase
-		if phase == v1alpha1.BlobPhaseRunning &&
-			blob.Status.Progress == 0 &&
-			blob.Status.RunningChunks == 0 &&
-			blob.Status.FailedChunks == 0 &&
-			blob.Status.SucceededChunks == 0 {
-			phase = v1alpha1.BlobPhasePending
-		}
+		// Determine phase using the shared helper
+		phase := normalizePhase(blob.Status.Phase, blob.Status.Progress, blob.Status.RunningChunks, blob.Status.FailedChunks, blob.Status.SucceededChunks)
 		
 		if order, ok := phaseOrder[phase]; ok && order > maxPhaseOrder {
 			maxPhaseOrder = order
@@ -256,8 +249,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					groupBlob := aggregateGroupBlob(groupName, members)
 					if groupBlob != nil {
 						groupEvent := createGroupEvent("UPDATE", groupBlob)
+						// Always send group updates immediately if the group phase would change
+						// or if progress is complete, otherwise buffer it
 						_, ok = updateBuffer["group-"+groupName]
-						if ok && oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Status.Total {
+						if ok && groupBlob.Phase != v1alpha1.BlobPhaseFailed && 
+							groupBlob.Phase != v1alpha1.BlobPhaseSucceeded && 
+							groupBlob.Progress != groupBlob.Total {
 							updateBuffer["group-"+groupName] = &groupEvent
 						} else {
 							updateBuffer["group-"+groupName] = nil
@@ -405,6 +402,18 @@ type cleanedBlob struct {
 	Members []string `json:"members,omitempty"`
 }
 
+// normalizePhase adjusts the phase based on progress and chunk states
+func normalizePhase(phase v1alpha1.BlobPhase, progress, runningChunks, failedChunks, succeededChunks int64) v1alpha1.BlobPhase {
+	if phase == v1alpha1.BlobPhaseRunning &&
+		progress == 0 &&
+		runningChunks == 0 &&
+		failedChunks == 0 &&
+		succeededChunks == 0 {
+		return v1alpha1.BlobPhasePending
+	}
+	return phase
+}
+
 // cleanBlobForWebUI extracts and normalizes fields for the WebUI
 func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 	cleaned := &cleanedBlob{}
@@ -430,13 +439,7 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 	cleaned.SucceededChunks = blob.Status.SucceededChunks
 	cleaned.FailedChunks = blob.Status.FailedChunks
 
-	if cleaned.Phase == v1alpha1.BlobPhaseRunning &&
-		cleaned.Progress == 0 &&
-		cleaned.RunningChunks == 0 &&
-		cleaned.FailedChunks == 0 &&
-		cleaned.SucceededChunks == 0 {
-		cleaned.Phase = v1alpha1.BlobPhasePending
-	}
+	cleaned.Phase = normalizePhase(cleaned.Phase, cleaned.Progress, cleaned.RunningChunks, cleaned.FailedChunks, cleaned.SucceededChunks)
 
 	if len(blob.Status.Conditions) > 0 {
 		cleaned.Errors = make([]string, 0, len(blob.Status.Conditions))
