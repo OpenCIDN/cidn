@@ -453,8 +453,8 @@
             const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
             const sizeClasses = ['size-unit-bytes', 'size-unit-kib', 'size-unit-mib', 'size-unit-gib', 'size-unit-tib', 'size-unit-pib'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
-            const b = (bytes / k ** i).toFixed(i ? 2 : 0);
-            return `<span class="${sizeClasses[i]}">${b} ${sizes[i]}</span>`;
+            const formattedValue = (bytes / k ** i).toFixed(i ? 2 : 0);
+            return `<span class="${sizeClasses[i]}">${formattedValue} ${sizes[i]}</span>`;
         };
 
         const highlightError = error =>
@@ -472,6 +472,8 @@
         const svgIcon = (name) =>
             `<svg width="16" height="16" style="vertical-align: middle;"><use xlink:href="#icon-${name}"></use></svg>`;
 
+        const MAX_INDIVIDUAL_ICONS = 8;
+
         const highlightChunksInfo = data => {
             const pending = data.pendingChunks || 0;
             const running = data.runningChunks || 0;
@@ -488,7 +490,7 @@
                 { type: 'succeeded', count: succeeded }
             ];
 
-            const iconHTML = chunksNumber > 8
+            const iconHTML = chunksNumber > MAX_INDIVIDUAL_ICONS
                 ? icons.filter(i => i.count > 0).map(i => `${svgIcon(i.type)}<span>${i.count}</span>`).join(' ')
                 : icons.map(i => svgIcon(i.type).repeat(i.count)).join('');
 
