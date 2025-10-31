@@ -23,7 +23,7 @@ import (
 
 func TestErrBearerExpired(t *testing.T) {
 	msg := "bearer token has expired, waiting for next refresh"
-	err := &ErrBearerExpired{msg: msg}
+	err := NewErrBearerExpired(msg)
 	
 	if err.Error() != msg {
 		t.Errorf("Expected error message %q, got %q", msg, err.Error())
