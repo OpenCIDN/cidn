@@ -92,7 +92,7 @@ func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
 		go func(b *v1alpha1.Blob) {
 			defer wg.Done()
 
-			_, err := utils.UpdateBlobStatusWithRetry(ctx, c.client, b, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+			_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), b, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
 				blob.Status.HandlerName = ""
 				blob.Status.Phase = v1alpha1.BlobPhasePending
 				blob.Status.Conditions = nil

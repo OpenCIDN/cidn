@@ -380,7 +380,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 	}
 
 	if len(chunk.Spec.Destination) == 0 {
-		_, err := utils.UpdateBlobStatusWithRetry(ctx, c.client, blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+		_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
 			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
 			b.Status.Progress = b.Status.Total
 			return b
@@ -540,7 +540,7 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 		}
 	}
 	if allEmpty {
-		_, err := utils.UpdateBlobStatusWithRetry(ctx, c.client, blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+		_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
 			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
 			b.Status.Progress = b.Status.Total
 			return b

@@ -92,7 +92,7 @@ func (c *BearerHoldController) ReleaseAll(ctx context.Context) error {
 		go func(b *v1alpha1.Bearer) {
 			defer wg.Done()
 
-			_, err := utils.UpdateBearerStatusWithRetry(ctx, c.client, b, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
+			_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), b, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
 				bearer.Status.HandlerName = ""
 				bearer.Status.Phase = v1alpha1.BearerPhasePending
 				bearer.Status.Conditions = nil

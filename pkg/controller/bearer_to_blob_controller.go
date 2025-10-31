@@ -134,7 +134,7 @@ func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) e
 			blobList[blobName] = struct{}{}
 		}
 
-		_, err = utils.UpdateChunkStatusWithRetry(ctx, c.client, &chunk, func(ch *v1alpha1.Chunk) *v1alpha1.Chunk {
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Chunks(), &chunk, func(ch *v1alpha1.Chunk) *v1alpha1.Chunk {
 			ch.Status.HandlerName = ""
 			ch.Status.Phase = v1alpha1.ChunkPhasePending
 			ch.Status.Retry = 0
@@ -153,7 +153,7 @@ func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) e
 			continue
 		}
 
-		_, err = utils.UpdateBlobStatusWithRetry(ctx, c.client, blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
 			b.Status.HandlerName = ""
 			b.Status.Phase = v1alpha1.BlobPhasePending
 			b.Status.Conditions = nil
