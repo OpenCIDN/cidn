@@ -610,9 +610,12 @@
             const items = groupData[containerName][group];
             const itemCount = Object.keys(items).length;
             
+            // Get the actual container element to construct the correct groupId
+            const targetContainer = containers[containerName];
+            const groupId = `group-${targetContainer.id}-${group}`;
+            
             if (itemCount === 0) {
                 // Remove empty group
-                const groupId = `group-${containerName}-container-${group}`;
                 const groupContainer = document.getElementById(groupId);
                 if (groupContainer) {
                     groupContainer.remove();
@@ -630,7 +633,6 @@
                 totalProgress += itemData.progress || 0;
             }
             
-            const groupId = `group-${containerName}-container-${group}`;
             const summaryElement = document.getElementById(`${groupId}-summary`);
             if (summaryElement) {
                 summaryElement.innerHTML = `
