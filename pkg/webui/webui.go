@@ -100,7 +100,11 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				Type: "UPDATE",
 				ID:   "group-" + group,
 			}
-			data, _ := json.Marshal(aggregate)
+			data, err := json.Marshal(aggregate)
+			if err != nil {
+				fmt.Printf("Error marshaling group aggregate: %v\n", err)
+				return
+			}
 			event.Data = data
 			updateBuffer["group-"+group] = &event
 		}
@@ -380,7 +384,9 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 			allSucceeded = false
 		} else if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded {
 			allPending = false
-		} else if blob.Status.Phase != v1alpha1.BlobPhasePending && blob.Status.Phase != v1alpha1.BlobPhaseUnknown {
+		} else if blob.Status.Phase == v1alpha1.BlobPhasePending || blob.Status.Phase == v1alpha1.BlobPhaseUnknown {
+			allSucceeded = false
+		} else {
 			allPending = false
 			allSucceeded = false
 		}
