@@ -23,6 +23,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned/fake"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
+	"github.com/wzshiming/sss"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -163,7 +164,7 @@ func TestDeleteChunksInNonFinalStates(t *testing.T) {
 			// Create controller
 			controller := NewBlobFromChunkController(
 				"test-handler",
-				nil, // s3 not needed for this test
+				map[string]*sss.SSS{}, // Use empty map instead of nil
 				client,
 				sharedInformerFactory,
 			)

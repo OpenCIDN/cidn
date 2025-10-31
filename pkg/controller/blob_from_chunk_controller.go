@@ -530,8 +530,10 @@ func (c *BlobFromChunkController) deleteChunksInNonFinalStates(ctx context.Conte
 			chunk.Status.Phase == v1alpha1.ChunkPhasePending ||
 			chunk.Status.Phase == v1alpha1.ChunkPhaseUnknown {
 			err := c.client.TaskV1alpha1().Chunks().Delete(ctx, chunk.Name, metav1.DeleteOptions{})
-			if err != nil && !apierrors.IsNotFound(err) {
-				klog.Errorf("failed to delete chunk %s for failed blob %s: %v", chunk.Name, blob.Name, err)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					klog.Errorf("failed to delete chunk %s for failed blob %s: %v", chunk.Name, blob.Name, err)
+				}
 			} else {
 				klog.Infof("Deleted chunk %s in %s state for failed blob %s", chunk.Name, chunk.Status.Phase, blob.Name)
 			}
