@@ -25,6 +25,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -376,11 +377,6 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 	var failedChunks int64
 	var maxPriority int64
 
-	hasRunning := false
-	hasFailed := false
-	allSucceeded := true
-	allPending := true
-
 	for blobUID, blob := range blobs {
 		// Add member info to the list
 		displayName := blob.Name
@@ -406,29 +402,11 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 		if blob.Spec.Priority > maxPriority {
 			maxPriority = blob.Spec.Priority
 		}
-
-		// Track phase states
-		switch blob.Status.Phase {
-		case v1alpha1.BlobPhaseRunning:
-			hasRunning = true
-			allPending = false
-			allSucceeded = false
-		case v1alpha1.BlobPhaseFailed:
-			hasFailed = true
-			allPending = false
-			allSucceeded = false
-		case v1alpha1.BlobPhaseSucceeded:
-			allPending = false
-		case v1alpha1.BlobPhasePending:
-			allSucceeded = false
-		case v1alpha1.BlobPhaseUnknown:
-			allPending = false
-			allSucceeded = false
-		default:
-			allPending = false
-			allSucceeded = false
-		}
 	}
+
+	sort.Slice(aggregate.Members, func(i, j int) bool {
+		return aggregate.Members[i].DisplayName < aggregate.Members[j].DisplayName
+	})
 
 	aggregate.Total = totalSize
 	aggregate.Progress = totalProgress
@@ -439,20 +417,15 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 	aggregate.FailedChunks = failedChunks
 	aggregate.Priority = maxPriority
 
-	// Determine aggregate phase
-	if len(blobs) == 0 {
-		// Empty group should be Unknown
-		aggregate.Phase = v1alpha1.BlobPhaseUnknown
-	} else if allSucceeded {
+	switch {
+	case succeededChunks == totalChunks && totalChunks > 0:
 		aggregate.Phase = v1alpha1.BlobPhaseSucceeded
-	} else if hasRunning {
-		aggregate.Phase = v1alpha1.BlobPhaseRunning
-	} else if hasFailed {
+	case failedChunks > 0 && pendingChunks == 0 && runningChunks == 0:
 		aggregate.Phase = v1alpha1.BlobPhaseFailed
-	} else if allPending {
+	case totalProgress > 0:
+		aggregate.Phase = v1alpha1.BlobPhaseRunning
+	default:
 		aggregate.Phase = v1alpha1.BlobPhasePending
-	} else {
-		aggregate.Phase = v1alpha1.BlobPhaseUnknown
 	}
 
 	return aggregate

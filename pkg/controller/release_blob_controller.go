@@ -148,7 +148,7 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 
 	switch blob.Status.Phase {
 	case v1alpha1.BlobPhaseRunning:
-		dur := 40 * time.Second
+		dur := 120 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil
@@ -163,7 +163,7 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 			return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
 		}
 	case v1alpha1.BlobPhaseUnknown:
-		dur := 20 * time.Second
+		dur := 30 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil

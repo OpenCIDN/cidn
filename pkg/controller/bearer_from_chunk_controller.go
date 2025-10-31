@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"reflect"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -60,11 +59,6 @@ func NewBearerFromChunkController(
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			newChunk := newObj.(*v1alpha1.Chunk)
-			oldChunk := oldObj.(*v1alpha1.Chunk)
-
-			if reflect.DeepEqual(newChunk.Status, oldChunk.Status) {
-				return
-			}
 
 			bearerName := newChunk.Annotations[BearerNameAnnotationKey]
 			if bearerName == "" {
@@ -115,7 +109,6 @@ func (c *BearerFromChunkController) processNextItem(ctx context.Context) bool {
 }
 
 func (c *BearerFromChunkController) chunkHandler(ctx context.Context, name string) error {
-
 	bearer, err := c.bearerInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {

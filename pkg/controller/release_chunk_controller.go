@@ -154,7 +154,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 	}
 	switch chunk.Status.Phase {
 	case v1alpha1.ChunkPhaseRunning:
-		dur := 30 * time.Second
+		dur := 120 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil
@@ -169,7 +169,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
 		}
 	case v1alpha1.ChunkPhaseUnknown:
-		dur := 20 * time.Second
+		dur := 30 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil

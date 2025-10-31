@@ -170,7 +170,7 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return 10 * time.Second, fmt.Errorf("failed to update bearer %s: %v", name, err)
 		}
 	case v1alpha1.BearerPhaseRunning:
-		dur := 40 * time.Second
+		dur := 60 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil
@@ -185,20 +185,16 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return 10 * time.Second, fmt.Errorf("failed to update bearer %s: %v", name, err)
 		}
 	case v1alpha1.BearerPhaseUnknown:
-		dur := 20 * time.Second
+		dur := 30 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil
 		}
 
-		newBearer := bearer.DeepCopy()
-		newBearer.Status.Phase = v1alpha1.BearerPhasePending
-		newBearer.Status.HandlerName = ""
-		klog.Infof("Transitioning bearer %s from Unknown to Pending phase and clearing handler", name)
-
-		_, err = c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, newBearer, metav1.UpdateOptions{})
-		if err != nil {
-			return 10 * time.Second, fmt.Errorf("failed to update bearer %s: %v", name, err)
+		klog.Infof("Deleting unknown bearer %s after 30 seconds", name)
+		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
 		}
 	case v1alpha1.BearerPhaseFailed:
 		dur := time.Duration(math.Pow(2, float64(bearer.Status.Retry))) * time.Second

@@ -580,11 +580,17 @@
             const hasChunks = data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks);
             const isGroup = elementId.startsWith('group-');
 
-
+            const iconMap = {
+                'Pending': 'pending',
+                'Unknown': 'pending',
+                'Running': 'running',
+                'Succeeded': 'succeeded',
+                'Failed': 'failed'
+            };
             let linkInfo = '';
             if (isGroup && data.members && data.members.length > 0) {
                 const memberLinks = data.members.map(member =>
-                    `${svgIcon(member.phase.toLowerCase())}<a href="#${member.uid}">${member.displayName}</a>`
+                    `${svgIcon(iconMap[member.phase])}<a href="#${member.uid}">${member.displayName}</a>`
                 ).join(' ');
                 linkInfo = `<span class="link-info">${memberLinks}</span>`;
             } else if (!isGroup && data.group) {
