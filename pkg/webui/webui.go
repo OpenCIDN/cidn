@@ -80,8 +80,30 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 		// Buffer for aggregated updates
 		var mut sync.Mutex
 		updateBuffer := map[string]*Event{}
+		// Track blobs by group for aggregation
+		groupBlobs := map[string]map[string]*v1alpha1.Blob{}
 		ticker := time.NewTicker(updateInterval)
 		defer ticker.Stop()
+
+		// Helper function to update group aggregate
+		updateGroupAggregate := func(group string) {
+			if group == "" {
+				return
+			}
+			blobs, ok := groupBlobs[group]
+			if !ok || len(blobs) == 0 {
+				return
+			}
+			
+			aggregate := aggregateBlobs(group, blobs)
+			event := Event{
+				Type: "UPDATE",
+				ID:   "group-" + group,
+			}
+			data, _ := json.Marshal(aggregate)
+			event.Data = data
+			updateBuffer["group-"+group] = &event
+		}
 
 		resourceEventHandlerRegistration, err := informer.AddEventHandler(&cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
@@ -95,6 +117,17 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				event := createEvent("ADD", blob)
 				updates <- event
 				updateBuffer[string(blob.UID)] = nil
+
+				// Track group membership
+				if blob.Annotations != nil {
+					if group := blob.Annotations[v1alpha1.BlobGroupAnnotation]; group != "" {
+						if groupBlobs[group] == nil {
+							groupBlobs[group] = make(map[string]*v1alpha1.Blob)
+						}
+						groupBlobs[group][string(blob.UID)] = blob
+						updateGroupAggregate(group)
+					}
+				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
 				oldBlob, ok := oldObj.(*v1alpha1.Blob)
@@ -116,6 +149,39 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					updateBuffer[string(newBlob.UID)] = nil
 					updates <- event
 				}
+
+				// Update group membership
+				oldGroup := ""
+				newGroup := ""
+				if oldBlob.Annotations != nil {
+					oldGroup = oldBlob.Annotations[v1alpha1.BlobGroupAnnotation]
+				}
+				if newBlob.Annotations != nil {
+					newGroup = newBlob.Annotations[v1alpha1.BlobGroupAnnotation]
+				}
+
+				// Remove from old group if changed
+				if oldGroup != "" && oldGroup != newGroup {
+					if groupBlobs[oldGroup] != nil {
+						delete(groupBlobs[oldGroup], string(newBlob.UID))
+						if len(groupBlobs[oldGroup]) == 0 {
+							delete(groupBlobs, oldGroup)
+							event := Event{Type: "DELETE", ID: "group-" + oldGroup}
+							updates <- event
+						} else {
+							updateGroupAggregate(oldGroup)
+						}
+					}
+				}
+
+				// Add to new group
+				if newGroup != "" {
+					if groupBlobs[newGroup] == nil {
+						groupBlobs[newGroup] = make(map[string]*v1alpha1.Blob)
+					}
+					groupBlobs[newGroup][string(newBlob.UID)] = newBlob
+					updateGroupAggregate(newGroup)
+				}
 			},
 			DeleteFunc: func(obj interface{}) {
 				blob, ok := obj.(*v1alpha1.Blob)
@@ -128,6 +194,22 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				delete(updateBuffer, string(blob.UID))
 				event := createEvent("DELETE", blob)
 				updates <- event
+
+				// Remove from group
+				if blob.Annotations != nil {
+					if group := blob.Annotations[v1alpha1.BlobGroupAnnotation]; group != "" {
+						if groupBlobs[group] != nil {
+							delete(groupBlobs[group], string(blob.UID))
+							if len(groupBlobs[group]) == 0 {
+								delete(groupBlobs, group)
+								event := Event{Type: "DELETE", ID: "group-" + group}
+								updates <- event
+							} else {
+								updateGroupAggregate(group)
+							}
+						}
+					}
+				}
 			},
 		})
 		if err != nil {
@@ -194,6 +276,7 @@ func createEvent(eventType string, blob *v1alpha1.Blob) Event {
 type cleanedBlob struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName,omitempty"`
+	Group       string `json:"group,omitempty"`
 
 	Priority     int64 `json:"priority,omitempty"`
 	Total        int64 `json:"total"`
@@ -218,6 +301,7 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 
 	if blob.Annotations != nil {
 		cleaned.DisplayName = blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
+		cleaned.Group = blob.Annotations[v1alpha1.BlobGroupAnnotation]
 	}
 
 	// Set spec fields
@@ -249,4 +333,80 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 	}
 
 	return cleaned
+}
+
+// aggregateBlobs creates an aggregate cleanedBlob from multiple blobs in a group
+func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedBlob {
+	aggregate := &cleanedBlob{
+		Name:        groupName,
+		DisplayName: groupName,
+		Group:       groupName,
+	}
+
+	var totalSize int64
+	var totalProgress int64
+	var totalChunks int64
+	var pendingChunks int64
+	var runningChunks int64
+	var succeededChunks int64
+	var failedChunks int64
+	var maxPriority int64
+	
+	hasRunning := false
+	hasFailed := false
+	allSucceeded := true
+	allPending := true
+
+	for _, blob := range blobs {
+		totalSize += blob.Status.Total
+		totalProgress += blob.Status.Progress
+		totalChunks += blob.Spec.ChunksNumber
+		pendingChunks += blob.Status.PendingChunks
+		runningChunks += blob.Status.RunningChunks
+		succeededChunks += blob.Status.SucceededChunks
+		failedChunks += blob.Status.FailedChunks
+
+		if blob.Spec.Priority > maxPriority {
+			maxPriority = blob.Spec.Priority
+		}
+
+		if blob.Status.Phase == v1alpha1.BlobPhaseRunning {
+			hasRunning = true
+			allPending = false
+			allSucceeded = false
+		} else if blob.Status.Phase == v1alpha1.BlobPhaseFailed {
+			hasFailed = true
+			allPending = false
+			allSucceeded = false
+		} else if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded {
+			allPending = false
+		} else if blob.Status.Phase != v1alpha1.BlobPhasePending && blob.Status.Phase != v1alpha1.BlobPhaseUnknown {
+			allPending = false
+			allSucceeded = false
+		}
+	}
+
+	aggregate.Total = totalSize
+	aggregate.Progress = totalProgress
+	aggregate.ChunksNumber = totalChunks
+	aggregate.PendingChunks = pendingChunks
+	aggregate.RunningChunks = runningChunks
+	aggregate.SucceededChunks = succeededChunks
+	aggregate.FailedChunks = failedChunks
+	aggregate.Priority = maxPriority
+
+	// Determine aggregate phase
+	if allSucceeded && len(blobs) > 0 {
+		aggregate.Phase = v1alpha1.BlobPhaseSucceeded
+	} else if hasFailed {
+		aggregate.Phase = v1alpha1.BlobPhaseFailed
+	} else if hasRunning {
+		aggregate.Phase = v1alpha1.BlobPhaseRunning
+	} else if allPending {
+		aggregate.Phase = v1alpha1.BlobPhasePending
+	} else {
+		aggregate.Phase = v1alpha1.BlobPhaseUnknown
+	}
+
+	return aggregate
 }
