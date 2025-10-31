@@ -519,7 +519,7 @@
         };
 
         const renderDataItem = (event) => {
-            const elementId = `${event.lastEventId}`;
+            const elementId = event.lastEventId;
             const element = document.getElementById(elementId) || dataItem(elementId);
             const data = JSON.parse(event.data);
             const targetContainer = containers[statusMap[data.phase]];
@@ -759,13 +759,12 @@
         });
 
         Object.values(containers).forEach(container => {
+            const title = container.previousElementSibling;
+            const countSpan = title.querySelector('.status-status-item-count');
+            if (!countSpan) return;
+
             const observer = new MutationObserver(() => {
-                const itemCount = container.children.length;
-                const title = container.previousElementSibling;
-                const countSpan = title.querySelector('.status-status-item-count');
-                if (countSpan) {
-                    countSpan.textContent = `[${itemCount}]`;
-                }
+                countSpan.textContent = `[${container.children.length}]`;
             });
             observer.observe(container, { childList: true });
         });
