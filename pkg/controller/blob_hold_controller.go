@@ -92,11 +92,11 @@ func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
 		go func(b *v1alpha1.Blob) {
 			defer wg.Done()
 
-			_, err := utils.UpdateBlobStatusWithRetry(ctx, c.client, b.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
-				b.Status.HandlerName = ""
-				b.Status.Phase = v1alpha1.BlobPhasePending
-				b.Status.Conditions = nil
-				return b
+			_, err := utils.UpdateBlobStatusWithRetry(ctx, c.client, b, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+				blob.Status.HandlerName = ""
+				blob.Status.Phase = v1alpha1.BlobPhasePending
+				blob.Status.Conditions = nil
+				return blob
 			})
 			if err != nil {
 				klog.Errorf("failed to release blob %s: %v", b.Name, err)

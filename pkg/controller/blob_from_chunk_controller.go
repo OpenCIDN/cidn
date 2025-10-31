@@ -149,7 +149,7 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
 		}
 
-		_, err = utils.UpdateBlobStatusWithRetry(ctx, c.client, blob.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+		_, err = utils.UpdateBlobStatusWithRetry(ctx, c.client, blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
 			b.Status = blob.Status
 			return b
 		})
@@ -177,7 +177,7 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 	}
 
 	originalStatus := blob.Status
-	_, err = utils.UpdateBlobStatusWithRetry(ctx, c.client, blob.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+	_, err = utils.UpdateBlobStatusWithRetry(ctx, c.client, blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
 		if !reflect.DeepEqual(originalStatus, b.Status) {
 			b.Status = originalStatus
 		}

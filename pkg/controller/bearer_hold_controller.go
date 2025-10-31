@@ -92,11 +92,11 @@ func (c *BearerHoldController) ReleaseAll(ctx context.Context) error {
 		go func(b *v1alpha1.Bearer) {
 			defer wg.Done()
 
-			_, err := utils.UpdateBearerStatusWithRetry(ctx, c.client, b.Name, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
-				b.Status.HandlerName = ""
-				b.Status.Phase = v1alpha1.BearerPhasePending
-				b.Status.Conditions = nil
-				return b
+			_, err := utils.UpdateBearerStatusWithRetry(ctx, c.client, b, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
+				bearer.Status.HandlerName = ""
+				bearer.Status.Phase = v1alpha1.BearerPhasePending
+				bearer.Status.Conditions = nil
+				return bearer
 			})
 			if err != nil {
 				klog.Errorf("failed to release bearer %s: %v", b.Name, err)

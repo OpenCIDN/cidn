@@ -162,7 +162,7 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 			return fmt.Errorf("failed to unmarshal chunk response body: %v", err)
 		}
 
-		_, err = utils.UpdateBearerStatusWithRetry(ctx, c.client, bearer.Name, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+		_, err = utils.UpdateBearerStatusWithRetry(ctx, c.client, bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
 			b.Status.TokenInfo = &bti
 			b.Status.Phase = v1alpha1.BearerPhaseSucceeded
 			return b
@@ -178,7 +178,7 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 			}
 		}
 	case v1alpha1.ChunkPhaseFailed:
-		_, err = utils.UpdateBearerStatusWithRetry(ctx, c.client, bearer.Name, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+		_, err = utils.UpdateBearerStatusWithRetry(ctx, c.client, bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
 			retryable := chunk.Status.Retryable && chunk.Status.Retry < chunk.Spec.MaximumRetry
 			if retryable {
 				b.Status.Phase = v1alpha1.BearerPhaseRunning
