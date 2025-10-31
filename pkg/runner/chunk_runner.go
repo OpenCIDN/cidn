@@ -920,6 +920,7 @@ func (s *state) handleReleaseToPending() {
 	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 		ss.Status.Phase = v1alpha1.ChunkPhasePending
 		ss.Status.HandlerName = ""
+		ss.Status.Conditions = nil
 		// Retry count is intentionally preserved
 		return ss, nil
 	})
