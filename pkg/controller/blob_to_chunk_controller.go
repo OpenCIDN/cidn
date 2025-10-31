@@ -28,6 +28,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	"github.com/wzshiming/sss"
 	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -379,7 +380,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 	}
 
 	if len(chunk.Spec.Destination) == 0 {
-		_, err := updateBlobStatusWithRetry(ctx, c.client, blob.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+		_, err := utils.UpdateBlobStatusWithRetry(ctx, c.client, blob.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
 			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
 			b.Status.Progress = b.Status.Total
 			return b
@@ -539,7 +540,7 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 		}
 	}
 	if allEmpty {
-		_, err := updateBlobStatusWithRetry(ctx, c.client, blob.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+		_, err := utils.UpdateBlobStatusWithRetry(ctx, c.client, blob.Name, func(b *v1alpha1.Blob) *v1alpha1.Blob {
 			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
 			b.Status.Progress = b.Status.Total
 			return b

@@ -123,27 +123,13 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 		go func(s *v1alpha1.Chunk) {
 			defer wg.Done()
 
-			chunkCopy := s.DeepCopy()
-			chunkCopy.Status.HandlerName = ""
-			chunkCopy.Status.Phase = v1alpha1.ChunkPhasePending
-			chunkCopy.Status.Conditions = nil
-			_, err := r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunkCopy, metav1.UpdateOptions{})
+			_, err := utils.UpdateChunkStatusWithRetry(ctx, r.client, s.Name, func(s *v1alpha1.Chunk) *v1alpha1.Chunk {
+				s.Status.HandlerName = ""
+				s.Status.Phase = v1alpha1.ChunkPhasePending
+				s.Status.Conditions = nil
+				return s
+			})
 			if err != nil {
-				if apierrors.IsConflict(err) {
-					latest, getErr := r.client.TaskV1alpha1().Chunks().Get(ctx, chunkCopy.Name, metav1.GetOptions{})
-					if getErr != nil {
-						klog.Errorf("failed to get latest chunk %s: %v", chunkCopy.Name, getErr)
-						return
-					}
-					latest.Status.HandlerName = ""
-					latest.Status.Phase = v1alpha1.ChunkPhasePending
-					latest.Status.Conditions = nil
-					_, err = r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, latest, metav1.UpdateOptions{})
-					if err != nil {
-						klog.Errorf("failed to update chunk %s: %v", latest.Name, err)
-						return
-					}
-				}
 				klog.Errorf("failed to release chunk %s: %v", s.Name, err)
 			}
 		}(chunk)

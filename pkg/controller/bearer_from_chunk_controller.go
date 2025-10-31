@@ -28,6 +28,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
@@ -161,7 +162,7 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 			return fmt.Errorf("failed to unmarshal chunk response body: %v", err)
 		}
 
-		_, err = updateBearerStatusWithRetry(ctx, c.client, bearer.Name, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+		_, err = utils.UpdateBearerStatusWithRetry(ctx, c.client, bearer.Name, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
 			b.Status.TokenInfo = &bti
 			b.Status.Phase = v1alpha1.BearerPhaseSucceeded
 			return b
@@ -177,7 +178,7 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 			}
 		}
 	case v1alpha1.ChunkPhaseFailed:
-		_, err = updateBearerStatusWithRetry(ctx, c.client, bearer.Name, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+		_, err = utils.UpdateBearerStatusWithRetry(ctx, c.client, bearer.Name, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
 			retryable := chunk.Status.Retryable && chunk.Status.Retry < chunk.Spec.MaximumRetry
 			if retryable {
 				b.Status.Phase = v1alpha1.BearerPhaseRunning
