@@ -109,13 +109,36 @@ func (c *BlobToChunkController) runWorker(ctx context.Context) {
 }
 
 func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
-	err := c.client.TaskV1alpha1().Chunks().DeleteCollection(context.Background(), metav1.DeleteOptions{}, metav1.ListOptions{
-		LabelSelector: labels.Set{
-			BlobUIDLabelKey: string(blob.UID),
-		}.String(),
-	})
+	// Get all chunks associated with this blob
+	chunks, err := c.chunkInformer.Lister().List(labels.SelectorFromSet(labels.Set{
+		BlobUIDLabelKey: string(blob.UID),
+	}))
 	if err != nil {
-		klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
+		klog.Errorf("failed to list chunks for blob %s: %v", blob.Name, err)
+		return
+	}
+
+	// Find at least one succeeded chunk to preserve
+	var preservedChunk *v1alpha1.Chunk
+	for _, chunk := range chunks {
+		if chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
+			preservedChunk = chunk
+			break
+		}
+	}
+
+	// Delete chunks, preserving at least one succeeded chunk
+	for _, chunk := range chunks {
+		// If this is the preserved chunk, skip deletion
+		if preservedChunk != nil && chunk.Name == preservedChunk.Name {
+			klog.Infof("Preserving succeeded chunk %s for blob %s", chunk.Name, blob.Name)
+			continue
+		}
+
+		err := c.client.TaskV1alpha1().Chunks().Delete(context.Background(), chunk.Name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			klog.Errorf("failed to delete chunk %s for blob %s: %v", chunk.Name, blob.Name, err)
+		}
 	}
 
 	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded || blob.Status.Phase == v1alpha1.BlobPhaseFailed {
