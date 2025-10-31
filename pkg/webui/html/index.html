@@ -591,13 +591,30 @@
                 groupContainer = document.createElement('div');
                 groupContainer.id = groupId;
                 groupContainer.className = 'group-container';
-                groupContainer.innerHTML = `
-                    <div class="group-header" onclick="toggleGroup('${groupId}')">
-                        <span>${escapeHtml(group)}</span>
-                        <div class="group-summary" id="${groupId}-summary"></div>
-                    </div>
-                    <div class="group-items" id="${groupId}-items"></div>
-                `;
+                
+                const groupHeader = document.createElement('div');
+                groupHeader.className = 'group-header';
+                groupHeader.addEventListener('click', () => toggleGroup(groupId));
+                
+                const groupNameSpan = document.createElement('span');
+                groupNameSpan.textContent = group;
+                
+                const groupSummary = document.createElement('div');
+                groupSummary.className = 'group-summary';
+                groupSummary.id = `${groupId}-summary`;
+                
+                const arrowSpan = document.createElement('span');
+                arrowSpan.textContent = '▼';
+                
+                groupHeader.appendChild(groupNameSpan);
+                groupHeader.appendChild(groupSummary);
+                
+                const groupItems = document.createElement('div');
+                groupItems.className = 'group-items';
+                groupItems.id = `${groupId}-items`;
+                
+                groupContainer.appendChild(groupHeader);
+                groupContainer.appendChild(groupItems);
                 statusContainer.prepend(groupContainer);
             }
             
@@ -697,15 +714,18 @@
 
         const toggleGroup = (groupId) => {
             const itemsContainer = document.getElementById(`${groupId}-items`);
-            const header = document.querySelector(`#${groupId} .group-header`);
+            const groupContainer = document.getElementById(groupId);
             
-            if (itemsContainer && header) {
-                if (itemsContainer.style.display === 'none') {
-                    itemsContainer.style.display = 'block';
-                    header.classList.remove('collapsed');
-                } else {
-                    itemsContainer.style.display = 'none';
-                    header.classList.add('collapsed');
+            if (itemsContainer && groupContainer) {
+                const header = groupContainer.querySelector('.group-header');
+                if (header) {
+                    if (itemsContainer.style.display === 'none') {
+                        itemsContainer.style.display = 'block';
+                        header.classList.remove('collapsed');
+                    } else {
+                        itemsContainer.style.display = 'none';
+                        header.classList.add('collapsed');
+                    }
                 }
             }
         };
