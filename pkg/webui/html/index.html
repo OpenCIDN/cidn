@@ -271,6 +271,22 @@
             box-shadow: var(--shadow-md);
         }
 
+        .group-item {
+            border-left: 4px solid var(--color-status-progress);
+        }
+
+        .group-item.failed {
+            border-left-color: var(--color-status-error);
+        }
+
+        .group-item.completed {
+            border-left-color: var(--color-status-success);
+        }
+
+        .group-item.pending {
+            border-left-color: var(--color-status-waiting);
+        }
+
         .data-header {
             display: flex;
             align-items: center;
@@ -508,8 +524,30 @@
             'Failed': 'failed'
         };
 
+        // Track blobs by group
+        const blobGroups = {};
+        const blobData = {};
+
         const clearDataItem = (event) => {
-            document.getElementById(event.lastEventId)?.remove();
+            const blobId = event.lastEventId;
+            const blob = blobData[blobId];
+            
+            if (blob && blob.group) {
+                // Remove from group
+                const groupKey = `group-${blob.group}`;
+                if (blobGroups[groupKey]) {
+                    blobGroups[groupKey] = blobGroups[groupKey].filter(id => id !== blobId);
+                    if (blobGroups[groupKey].length === 0) {
+                        delete blobGroups[groupKey];
+                        document.getElementById(groupKey)?.remove();
+                    } else {
+                        updateGroupDisplay(blob.group, statusMap[blob.phase]);
+                    }
+                }
+            }
+            
+            delete blobData[blobId];
+            document.getElementById(blobId)?.remove();
         };
 
         const dataItem = elementId => {
@@ -520,19 +558,196 @@
             return element;
         };
 
+        const groupItem = groupId => {
+            const element = document.createElement('div');
+            element.id = groupId;
+            element.className = 'data-item group-item';
+            element.style.animation = 'item-entrance 0.3s';
+            return element;
+        };
+
         const renderDataItem = (event) => {
             const elementId = event.lastEventId;
-            const element = document.getElementById(elementId) || dataItem(elementId);
             const data = JSON.parse(event.data);
             const targetContainer = containers[statusMap[data.phase]];
+            
+            // Store blob data
+            blobData[elementId] = data;
 
-            if (element.parentNode !== targetContainer) {
-                element.remove();
+            if (data.group) {
+                // Handle grouped blob
+                const groupKey = `group-${data.group}`;
+                if (!blobGroups[groupKey]) {
+                    blobGroups[groupKey] = [];
+                }
+                if (!blobGroups[groupKey].includes(elementId)) {
+                    blobGroups[groupKey].push(elementId);
+                }
+                
+                updateGroupDisplay(data.group, statusMap[data.phase]);
+            } else {
+                // Handle ungrouped blob
+                const element = document.getElementById(elementId) || dataItem(elementId);
+                
+                if (element.parentNode !== targetContainer) {
+                    element.remove();
+                }
+                
+                element.innerHTML = generateItemContent(data, elementId);
+                if (!element.isConnected) {
+                    targetContainer.prepend(element);
+                }
             }
+        };
 
-            element.innerHTML = generateItemContent(data, elementId);
-            if (!element.isConnected) {
-                targetContainer.prepend(element);
+        const updateGroupDisplay = (groupName, statusKey) => {
+            const groupKey = `group-${groupName}`;
+            const blobIds = blobGroups[groupKey] || [];
+            
+            if (blobIds.length === 0) return;
+            
+            // Aggregate data from all blobs in the group
+            let totalSize = 0;
+            let totalProgress = 0;
+            let groupPhase = 'Succeeded';
+            const errors = [];
+            let hasRunning = false;
+            let hasFailed = false;
+            let hasPending = false;
+            
+            blobIds.forEach(blobId => {
+                const blob = blobData[blobId];
+                if (!blob) return;
+                
+                totalSize += blob.total || 0;
+                totalProgress += blob.progress || 0;
+                
+                if (blob.phase === 'Running') hasRunning = true;
+                if (blob.phase === 'Failed') hasFailed = true;
+                if (blob.phase === 'Pending' || blob.phase === 'Unknown') hasPending = true;
+                
+                if (blob.errors && blob.errors.length > 0) {
+                    errors.push(...blob.errors);
+                }
+            });
+            
+            // Determine group phase
+            if (hasRunning) groupPhase = 'Running';
+            else if (hasFailed) groupPhase = 'Failed';
+            else if (hasPending) groupPhase = 'Pending';
+            
+            const targetContainer = containers[statusMap[groupPhase]];
+            const groupElement = document.getElementById(groupKey) || groupItem(groupKey);
+            
+            // Move to correct container if needed
+            if (groupElement.parentNode !== targetContainer) {
+                groupElement.remove();
+            }
+            
+            groupElement.innerHTML = generateGroupContent(groupName, groupPhase, totalSize, totalProgress, blobIds, errors);
+            
+            if (!groupElement.isConnected) {
+                targetContainer.prepend(groupElement);
+            }
+        };
+
+        const generateGroupContent = (groupName, phase, totalSize, totalProgress, blobIds, errors) => {
+            const blobCount = blobIds.length;
+            const groupKey = `group-${groupName}`;
+            
+            const header = `
+                <div class="data-header">
+                    <strong>📦 ${escapeHtml(groupName)} (${blobCount} blob${blobCount > 1 ? 's' : ''})</strong>
+                    <a href="#${groupKey}" class="anchor-link">#</a>
+                </div>
+            `;
+            
+            switch (phase) {
+                case 'Running': {
+                    let totalSpeed = 0;
+                    let remainingTime = 0;
+                    const now = Date.now();
+                    
+                    // Calculate aggregate speed
+                    blobIds.forEach(blobId => {
+                        const blob = blobData[blobId];
+                        if (!blob || blob.phase !== 'Running') return;
+                        
+                        if (progressData[blob.name]) {
+                            const prev = progressData[blob.name];
+                            const timeDiff = (now - prev.time) / 1000;
+                            const progressDiff = (blob.progress || 0) - prev.progress;
+                            if (timeDiff > 0 && progressDiff > 0) {
+                                totalSpeed += progressDiff / timeDiff;
+                            }
+                        }
+                    });
+                    
+                    if (totalSpeed > 0 && totalSize > 0) {
+                        remainingTime = Math.round((totalSize - totalProgress) / totalSpeed);
+                    }
+                    
+                    let progressPercent = totalSize > 0 ? (totalProgress / totalSize * 100).toFixed(0) : 0;
+                    if (progressPercent > 99 && totalSize !== totalProgress) {
+                        progressPercent = 99;
+                    }
+                    
+                    return `${header}
+                        <div class="progress-text">
+                            ${highlightProgress(totalProgress, totalSize)}
+                            ${highlightSpeed(totalSpeed, remainingTime)}
+                        </div>
+                        ${totalSize > 0 ? `<div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>` : ''}
+                        <details style="margin-top: 0.5rem;">
+                            <summary style="cursor: pointer; font-size: 0.9em; color: var(--color-text-secondary);">Show individual blobs</summary>
+                            <div style="margin-top: 0.5rem; margin-left: 1rem;">
+                                ${blobIds.map(blobId => {
+                                    const blob = blobData[blobId];
+                                    if (!blob) return '';
+                                    const displayName = blob.displayName || blob.name;
+                                    const blobProgress = ((blob.progress || 0) / (blob.total || 1) * 100).toFixed(0);
+                                    return `<div style="margin: 0.25rem 0; font-size: 0.85em;">
+                                        ${svgIcon(statusMap[blob.phase] === 'processing' ? 'running' : 
+                                                 statusMap[blob.phase] === 'failed' ? 'failed' : 
+                                                 statusMap[blob.phase] === 'completed' ? 'succeeded' : 'pending')} 
+                                        ${escapeHtml(displayName)} - ${blobProgress}%
+                                    </div>`;
+                                }).join('')}
+                            </div>
+                        </details>`;
+                }
+                case 'Failed':
+                    return `${header}
+                        ${highlightError(escapeErrors(errors))}
+                        <div class="progress-text">
+                            ${totalSize > 0 ? highlightProgress(totalProgress, totalSize) : ''}
+                        </div>
+                        <details style="margin-top: 0.5rem;">
+                            <summary style="cursor: pointer; font-size: 0.9em; color: var(--color-text-secondary);">Show individual blobs</summary>
+                            <div style="margin-top: 0.5rem; margin-left: 1rem;">
+                                ${blobIds.map(blobId => {
+                                    const blob = blobData[blobId];
+                                    if (!blob) return '';
+                                    const displayName = blob.displayName || blob.name;
+                                    return `<div style="margin: 0.25rem 0; font-size: 0.85em;">
+                                        ${svgIcon(statusMap[blob.phase] === 'failed' ? 'failed' : 
+                                                 statusMap[blob.phase] === 'completed' ? 'succeeded' : 'pending')} 
+                                        ${escapeHtml(displayName)}
+                                    </div>`;
+                                }).join('')}
+                            </div>
+                        </details>`;
+                case 'Pending':
+                case 'Unknown':
+                    return `${header}
+                        <div class="progress-text">
+                            ${totalSize > 0 ? highlightProgress(totalProgress, totalSize) : ''}
+                        </div>`;
+                case 'Succeeded':
+                    return `${header}
+                        <div class="progress-text">
+                            ${highlightBytes(totalSize > 0 ? totalSize : totalProgress)}
+                        </div>`;
             }
         };
 
