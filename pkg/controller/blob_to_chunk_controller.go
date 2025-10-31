@@ -624,7 +624,11 @@ func (c *BlobToChunkController) getOrCreateMultipart(ctx context.Context, blob *
 	}
 
 	// Validate existing multipart matches current blob configuration
-	if needsMultipartRecreation(c.s3, blob, mp) {
+	needsRecreation, err := c.needsMultipartRecreation(blob, mp)
+	if err != nil {
+		return nil, err
+	}
+	if needsRecreation {
 		if err := c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{}); err != nil {
 			return nil, err
 		}
@@ -635,17 +639,19 @@ func (c *BlobToChunkController) getOrCreateMultipart(ctx context.Context, blob *
 }
 
 // needsMultipartRecreation checks if multipart needs to be recreated
-func needsMultipartRecreation(s3Clients map[string]*sss.SSS, blob *v1alpha1.Blob, mp *v1alpha1.Multipart) bool {
+func (c *BlobToChunkController) needsMultipartRecreation(blob *v1alpha1.Blob, mp *v1alpha1.Multipart) (bool, error) {
 	destinationNames := make([]string, 0, len(blob.Spec.Destination))
 	for _, dst := range blob.Spec.Destination {
-		if s3Clients[dst.Name] == nil {
-			return true
+		s3 := c.s3[dst.Name]
+		if s3 == nil {
+			return false, fmt.Errorf("s3 client for destination %q not found", dst.Name)
 		}
 		destinationNames = append(destinationNames, dst.Name)
 	}
 
-	return !slices.Equal(destinationNames, mp.DestinationNames) ||
+	needsRecreation := !slices.Equal(destinationNames, mp.DestinationNames) ||
 		blob.Spec.ChunksNumber != int64(len(mp.UploadEtags))
+	return needsRecreation, nil
 }
 
 // shouldSkipChunk checks if a chunk should be skipped (already uploaded)
