@@ -36,6 +36,16 @@ import (
 //go:embed html/*
 var embedFS embed.FS
 
+// phaseOrder defines the priority of blob phases for group aggregation
+// Higher values indicate "worse" states
+var phaseOrder = map[v1alpha1.BlobPhase]int{
+	v1alpha1.BlobPhaseSucceeded: 0,
+	v1alpha1.BlobPhaseRunning:   1,
+	v1alpha1.BlobPhasePending:   2,
+	v1alpha1.BlobPhaseUnknown:   3,
+	v1alpha1.BlobPhaseFailed:    4,
+}
+
 // Event represents a server-sent event for the WebUI
 type Event struct {
 	ID   string
@@ -106,13 +116,6 @@ func aggregateGroupBlob(groupName string, members []*v1alpha1.Blob) *cleanedBlob
 	var allErrors []string
 	
 	// Determine overall phase - use the "worst" phase among members
-	phaseOrder := map[v1alpha1.BlobPhase]int{
-		v1alpha1.BlobPhaseSucceeded: 0,
-		v1alpha1.BlobPhaseRunning:   1,
-		v1alpha1.BlobPhasePending:   2,
-		v1alpha1.BlobPhaseUnknown:   3,
-		v1alpha1.BlobPhaseFailed:    4,
-	}
 	aggregatePhase := v1alpha1.BlobPhaseSucceeded
 	maxPhaseOrder := 0
 
@@ -249,12 +252,13 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					groupBlob := aggregateGroupBlob(groupName, members)
 					if groupBlob != nil {
 						groupEvent := createGroupEvent("UPDATE", groupBlob)
-						// Always send group updates immediately if the group phase would change
-						// or if progress is complete, otherwise buffer it
-						_, ok = updateBuffer["group-"+groupName]
-						if ok && groupBlob.Phase != v1alpha1.BlobPhaseFailed && 
+						// Buffer group updates for in-progress groups to reduce update frequency
+						// Send immediately for phase changes to Failed/Succeeded or when complete
+						shouldBuffer := groupBlob.Phase != v1alpha1.BlobPhaseFailed && 
 							groupBlob.Phase != v1alpha1.BlobPhaseSucceeded && 
-							groupBlob.Progress != groupBlob.Total {
+							groupBlob.Progress != groupBlob.Total
+						
+						if shouldBuffer {
 							updateBuffer["group-"+groupName] = &groupEvent
 						} else {
 							updateBuffer["group-"+groupName] = nil
