@@ -399,23 +399,13 @@
             margin-top: 0.5rem;
         }
 
-        .member-count {
-            font-size: 0.75em;
-            color: var(--color-text-secondary);
-            margin-left: 0.5rem;
-            cursor: pointer;
-        }
-
-        .member-count:hover {
-            text-decoration: underline;
-        }
-
         .member-item {
             display: inline-block;
             margin: 0.25rem 0.5rem 0.25rem 0;
             padding: 0.25rem 0.5rem;
             border-radius: 0.25rem;
             background: rgba(0, 0, 0, 0.05);
+            display: inline-block;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -426,32 +416,6 @@
 
         .member-item a {
             margin: 0;
-        }
-
-        .member-status {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 0.25rem;
-            vertical-align: middle;
-        }
-
-        .member-status.Running {
-            background: var(--color-status-progress);
-        }
-
-        .member-status.Pending,
-        .member-status.Unknown {
-            background: var(--color-status-waiting);
-        }
-
-        .member-status.Failed {
-            background: var(--color-status-error);
-        }
-
-        .member-status.Succeeded {
-            background: var(--color-status-success);
         }
     </style>
 </head>
@@ -656,24 +620,17 @@
             const hasChunks = data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks);
             const isGroup = elementId.startsWith('group-');
 
-            // Generate link information
+
             let linkInfo = '';
             if (isGroup && data.members && data.members.length > 0) {
-                // Group: show links to member blobs (collapsed by default)
-                const memberLinks = data.members.map(member => 
-                    `<span class="member-item"><span class="member-status ${member.phase}"></span><a href="#${member.uid}">${member.displayName}</a></span>`
+                const memberLinks = data.members.map(member =>
+                    `${svgIcon(member.phase.toLowerCase())}<a href="#${member.uid}">${member.displayName}</a> `
                 ).join('');
                 const toggleId = 'toggle-' + elementId;
-                linkInfo = `<div class="link-info">
-                    <span class="link-info-toggle" onclick="document.getElementById('${toggleId}').classList.toggle('expanded')">
-                        Members (${data.members.length}) ▶
-                    </span>
-                    <span id="${toggleId}" class="link-info-content">${memberLinks}</span>
-                </div>`;
+                linkInfo = `<span class="member-item">${memberLinks}</span>`;
             } else if (!isGroup && data.group) {
-                // Individual blob: show link to group
                 const groupId = 'group-' + data.group;
-                linkInfo = `<a href="#${groupId}">${data.group}</a>`;
+                linkInfo = `<span class="member-item"><a href="#${groupId}">${data.group}</a></span>`;
             }
 
             const header = `

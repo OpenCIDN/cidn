@@ -106,7 +106,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 			if !ok {
 				return
 			}
-			
+
 			aggregate := aggregateBlobs(group, blobs)
 			event := Event{
 				Type: "UPDATE",
@@ -296,9 +296,9 @@ type memberInfo struct {
 // cleanedBlob is a reduced view of Blob for the WebUI
 // Only relevant fields are exposed
 type cleanedBlob struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"displayName,omitempty"`
-	Group       string `json:"group,omitempty"`
+	Name        string       `json:"name"`
+	DisplayName string       `json:"displayName,omitempty"`
+	Group       string       `json:"group,omitempty"`
 	Members     []memberInfo `json:"members,omitempty"` // For group aggregates: list of member blob info
 
 	Priority     int64 `json:"priority,omitempty"`
@@ -375,7 +375,7 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 	var succeededChunks int64
 	var failedChunks int64
 	var maxPriority int64
-	
+
 	hasRunning := false
 	hasFailed := false
 	allSucceeded := true
@@ -394,7 +394,7 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 			DisplayName: displayName,
 			Phase:       blob.Status.Phase,
 		})
-		
+
 		totalSize += blob.Status.Total
 		totalProgress += blob.Status.Progress
 		totalChunks += blob.Spec.ChunksNumber
@@ -445,10 +445,10 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 		aggregate.Phase = v1alpha1.BlobPhaseUnknown
 	} else if allSucceeded {
 		aggregate.Phase = v1alpha1.BlobPhaseSucceeded
-	} else if hasFailed {
-		aggregate.Phase = v1alpha1.BlobPhaseFailed
 	} else if hasRunning {
 		aggregate.Phase = v1alpha1.BlobPhaseRunning
+	} else if hasFailed {
+		aggregate.Phase = v1alpha1.BlobPhaseFailed
 	} else if allPending {
 		aggregate.Phase = v1alpha1.BlobPhasePending
 	} else {
