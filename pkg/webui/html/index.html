@@ -712,7 +712,7 @@
             }
 
             const hash = window.location.hash;
-            if (hash && event.lastEventId == hash.substring(1)) {
+            if (hash && event.lastEventId === hash.substring(1)) {
                 checkAndExpandTargetContainer();
             }
         };
@@ -762,6 +762,8 @@
 
         Object.values(containers).forEach(container => {
             const title = container.previousElementSibling;
+            if (!title) return;
+
             const countSpan = title.querySelector('.status-status-item-count');
             if (!countSpan) return;
 
