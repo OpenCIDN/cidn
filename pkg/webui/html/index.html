@@ -761,6 +761,10 @@
                             ${highlightBytes(totalSize > 0 ? totalSize : totalProgress)}
                         </div>`;
                 }
+                default: {
+                    return `${header}
+                        <div class="progress-text">Unknown status: ${escapeHtml(phase)}</div>`;
+                }
             }
         };
 
@@ -832,6 +836,9 @@
                     <div class="progress-text">
                         ${highlightBytes(size > 0 ? size : progress)}
                     </div>`;
+                default:
+                    return `${header}
+                    <div class="progress-text">Unknown status: ${escapeHtml(data.phase)}</div>`;
             }
         };
 
