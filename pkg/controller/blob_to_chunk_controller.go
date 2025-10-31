@@ -665,22 +665,23 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 		num := i + 1
 		name := fmt.Sprintf("blob:part:%s:%0*d:%0*x-%0*x", blob.Name, p0, num, s0, start, s0, end)
 
-		if len(mp.UploadEtags) != 0 && len(mp.UploadEtags[i].Etags) != 0 {
-			if i < int64(len(mp.UploadEtags))-1 && len(mp.UploadEtags[i+1].Etags) != 0 {
-				if _, err := c.chunkInformer.Lister().Get(name); err == nil {
+		if len(mp.UploadEtags) != 0 &&
+			len(mp.UploadEtags[i].Etags) != 0 {
+			if i < int64(len(mp.UploadEtags)-1) && len(mp.UploadEtags[i+1].Etags) != 0 {
+				chunk, err := c.chunkInformer.Lister().Get(name)
+				if err == nil && chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
 					g.Go(func() error {
-						err := c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
+						err = c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
 						if err != nil {
 							if !apierrors.IsNotFound(err) {
-								klog.Errorf("failed to delete existing chunk %s: %v", name, err)
-								return nil
+								klog.Errorf("failed to delete chunk %s: %v", name, err)
 							}
 						}
+
 						return nil
 					})
 				}
 			}
-
 			lastName = name
 			continue
 		}
@@ -708,21 +709,7 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 				return nil
 			}
 
-			// Delete existing chunk and retry
-			err := c.client.TaskV1alpha1().Chunks().Delete(ctx, chunk.Name, metav1.DeleteOptions{})
-			if err != nil {
-				if !apierrors.IsNotFound(err) {
-					klog.Errorf("failed to delete existing chunk %s: %v", chunk.Name, err)
-					return nil
-				}
-			}
-			_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
-			if err != nil {
-				klog.Errorf("failed to create chunk %s after retry: %v", chunk.Name, err)
-				return nil
-			}
-
-			return nil
+			return err
 		})
 
 		created++
