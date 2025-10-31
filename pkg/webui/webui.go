@@ -86,6 +86,17 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 		ticker := time.NewTicker(updateInterval)
 		defer ticker.Stop()
 
+		// Helper function to delete a group aggregate
+		deleteGroupAggregate := func(group string) {
+			if group == "" {
+				return
+			}
+			delete(groupBlobs, group)
+			delete(updateBuffer, "group-"+group)
+			event := Event{Type: "DELETE", ID: "group-" + group}
+			updates <- event
+		}
+
 		// Helper function to update group aggregate
 		updateGroupAggregate := func(group string) {
 			if group == "" {
@@ -108,6 +119,19 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 			}
 			event.Data = data
 			updateBuffer["group-"+group] = &event
+		}
+
+		// Helper function to remove blob from group and update or delete group aggregate
+		removeFromGroup := func(group string, blobUID string) {
+			if group == "" || groupBlobs[group] == nil {
+				return
+			}
+			delete(groupBlobs[group], blobUID)
+			if len(groupBlobs[group]) == 0 {
+				deleteGroupAggregate(group)
+			} else {
+				updateGroupAggregate(group)
+			}
 		}
 
 		resourceEventHandlerRegistration, err := informer.AddEventHandler(&cache.ResourceEventHandlerFuncs{
@@ -167,16 +191,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				// Remove from old group if changed
 				if oldGroup != "" && oldGroup != newGroup {
-					if groupBlobs[oldGroup] != nil {
-						delete(groupBlobs[oldGroup], string(newBlob.UID))
-						if len(groupBlobs[oldGroup]) == 0 {
-							delete(groupBlobs, oldGroup)
-							event := Event{Type: "DELETE", ID: "group-" + oldGroup}
-							updates <- event
-						} else {
-							updateGroupAggregate(oldGroup)
-						}
-					}
+					removeFromGroup(oldGroup, string(newBlob.UID))
 				}
 
 				// Add to new group
@@ -203,16 +218,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				// Remove from group
 				if blob.Annotations != nil {
 					if group := blob.Annotations[v1alpha1.BlobGroupAnnotation]; group != "" {
-						if groupBlobs[group] != nil {
-							delete(groupBlobs[group], string(blob.UID))
-							if len(groupBlobs[group]) == 0 {
-								delete(groupBlobs, group)
-								event := Event{Type: "DELETE", ID: "group-" + group}
-								updates <- event
-							} else {
-								updateGroupAggregate(group)
-							}
-						}
+						removeFromGroup(group, string(blob.UID))
 					}
 				}
 			},
