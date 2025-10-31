@@ -17,6 +17,7 @@ limitations under the License.
 package runner
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -32,5 +33,14 @@ func TestErrBearerExpired(t *testing.T) {
 	var testErr error = err
 	if _, ok := testErr.(*ErrBearerExpired); !ok {
 		t.Error("Type assertion to *ErrBearerExpired should succeed")
+	}
+	
+	// Test errors.As
+	var bearerErr *ErrBearerExpired
+	if !errors.As(testErr, &bearerErr) {
+		t.Error("errors.As should identify ErrBearerExpired")
+	}
+	if bearerErr.Error() != msg {
+		t.Errorf("Expected error message %q from errors.As, got %q", msg, bearerErr.Error())
 	}
 }

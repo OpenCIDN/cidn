@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -290,7 +291,8 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 	err := r.tryAddBearer(ctx, chunk)
 	if err != nil {
 		// If bearer token has expired, release chunk back to pending state
-		if _, ok := err.(*ErrBearerExpired); ok {
+		var bearerErr *ErrBearerExpired
+		if errors.As(err, &bearerErr) {
 			klog.Infof("Bearer token expired for chunk %s, releasing back to pending", chunk.Name)
 			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 				ss.Status.HandlerName = ""
