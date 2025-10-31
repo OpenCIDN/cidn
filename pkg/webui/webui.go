@@ -126,6 +126,10 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 			if group == "" {
 				return
 			}
+			// Check if group exists before attempting to modify
+			if _, exists := groupBlobs[group]; !exists {
+				return
+			}
 			delete(groupBlobs[group], blobUID)
 			if len(groupBlobs[group]) == 0 {
 				deleteGroupAggregate(group)
