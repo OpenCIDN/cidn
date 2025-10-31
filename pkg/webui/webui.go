@@ -292,6 +292,7 @@ type cleanedBlob struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName,omitempty"`
 	Group       string `json:"group,omitempty"`
+	Members     []string `json:"members,omitempty"` // For group aggregates: list of member blob names
 
 	Priority     int64 `json:"priority,omitempty"`
 	Total        int64 `json:"total"`
@@ -356,6 +357,7 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 		Name:        groupName,
 		DisplayName: groupName,
 		Group:       groupName,
+		Members:     make([]string, 0, len(blobs)),
 	}
 
 	var totalSize int64
@@ -372,7 +374,10 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 	allSucceeded := true
 	allPending := true
 
-	for _, blob := range blobs {
+	for blobUID, blob := range blobs {
+		// Add member to the list
+		aggregate.Members = append(aggregate.Members, string(blobUID))
+		
 		totalSize += blob.Status.Total
 		totalProgress += blob.Status.Progress
 		totalChunks += blob.Spec.ChunksNumber
