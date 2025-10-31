@@ -224,7 +224,7 @@ func TestCleanupBlobPreservesSucceededChunk(t *testing.T) {
 			// Create controller
 			controller := NewBlobToChunkController(
 				"test-handler",
-				map[string]*sss.SSS{}, // Use empty map instead of nil
+				map[string]*sss.SSS{}, // Empty map since this test doesn't require S3 functionality
 				client,
 				sharedInformerFactory,
 			)
