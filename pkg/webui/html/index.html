@@ -639,6 +639,16 @@
             const targetContainer = containers[statusMap[groupPhase]];
             const groupElement = document.getElementById(groupKey) || groupItem(groupKey);
             
+            // Update group phase class
+            groupElement.className = 'data-item group-item';
+            if (groupPhase === 'Failed') {
+                groupElement.classList.add('failed');
+            } else if (groupPhase === 'Succeeded') {
+                groupElement.classList.add('completed');
+            } else if (groupPhase === 'Pending' || groupPhase === 'Unknown') {
+                groupElement.classList.add('pending');
+            }
+            
             // Move to correct container if needed
             if (groupElement.parentNode !== targetContainer) {
                 groupElement.remove();
