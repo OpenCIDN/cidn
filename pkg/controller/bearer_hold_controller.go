@@ -27,6 +27,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -91,27 +92,13 @@ func (c *BearerHoldController) ReleaseAll(ctx context.Context) error {
 		go func(b *v1alpha1.Bearer) {
 			defer wg.Done()
 
-			bearerCopy := b.DeepCopy()
-			bearerCopy.Status.HandlerName = ""
-			bearerCopy.Status.Phase = v1alpha1.BearerPhasePending
-			bearerCopy.Status.Conditions = nil
-			_, err := c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, bearerCopy, metav1.UpdateOptions{})
+			_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), b, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
+				bearer.Status.HandlerName = ""
+				bearer.Status.Phase = v1alpha1.BearerPhasePending
+				bearer.Status.Conditions = nil
+				return bearer
+			})
 			if err != nil {
-				if apierrors.IsConflict(err) {
-					latest, getErr := c.client.TaskV1alpha1().Bearers().Get(ctx, bearerCopy.Name, metav1.GetOptions{})
-					if getErr != nil {
-						klog.Errorf("failed to get latest bearer %s: %v", bearerCopy.Name, getErr)
-						return
-					}
-					latest.Status.HandlerName = ""
-					latest.Status.Phase = v1alpha1.BearerPhasePending
-					latest.Status.Conditions = nil
-					_, err = c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, latest, metav1.UpdateOptions{})
-					if err != nil {
-						klog.Errorf("failed to update bearer %s: %v", latest.Name, err)
-						return
-					}
-				}
 				klog.Errorf("failed to release bearer %s: %v", b.Name, err)
 			}
 		}(bearer)

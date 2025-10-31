@@ -28,6 +28,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	"github.com/wzshiming/sss"
 	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -379,9 +380,11 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 	}
 
 	if len(chunk.Spec.Destination) == 0 {
-		blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
-		blob.Status.Progress = blob.Status.Total
-		_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+		_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			b.Status.Progress = b.Status.Total
+			return b
+		})
 		if err != nil {
 			return fmt.Errorf("failed to update blob status: %v", err)
 		}
@@ -537,9 +540,11 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 		}
 	}
 	if allEmpty {
-		blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
-		blob.Status.Progress = blob.Status.Total
-		_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+		_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			b.Status.Progress = b.Status.Total
+			return b
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to update blob status: %v", err)
 		}

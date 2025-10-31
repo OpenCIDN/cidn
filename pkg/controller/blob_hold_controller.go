@@ -27,6 +27,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -91,27 +92,13 @@ func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
 		go func(b *v1alpha1.Blob) {
 			defer wg.Done()
 
-			blobCopy := b.DeepCopy()
-			blobCopy.Status.HandlerName = ""
-			blobCopy.Status.Phase = v1alpha1.BlobPhasePending
-			blobCopy.Status.Conditions = nil
-			_, err := c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blobCopy, metav1.UpdateOptions{})
+			_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), b, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+				blob.Status.HandlerName = ""
+				blob.Status.Phase = v1alpha1.BlobPhasePending
+				blob.Status.Conditions = nil
+				return blob
+			})
 			if err != nil {
-				if apierrors.IsConflict(err) {
-					latest, getErr := c.client.TaskV1alpha1().Blobs().Get(ctx, blobCopy.Name, metav1.GetOptions{})
-					if getErr != nil {
-						klog.Errorf("failed to get latest blob %s: %v", blobCopy.Name, getErr)
-						return
-					}
-					latest.Status.HandlerName = ""
-					latest.Status.Phase = v1alpha1.BlobPhasePending
-					latest.Status.Conditions = nil
-					_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, latest, metav1.UpdateOptions{})
-					if err != nil {
-						klog.Errorf("failed to update blob %s: %v", latest.Name, err)
-						return
-					}
-				}
 				klog.Errorf("failed to release blob %s: %v", b.Name, err)
 			}
 		}(blob)

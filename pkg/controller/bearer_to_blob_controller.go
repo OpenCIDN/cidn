@@ -25,6 +25,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -133,13 +134,14 @@ func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) e
 			blobList[blobName] = struct{}{}
 		}
 
-		chunk.Status.HandlerName = ""
-		chunk.Status.Phase = v1alpha1.ChunkPhasePending
-		chunk.Status.Retry = 0
-		chunk.Status.Progress = 0
-		chunk.Status.Conditions = nil
-
-		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, &chunk, metav1.UpdateOptions{})
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Chunks(), &chunk, func(ch *v1alpha1.Chunk) *v1alpha1.Chunk {
+			ch.Status.HandlerName = ""
+			ch.Status.Phase = v1alpha1.ChunkPhasePending
+			ch.Status.Retry = 0
+			ch.Status.Progress = 0
+			ch.Status.Conditions = nil
+			return ch
+		})
 		if err != nil {
 			return err
 		}
@@ -151,11 +153,12 @@ func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) e
 			continue
 		}
 
-		blob.Status.HandlerName = ""
-		blob.Status.Phase = v1alpha1.BlobPhasePending
-		blob.Status.Conditions = nil
-
-		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status.HandlerName = ""
+			b.Status.Phase = v1alpha1.BlobPhasePending
+			b.Status.Conditions = nil
+			return b
+		})
 		if err != nil {
 			return err
 		}

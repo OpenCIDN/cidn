@@ -31,6 +31,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/wzshiming/sss"
 	"golang.org/x/sync/errgroup"
@@ -143,13 +144,15 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 	}
 
 	if blob.Status.Total == 0 {
-		updateBlob := blob.DeepCopy()
-		err = c.fromHeadChunk(ctx, updateBlob)
+		err = c.fromHeadChunk(ctx, blob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %w", updateBlob.Name, err)
+			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
 		}
 
-		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, updateBlob, metav1.UpdateOptions{})
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status = blob.Status
+			return b
+		})
 		if err != nil {
 			return fmt.Errorf("failed to update blob status total: %w", err)
 		}
@@ -161,24 +164,24 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 		return nil
 	}
 
-	updateBlob := blob.DeepCopy()
-
 	if blob.Spec.ChunksNumber != 1 && blob.Status.AcceptRanges {
-		err = c.fromChunks(ctx, updateBlob)
+		err = c.fromChunks(ctx, blob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %w", updateBlob.Name, err)
+			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
 		}
 	} else {
-		err = c.fromOneChunk(ctx, updateBlob)
+		err = c.fromOneChunk(ctx, blob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %w", updateBlob.Name, err)
+			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
 		}
 	}
-	if !reflect.DeepEqual(updateBlob.Status, blob.Status) {
-		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, updateBlob, metav1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("failed to update blob status: %w", err)
-		}
+
+	_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+		b.Status = blob.Status
+		return b
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update blob status: %w", err)
 	}
 
 	return nil
