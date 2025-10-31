@@ -110,13 +110,44 @@ func (c *BlobToChunkController) runWorker(ctx context.Context) {
 }
 
 func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
-	err := c.client.TaskV1alpha1().Chunks().DeleteCollection(context.Background(), metav1.DeleteOptions{}, metav1.ListOptions{
+	ctx := context.Background()
+	
+	// List all chunks for this blob directly from API to ensure we get all chunks
+	chunkList, err := c.client.TaskV1alpha1().Chunks().List(ctx, metav1.ListOptions{
 		LabelSelector: labels.Set{
 			BlobUIDLabelKey: string(blob.UID),
 		}.String(),
 	})
 	if err != nil {
-		klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
+		klog.Errorf("failed to list chunks for blob %s: %v", blob.Name, err)
+		return
+	}
+
+	// Find at least one succeeded chunk to preserve
+	var chunkToPreserve *v1alpha1.Chunk
+	for i := range chunkList.Items {
+		chunk := &chunkList.Items[i]
+		if chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
+			chunkToPreserve = chunk
+			break
+		}
+	}
+
+	// Delete chunks, but preserve at least one succeeded chunk
+	for i := range chunkList.Items {
+		chunk := &chunkList.Items[i]
+		// Skip the chunk we want to preserve
+		if chunkToPreserve != nil && chunk.Name == chunkToPreserve.Name {
+			klog.Infof("Preserving succeeded chunk %s for blob %s", chunk.Name, blob.Name)
+			continue
+		}
+
+		err := c.client.TaskV1alpha1().Chunks().Delete(ctx, chunk.Name, metav1.DeleteOptions{})
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				klog.Errorf("failed to delete chunk %s for blob %s: %v", chunk.Name, blob.Name, err)
+			}
+		}
 	}
 
 	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded || blob.Status.Phase == v1alpha1.BlobPhaseFailed {
@@ -126,7 +157,7 @@ func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
 				klog.Errorf("failed to get multipart for blob %s: %v", blob.Name, err)
 			}
 		} else {
-			err = c.client.TaskV1alpha1().Multiparts().Delete(context.Background(), blob.Name, metav1.DeleteOptions{})
+			err = c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
 			if err != nil {
 				klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
 			}
