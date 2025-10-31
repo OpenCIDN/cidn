@@ -345,6 +345,22 @@
             outline: 2px solid var(--color-text-secondary);
             outline-offset: 2px;
         }
+
+        .data-item-group {
+            border-left: 4px solid var(--color-status-progress);
+            font-weight: 600;
+        }
+
+        .group-badge {
+            display: inline-block;
+            padding: 0.125rem 0.5rem;
+            background: var(--color-status-progress);
+            color: white;
+            border-radius: 0.25rem;
+            font-size: 0.75em;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
     </style>
 </head>
 
@@ -516,6 +532,10 @@
             const element = document.createElement('div');
             element.id = elementId;
             element.className = 'data-item';
+            // Add group styling if this is a group aggregate
+            if (elementId.startsWith('group-')) {
+                element.classList.add('data-item-group');
+            }
             element.style.animation = 'item-entrance 0.3s';
             return element;
         };
@@ -542,10 +562,11 @@
             const progress = data.progress || 0;
             const errors = data.errors || [];
             const hasChunks = data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks);
+            const isGroup = elementId.startsWith('group-');
 
             const header = `
                 <div class="data-header">
-                    ${displayName}
+                    ${displayName}${isGroup ? '<span class="group-badge">GROUP</span>' : ''}
                     <a href="#${elementId}" class="anchor-link">#</a>
                 </div>
             `;
