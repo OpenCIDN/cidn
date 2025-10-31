@@ -378,10 +378,35 @@
             text-decoration: underline;
         }
 
+        .link-info-toggle {
+            cursor: pointer;
+            user-select: none;
+            display: inline-block;
+            color: var(--color-status-progress);
+        }
+
+        .link-info-toggle:hover {
+            text-decoration: underline;
+        }
+
+        .link-info-content {
+            display: none;
+            margin-top: 0.25rem;
+        }
+
+        .link-info-content.expanded {
+            display: inline;
+        }
+
         .member-count {
             font-size: 0.75em;
             color: var(--color-text-secondary);
             margin-left: 0.5rem;
+            cursor: pointer;
+        }
+
+        .member-count:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
@@ -589,20 +614,32 @@
             // Generate link information
             let linkInfo = '';
             if (isGroup && data.members && data.members.length > 0) {
-                // Group: show links to member blobs
+                // Group: show links to member blobs (collapsed by default)
                 const memberLinks = data.members.map(memberId => 
-                    `<a href="#${memberId}" onclick="event.preventDefault(); document.getElementById('${memberId}')?.scrollIntoView({behavior: 'smooth', block: 'nearest'});">${memberId}</a>`
+                    `<a href="#${memberId}">${memberId}</a>`
                 ).join('');
-                linkInfo = `<div class="link-info">Members (${data.members.length}): ${memberLinks}</div>`;
+                const toggleId = 'toggle-' + elementId;
+                linkInfo = `<div class="link-info">
+                    <span class="link-info-toggle" onclick="document.getElementById('${toggleId}').classList.toggle('expanded')">
+                        Members (${data.members.length}) ▶
+                    </span>
+                    <span id="${toggleId}" class="link-info-content">${memberLinks}</span>
+                </div>`;
             } else if (!isGroup && data.group) {
-                // Individual blob: show link to group
+                // Individual blob: show link to group (collapsed by default)
                 const groupId = 'group-' + data.group;
-                linkInfo = `<div class="link-info">Group: <a href="#${groupId}" onclick="event.preventDefault(); document.getElementById('${groupId}')?.scrollIntoView({behavior: 'smooth', block: 'nearest'});">${data.group}</a></div>`;
+                const toggleId = 'toggle-' + elementId;
+                linkInfo = `<div class="link-info">
+                    <span class="link-info-toggle" onclick="document.getElementById('${toggleId}').classList.toggle('expanded')">
+                        Group ▶
+                    </span>
+                    <span id="${toggleId}" class="link-info-content"><a href="#${groupId}">${data.group}</a></span>
+                </div>`;
             }
 
             const header = `
                 <div class="data-header">
-                    ${displayName}${isGroup ? '<span class="group-badge">GROUP</span>' : ''}${isGroup && data.members ? '<span class="member-count">' + data.members.length + ' members</span>' : ''}
+                    ${displayName}${isGroup ? '<span class="group-badge">GROUP</span>' : ''}${isGroup && data.members ? '<span class="member-count" onclick="document.getElementById(\'toggle-' + elementId + '\')?.classList.toggle(\'expanded\')">' + data.members.length + ' members</span>' : ''}
                     <a href="#${elementId}" class="anchor-link">#</a>
                 </div>
                 ${linkInfo}
