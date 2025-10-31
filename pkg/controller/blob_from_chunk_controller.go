@@ -217,6 +217,7 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
+			c.deleteChunksInNonFinalStates(ctx, blob)
 		}
 	}
 	return nil
@@ -245,6 +246,7 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 				Type:    "Sha256Verification",
 				Message: err.Error(),
 			})
+			c.deleteChunksInNonFinalStates(ctx, blob)
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
 			blob.Status.Progress = chunk.Status.Progress
@@ -261,6 +263,7 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
+			c.deleteChunksInNonFinalStates(ctx, blob)
 		}
 	case v1alpha1.ChunkPhaseRunning, v1alpha1.ChunkPhaseUnknown:
 		blob.Status.PendingChunks = 0
@@ -354,6 +357,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 					blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
 				}
 			}
+			c.deleteChunksInNonFinalStates(ctx, blob)
 		} else {
 			hasNonRetryableFailure := false
 			for _, chunk := range chunks {
@@ -372,6 +376,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 						blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
 					}
 				}
+				c.deleteChunksInNonFinalStates(ctx, blob)
 			} else {
 				blob.Status.Phase = v1alpha1.BlobPhaseRunning
 			}
@@ -398,6 +403,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				Type:    "SizeMismatch",
 				Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, blob.Status.Total),
 			})
+			c.deleteChunksInNonFinalStates(ctx, blob)
 			return nil
 		}
 
@@ -438,6 +444,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				Type:    "MultipartCommit",
 				Message: err.Error(),
 			})
+			c.deleteChunksInNonFinalStates(ctx, blob)
 			return nil
 		}
 
@@ -448,6 +455,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				Type:    "Sha256Verification",
 				Message: err.Error(),
 			})
+			c.deleteChunksInNonFinalStates(ctx, blob)
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
 
@@ -503,4 +511,30 @@ func verifyDestinationSha256(ctx context.Context, s3 *sss.SSS, dst *v1alpha1.Blo
 		return fmt.Errorf("sha256 mismatch for destination %q: expected %s, got %s", dst.Path, contentSha256, calculatedHash)
 	}
 	return nil
+}
+
+// deleteChunksInNonFinalStates deletes chunks that are in Running, Pending, or Unknown states
+// when a blob fails. This ensures cleanup of incomplete work when a blob cannot be completed.
+func (c *BlobFromChunkController) deleteChunksInNonFinalStates(ctx context.Context, blob *v1alpha1.Blob) {
+	chunks, err := c.chunkInformer.Lister().List(labels.SelectorFromSet(labels.Set{
+		BlobUIDLabelKey: string(blob.UID),
+	}))
+	if err != nil {
+		klog.Errorf("failed to list chunks for blob %s during cleanup: %v", blob.Name, err)
+		return
+	}
+
+	for _, chunk := range chunks {
+		// Only delete chunks in non-final states (Running, Pending, Unknown)
+		if chunk.Status.Phase == v1alpha1.ChunkPhaseRunning ||
+			chunk.Status.Phase == v1alpha1.ChunkPhasePending ||
+			chunk.Status.Phase == v1alpha1.ChunkPhaseUnknown {
+			err := c.client.TaskV1alpha1().Chunks().Delete(ctx, chunk.Name, metav1.DeleteOptions{})
+			if err != nil && !apierrors.IsNotFound(err) {
+				klog.Errorf("failed to delete chunk %s for failed blob %s: %v", chunk.Name, blob.Name, err)
+			} else {
+				klog.Infof("Deleted chunk %s in %s state for failed blob %s", chunk.Name, chunk.Status.Phase, blob.Name)
+			}
+		}
+	}
 }
