@@ -118,16 +118,18 @@ func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
 		return
 	}
 
-	// Find at least one succeeded chunk to preserve
+	// Find the succeeded chunk with the earliest creation time to preserve
+	// This ensures deterministic behavior across runs
 	var preservedChunk *v1alpha1.Chunk
 	for _, chunk := range chunks {
 		if chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
-			preservedChunk = chunk
-			break
+			if preservedChunk == nil || chunk.CreationTimestamp.Before(&preservedChunk.CreationTimestamp) {
+				preservedChunk = chunk
+			}
 		}
 	}
 
-	// Delete chunks, preserving at least one succeeded chunk
+	// Delete chunks, preserving the earliest succeeded chunk
 	for _, chunk := range chunks {
 		// If this is the preserved chunk, skip deletion
 		if preservedChunk != nil && chunk.Name == preservedChunk.Name {
