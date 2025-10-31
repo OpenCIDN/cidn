@@ -194,6 +194,7 @@ func createEvent(eventType string, blob *v1alpha1.Blob) Event {
 type cleanedBlob struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName,omitempty"`
+	Group       string `json:"group,omitempty"`
 
 	Priority     int64 `json:"priority,omitempty"`
 	Total        int64 `json:"total"`
@@ -218,6 +219,7 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 
 	if blob.Annotations != nil {
 		cleaned.DisplayName = blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
+		cleaned.Group = blob.Annotations[v1alpha1.BlobGroupAnnotation]
 	}
 
 	// Set spec fields

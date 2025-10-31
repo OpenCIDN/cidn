@@ -345,6 +345,56 @@
             outline: 2px solid var(--color-text-secondary);
             outline-offset: 2px;
         }
+
+        .group-container {
+            margin: 0.75rem 0;
+            border-radius: 0.5rem;
+            background: var(--color-bg-surface);
+            overflow: hidden;
+        }
+
+        .group-header {
+            padding: 0.5rem 0.75rem;
+            background: var(--color-bg-primary);
+            border-radius: 0.375rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: 600;
+            gap: 0.5rem;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .group-header:hover {
+            box-shadow: var(--shadow-md);
+        }
+
+        .group-header::after {
+            content: '▼';
+            font-size: 0.8em;
+            transition: transform 0.3s ease;
+        }
+
+        .group-header.collapsed::after {
+            transform: rotate(-90deg);
+        }
+
+        .group-items {
+            padding: 0.5rem;
+        }
+
+        .group-items .data-item {
+            margin-left: 0.5rem;
+        }
+
+        .group-summary {
+            font-size: 0.85em;
+            color: var(--color-text-secondary);
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
     </style>
 </head>
 
@@ -497,6 +547,7 @@
         }
 
         const progressData = {};
+        const groupData = {}; // Track items by group
         const statusMap = {
             'Pending': 'pending',
             'Unknown': 'pending',
@@ -510,6 +561,15 @@
             const element = document.getElementById(elementId);
 
             if (element) {
+                // If item is in a group, update the group
+                const group = element.dataset.group;
+                if (group) {
+                    const containerName = element.dataset.container;
+                    if (groupData[containerName] && groupData[containerName][group]) {
+                        delete groupData[containerName][group][elementId];
+                        updateGroupDisplay(containerName, group);
+                    }
+                }
                 element.remove();
             }
             return;
@@ -523,19 +583,128 @@
             return element;
         };
 
+        const getOrCreateGroupContainer = (statusContainer, group) => {
+            const groupId = `group-${statusContainer.id}-${group}`;
+            let groupContainer = document.getElementById(groupId);
+            
+            if (!groupContainer) {
+                groupContainer = document.createElement('div');
+                groupContainer.id = groupId;
+                groupContainer.className = 'group-container';
+                groupContainer.innerHTML = `
+                    <div class="group-header" onclick="toggleGroup('${groupId}')">
+                        <span>${escapeHtml(group)}</span>
+                        <div class="group-summary" id="${groupId}-summary"></div>
+                    </div>
+                    <div class="group-items" id="${groupId}-items"></div>
+                `;
+                statusContainer.prepend(groupContainer);
+            }
+            
+            return document.getElementById(`${groupId}-items`);
+        };
+
+        const updateGroupDisplay = (containerName, group) => {
+            if (!groupData[containerName] || !groupData[containerName][group]) return;
+            
+            const items = groupData[containerName][group];
+            const itemCount = Object.keys(items).length;
+            
+            if (itemCount === 0) {
+                // Remove empty group
+                const groupId = `group-${containerName}-container-${group}`;
+                const groupContainer = document.getElementById(groupId);
+                if (groupContainer) {
+                    groupContainer.remove();
+                }
+                delete groupData[containerName][group];
+                return;
+            }
+            
+            // Calculate aggregated stats
+            let totalSize = 0;
+            let totalProgress = 0;
+            
+            for (const itemData of Object.values(items)) {
+                totalSize += itemData.total || 0;
+                totalProgress += itemData.progress || 0;
+            }
+            
+            const groupId = `group-${containerName}-container-${group}`;
+            const summaryElement = document.getElementById(`${groupId}-summary`);
+            if (summaryElement) {
+                summaryElement.innerHTML = `
+                    <span>${itemCount} item${itemCount > 1 ? 's' : ''}</span>
+                    ${totalSize > 0 ? `<span>${highlightProgress(totalProgress, totalSize)}</span>` : ''}
+                `;
+            }
+        };
+
         const renderDataItem = (event) => {
             const elementId = `${event.lastEventId}`;
             const element = document.getElementById(elementId) || dataItem(elementId);
             const data = JSON.parse(event.data);
-            const targetContainer = containers[statusMap[data.phase]];
+            const statusContainerName = statusMap[data.phase];
+            const targetContainer = containers[statusContainerName];
+            
+            // Track group membership
+            const group = data.group;
+            
+            if (group) {
+                // Initialize group data structure
+                if (!groupData[statusContainerName]) {
+                    groupData[statusContainerName] = {};
+                }
+                if (!groupData[statusContainerName][group]) {
+                    groupData[statusContainerName][group] = {};
+                }
+                groupData[statusContainerName][group][elementId] = data;
+                
+                // Get or create group container
+                const groupItemsContainer = getOrCreateGroupContainer(targetContainer, group);
+                
+                // Store group info on element for cleanup
+                element.dataset.group = group;
+                element.dataset.container = statusContainerName;
+                
+                // Update element content
+                element.innerHTML = generateItemContent(data, elementId);
+                
+                // Add to group container if not already there
+                if (!element.isConnected || element.parentNode !== groupItemsContainer) {
+                    if (element.isConnected) {
+                        element.remove();
+                    }
+                    groupItemsContainer.prepend(element);
+                }
+                
+                // Update group display
+                updateGroupDisplay(statusContainerName, group);
+            } else {
+                // Non-grouped item - handle as before
+                if (element.parentNode !== targetContainer) {
+                    element.remove();
+                }
 
-            if (element.parentNode !== targetContainer) {
-                element.remove();
+                element.innerHTML = generateItemContent(data, elementId);
+                if (!element.isConnected) {
+                    targetContainer.prepend(element);
+                }
             }
+        };
 
-            element.innerHTML = generateItemContent(data, elementId);
-            if (!element.isConnected) {
-                targetContainer.prepend(element);
+        const toggleGroup = (groupId) => {
+            const itemsContainer = document.getElementById(`${groupId}-items`);
+            const header = document.querySelector(`#${groupId} .group-header`);
+            
+            if (itemsContainer && header) {
+                if (itemsContainer.style.display === 'none') {
+                    itemsContainer.style.display = 'block';
+                    header.classList.remove('collapsed');
+                } else {
+                    itemsContainer.style.display = 'none';
+                    header.classList.add('collapsed');
+                }
             }
         };
 
