@@ -49,6 +49,119 @@ func (e *Event) WriteTo(w io.Writer) (int64, error) {
 	return int64(n), err
 }
 
+// blobStore holds the current state of all blobs for group aggregation
+type blobStore struct {
+	mu    sync.RWMutex
+	blobs map[string]*v1alpha1.Blob
+}
+
+func newBlobStore() *blobStore {
+	return &blobStore{
+		blobs: make(map[string]*v1alpha1.Blob),
+	}
+}
+
+func (s *blobStore) set(blob *v1alpha1.Blob) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.blobs[string(blob.UID)] = blob
+}
+
+func (s *blobStore) delete(blob *v1alpha1.Blob) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.blobs, string(blob.UID))
+}
+
+func (s *blobStore) getGroupMembers(groupName string) []*v1alpha1.Blob {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	var members []*v1alpha1.Blob
+	for _, blob := range s.blobs {
+		if blob.Annotations != nil && blob.Annotations[v1alpha1.BlobGroupAnnotation] == groupName {
+			members = append(members, blob)
+		}
+	}
+	return members
+}
+
+// aggregateGroupBlob creates an aggregated view of a group
+func aggregateGroupBlob(groupName string, members []*v1alpha1.Blob) *cleanedBlob {
+	if len(members) == 0 {
+		return nil
+	}
+
+	aggregate := &cleanedBlob{
+		Name:        "group-" + groupName,
+		DisplayName: groupName,
+		Group:       groupName,
+		IsGroup:     true,
+		Members:     make([]string, 0, len(members)),
+	}
+
+	// Aggregate statistics
+	var totalSize, totalProgress int64
+	var totalChunks, pendingChunks, runningChunks, succeededChunks, failedChunks int64
+	var allErrors []string
+	
+	// Determine overall phase - use the "worst" phase among members
+	phaseOrder := map[v1alpha1.BlobPhase]int{
+		v1alpha1.BlobPhaseSucceeded: 0,
+		v1alpha1.BlobPhaseRunning:   1,
+		v1alpha1.BlobPhasePending:   2,
+		v1alpha1.BlobPhaseUnknown:   3,
+		v1alpha1.BlobPhaseFailed:    4,
+	}
+	aggregatePhase := v1alpha1.BlobPhaseSucceeded
+	maxPhaseOrder := 0
+
+	for _, blob := range members {
+		aggregate.Members = append(aggregate.Members, blob.Name)
+		
+		totalSize += blob.Status.Total
+		totalProgress += blob.Status.Progress
+		totalChunks += blob.Spec.ChunksNumber
+		pendingChunks += blob.Status.PendingChunks
+		runningChunks += blob.Status.RunningChunks
+		succeededChunks += blob.Status.SucceededChunks
+		failedChunks += blob.Status.FailedChunks
+
+		// Collect errors
+		for _, condition := range blob.Status.Conditions {
+			allErrors = append(allErrors, fmt.Sprintf("%s: %s: %s", blob.Name, condition.Type, condition.Message))
+		}
+
+		// Determine phase
+		phase := blob.Status.Phase
+		if phase == v1alpha1.BlobPhaseRunning &&
+			blob.Status.Progress == 0 &&
+			blob.Status.RunningChunks == 0 &&
+			blob.Status.FailedChunks == 0 &&
+			blob.Status.SucceededChunks == 0 {
+			phase = v1alpha1.BlobPhasePending
+		}
+		
+		if order, ok := phaseOrder[phase]; ok && order > maxPhaseOrder {
+			maxPhaseOrder = order
+			aggregatePhase = phase
+		}
+	}
+
+	aggregate.Total = totalSize
+	aggregate.Progress = totalProgress
+	aggregate.ChunksNumber = totalChunks
+	aggregate.PendingChunks = pendingChunks
+	aggregate.RunningChunks = runningChunks
+	aggregate.SucceededChunks = succeededChunks
+	aggregate.FailedChunks = failedChunks
+	aggregate.Phase = aggregatePhase
+	aggregate.Errors = allErrors
+
+	return aggregate
+}
+
+
 // NewHandler returns an http.Handler serving the WebUI and API endpoints
 func NewHandler(client versioned.Interface, updateInterval time.Duration) http.Handler {
 	sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
@@ -66,6 +179,9 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 	blobInformer := sharedInformerFactory.Task().V1alpha1().Blobs()
 	informer := blobInformer.Informer()
 	go informer.RunWithContext(context.Background())
+
+	// Store for group aggregation
+	store := newBlobStore()
 
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		// Set headers for Server-Sent Events
@@ -90,11 +206,25 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
+				store.set(blob)
+
 				mut.Lock()
 				defer mut.Unlock()
 				event := createEvent("ADD", blob)
 				updates <- event
 				updateBuffer[string(blob.UID)] = nil
+
+				// Send group event if blob belongs to a group
+				if blob.Annotations != nil && blob.Annotations[v1alpha1.BlobGroupAnnotation] != "" {
+					groupName := blob.Annotations[v1alpha1.BlobGroupAnnotation]
+					members := store.getGroupMembers(groupName)
+					groupBlob := aggregateGroupBlob(groupName, members)
+					if groupBlob != nil {
+						groupEvent := createGroupEvent("ADD", groupBlob)
+						updates <- groupEvent
+						updateBuffer["group-"+groupName] = nil
+					}
+				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
 				oldBlob, ok := oldObj.(*v1alpha1.Blob)
@@ -106,6 +236,8 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
+				store.set(newBlob)
+
 				mut.Lock()
 				defer mut.Unlock()
 				event := createEvent("UPDATE", newBlob)
@@ -116,6 +248,23 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					updateBuffer[string(newBlob.UID)] = nil
 					updates <- event
 				}
+
+				// Send group event if blob belongs to a group
+				if newBlob.Annotations != nil && newBlob.Annotations[v1alpha1.BlobGroupAnnotation] != "" {
+					groupName := newBlob.Annotations[v1alpha1.BlobGroupAnnotation]
+					members := store.getGroupMembers(groupName)
+					groupBlob := aggregateGroupBlob(groupName, members)
+					if groupBlob != nil {
+						groupEvent := createGroupEvent("UPDATE", groupBlob)
+						_, ok = updateBuffer["group-"+groupName]
+						if ok && oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Status.Total {
+							updateBuffer["group-"+groupName] = &groupEvent
+						} else {
+							updateBuffer["group-"+groupName] = nil
+							updates <- groupEvent
+						}
+					}
+				}
 			},
 			DeleteFunc: func(obj interface{}) {
 				blob, ok := obj.(*v1alpha1.Blob)
@@ -123,11 +272,39 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
+				groupName := ""
+				if blob.Annotations != nil {
+					groupName = blob.Annotations[v1alpha1.BlobGroupAnnotation]
+				}
+
+				store.delete(blob)
+
 				mut.Lock()
 				defer mut.Unlock()
 				delete(updateBuffer, string(blob.UID))
 				event := createEvent("DELETE", blob)
 				updates <- event
+
+				// Send group update/delete event if blob belonged to a group
+				if groupName != "" {
+					members := store.getGroupMembers(groupName)
+					if len(members) > 0 {
+						groupBlob := aggregateGroupBlob(groupName, members)
+						if groupBlob != nil {
+							groupEvent := createGroupEvent("UPDATE", groupBlob)
+							updates <- groupEvent
+							updateBuffer["group-"+groupName] = nil
+						}
+					} else {
+						// No members left, delete the group
+						delete(updateBuffer, "group-"+groupName)
+						groupDeleteEvent := Event{
+							ID:   "group-" + groupName,
+							Type: "DELETE",
+						}
+						updates <- groupDeleteEvent
+					}
+				}
 			},
 		})
 		if err != nil {
@@ -189,11 +366,25 @@ func createEvent(eventType string, blob *v1alpha1.Blob) Event {
 	return event
 }
 
+// createGroupEvent constructs an Event for a group aggregate
+func createGroupEvent(eventType string, groupBlob *cleanedBlob) Event {
+	event := Event{
+		Type: eventType,
+		ID:   groupBlob.Name,
+	}
+	if eventType != "DELETE" {
+		data, _ := json.Marshal(groupBlob)
+		event.Data = data
+	}
+	return event
+}
+
 // cleanedBlob is a reduced view of Blob for the WebUI
 // Only relevant fields are exposed
 type cleanedBlob struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName,omitempty"`
+	Group       string `json:"group,omitempty"`
 
 	Priority     int64 `json:"priority,omitempty"`
 	Total        int64 `json:"total"`
@@ -207,6 +398,11 @@ type cleanedBlob struct {
 	FailedChunks    int64              `json:"failedChunks,omitempty"`
 
 	Errors []string `json:"errors,omitempty"`
+
+	// IsGroup indicates this is an aggregated group entry
+	IsGroup bool `json:"isGroup,omitempty"`
+	// Members contains the names of blobs that are part of this group
+	Members []string `json:"members,omitempty"`
 }
 
 // cleanBlobForWebUI extracts and normalizes fields for the WebUI
@@ -218,6 +414,7 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 
 	if blob.Annotations != nil {
 		cleaned.DisplayName = blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
+		cleaned.Group = blob.Annotations[v1alpha1.BlobGroupAnnotation]
 	}
 
 	// Set spec fields

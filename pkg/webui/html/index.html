@@ -543,11 +543,25 @@
             const errors = data.errors || [];
             const hasChunks = data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks);
 
+            // Generate links section
+            let linksHTML = '';
+            if (data.isGroup && data.members && data.members.length > 0) {
+                // Group entry - show links to members
+                const memberLinks = data.members.map(member => 
+                    `<a href="#${member}" style="color: var(--color-info-speed); text-decoration: underline;">${member}</a>`
+                ).join(', ');
+                linksHTML = `<div style="font-size: 0.875em; color: var(--color-text-secondary); margin-top: 0.25rem;">Members: ${memberLinks}</div>`;
+            } else if (data.group) {
+                // Member entry - show link to group
+                linksHTML = `<div style="font-size: 0.875em; color: var(--color-text-secondary); margin-top: 0.25rem;">Group: <a href="#group-${data.group}" style="color: var(--color-info-speed); text-decoration: underline;">${data.group}</a></div>`;
+            }
+
             const header = `
                 <div class="data-header">
-                    ${displayName}
+                    ${data.isGroup ? '📁 ' : ''}${displayName}
                     <a href="#${elementId}" class="anchor-link">#</a>
                 </div>
+                ${linksHTML}
             `;
 
             switch (data.phase) {
