@@ -132,7 +132,7 @@ func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
 	// Delete chunks, preserving the earliest succeeded chunk
 	for _, chunk := range chunks {
 		// If this is the preserved chunk, skip deletion
-		if preservedChunk != nil && chunk.Name == preservedChunk.Name {
+		if preservedChunk != nil && chunk.UID == preservedChunk.UID {
 			klog.Infof("Preserving succeeded chunk %s for blob %s", chunk.Name, blob.Name)
 			continue
 		}
