@@ -48,6 +48,15 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// ErrBearerExpired is returned when a bearer token has expired
+type ErrBearerExpired struct {
+	msg string
+}
+
+func (e *ErrBearerExpired) Error() string {
+	return e.msg
+}
+
 // ChunkRunner executes Chunk tasks
 type ChunkRunner struct {
 	handlerName    string
@@ -258,7 +267,7 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 					return err
 				}
 
-				return fmt.Errorf("bearer token has expired, waiting for next refresh")
+				return &ErrBearerExpired{msg: "bearer token has expired, waiting for next refresh"}
 			}
 
 			if since >= expires*3/4 {
@@ -280,6 +289,20 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) (io.ReadCloser, int64) {
 	err := r.tryAddBearer(ctx, chunk)
 	if err != nil {
+		// If bearer token has expired, release chunk back to pending state
+		if _, ok := err.(*ErrBearerExpired); ok {
+			klog.Infof("Bearer token expired for chunk %s, releasing back to pending", chunk.Name)
+			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+				ss.Status.HandlerName = ""
+				ss.Status.Phase = v1alpha1.ChunkPhasePending
+				ss.Status.Conditions = v1alpha1.AppendConditions(ss.Status.Conditions, v1alpha1.Condition{
+					Type:    "BearerExpired",
+					Message: err.Error(),
+				})
+				return ss, nil
+			})
+			return nil, 0
+		}
 		s.handleProcessErrorAndRetryable("", err)
 		return nil, 0
 	}
