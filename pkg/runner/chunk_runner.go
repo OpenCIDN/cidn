@@ -232,7 +232,8 @@ func (r *ChunkRunner) getChunk(name string) (*v1alpha1.Chunk, error) {
 }
 
 // tryAddBearer fetches the bearer token and adds the Authorization header to the chunk
-// Returns shouldWait to indicate if the chunk should wait for bearer token availability, and err for actual errors.
+// Returns shouldWait=true when bearer token is not ready or has expired, requiring the chunk
+// to wait without consuming retry attempts, and err for actual errors.
 func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) (bool, error) {
 	if chunk.Spec.BearerName == "" {
 		return false, nil
@@ -915,7 +916,8 @@ func (s *state) handleProcessErrorAndRetryable(typ string, err error) {
 
 // handleReleaseToPending releases the chunk back to pending phase without consuming retry attempts,
 // typically used when waiting for external dependencies like bearer tokens.
-// Note: This preserves the current retry count, only resetting the phase and handler name.
+// This method clears the phase, handler name, and conditions while preserving the retry count,
+// which is the key difference from failure-based phase transitions.
 func (s *state) handleReleaseToPending() {
 	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 		ss.Status.Phase = v1alpha1.ChunkPhasePending
