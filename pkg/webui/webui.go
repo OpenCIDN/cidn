@@ -103,7 +103,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				return
 			}
 			blobs, ok := groupBlobs[group]
-			if !ok || len(blobs) == 0 {
+			if !ok {
 				return
 			}
 			
@@ -123,7 +123,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 		// Helper function to remove blob from group and update or delete group aggregate
 		removeFromGroup := func(group string, blobUID string) {
-			if group == "" || groupBlobs[group] == nil {
+			if group == "" {
 				return
 			}
 			delete(groupBlobs[group], blobUID)
@@ -414,7 +414,10 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 	aggregate.Priority = maxPriority
 
 	// Determine aggregate phase
-	if allSucceeded && len(blobs) > 0 {
+	if len(blobs) == 0 {
+		// Empty group should be Unknown
+		aggregate.Phase = v1alpha1.BlobPhaseUnknown
+	} else if allSucceeded {
 		aggregate.Phase = v1alpha1.BlobPhaseSucceeded
 	} else if hasFailed {
 		aggregate.Phase = v1alpha1.BlobPhaseFailed
