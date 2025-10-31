@@ -726,7 +726,7 @@
                             </div>
                         </details>`;
                 }
-                case 'Failed':
+                case 'Failed': {
                     return `${header}
                         ${highlightError(escapeErrors(errors))}
                         <div class="progress-text">
@@ -747,17 +747,20 @@
                                 }).join('')}
                             </div>
                         </details>`;
+                }
                 case 'Pending':
-                case 'Unknown':
+                case 'Unknown': {
                     return `${header}
                         <div class="progress-text">
                             ${totalSize > 0 ? highlightProgress(totalProgress, totalSize) : ''}
                         </div>`;
-                case 'Succeeded':
+                }
+                case 'Succeeded': {
                     return `${header}
                         <div class="progress-text">
                             ${highlightBytes(totalSize > 0 ? totalSize : totalProgress)}
                         </div>`;
+                }
             }
         };
 
