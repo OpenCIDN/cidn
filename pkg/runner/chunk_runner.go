@@ -232,23 +232,26 @@ func (r *ChunkRunner) getChunk(name string) (*v1alpha1.Chunk, error) {
 }
 
 // tryAddBearer fetches the bearer token and adds the Authorization header to the chunk
-func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) error {
+// Returns (shouldWait bool, err error)
+// shouldWait indicates the chunk should be released back to pending to wait for bearer token
+func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) (bool, error) {
 	if chunk.Spec.BearerName == "" {
-		return nil
+		return false, nil
 	}
 	bearer, err := r.bearerInformer.Lister().Get(chunk.Spec.BearerName)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 	if bearer != nil {
 		if bearer.Status.TokenInfo == nil {
 			if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
-				return fmt.Errorf("bearer %s is in succeeded phase but has no token info", bearer.Name)
+				return false, fmt.Errorf("bearer %s is in succeeded phase but has no token info", bearer.Name)
 			}
-			return fmt.Errorf("bearer %s is not in succeeded phase (current: %s)", bearer.Name, bearer.Status.Phase)
+			// Bearer is not ready yet, release chunk to pending and wait
+			return true, nil
 		}
 
 		if bearer.Status.TokenInfo.Token != "" {
@@ -268,10 +271,11 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 				bearer.Status.Phase = v1alpha1.BearerPhasePending
 				_, err := r.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, bearer, metav1.UpdateOptions{})
 				if err != nil {
-					return err
+					return false, err
 				}
 
-				return fmt.Errorf("bearer token has expired, waiting for next refresh")
+				// Bearer token has expired, release chunk to pending and wait for refresh
+				return true, nil
 			}
 
 			if since >= expires*3/4 {
@@ -287,11 +291,17 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 		}
 	}
 
-	return nil
+	return false, nil
 }
 
 func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) (io.ReadCloser, int64) {
-	err := r.tryAddBearer(ctx, chunk)
+	shouldWait, err := r.tryAddBearer(ctx, chunk)
+	if shouldWait {
+		// Bearer token is not ready or has expired, release chunk to pending
+		klog.Infof("Bearer token not ready for chunk %s, releasing to pending", chunk.Name)
+		s.handleReleaseToPending()
+		return nil, 0
+	}
 	if err != nil {
 		s.handleProcessErrorAndRetryable("", err)
 		return nil, 0
@@ -900,6 +910,14 @@ func (s *state) handleProcessErrorAndRetryable(typ string, err error) {
 		} else {
 			ss.Status.Retryable = false
 		}
+		return ss, nil
+	})
+}
+
+func (s *state) handleReleaseToPending() {
+	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+		ss.Status.Phase = v1alpha1.ChunkPhasePending
+		ss.Status.HandlerName = ""
 		return ss, nil
 	})
 }
