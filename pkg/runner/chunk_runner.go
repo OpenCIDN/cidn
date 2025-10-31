@@ -232,26 +232,23 @@ func (r *ChunkRunner) getChunk(name string) (*v1alpha1.Chunk, error) {
 }
 
 // tryAddBearer fetches the bearer token and adds the Authorization header to the chunk
-// Returns shouldWait=true when bearer token is not ready or has expired, requiring the chunk
-// to wait without consuming retry attempts, and err for actual errors.
-func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) (bool, error) {
+func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) error {
 	if chunk.Spec.BearerName == "" {
-		return false, nil
+		return nil
 	}
 	bearer, err := r.bearerInformer.Lister().Get(chunk.Spec.BearerName)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return false, nil
+			return nil
 		}
-		return false, err
+		return err
 	}
 	if bearer != nil {
 		if bearer.Status.TokenInfo == nil {
 			if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
-				return false, fmt.Errorf("bearer %s is in succeeded phase but has no token info", bearer.Name)
+				return fmt.Errorf("bearer %s is in succeeded phase but has no token info", bearer.Name)
 			}
-			// Bearer is not in succeeded phase yet, release chunk to pending and wait for bearer to complete
-			return true, nil
+			return fmt.Errorf("bearer %s is not in succeeded phase (current: %s)", bearer.Name, bearer.Status.Phase)
 		}
 
 		if bearer.Status.TokenInfo.Token != "" {
@@ -271,11 +268,10 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) (
 				bearer.Status.Phase = v1alpha1.BearerPhasePending
 				_, err := r.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, bearer, metav1.UpdateOptions{})
 				if err != nil {
-					return false, err
+					return err
 				}
 
-				// Bearer token has expired, release chunk to pending and wait for bearer refresh cycle to complete
-				return true, nil
+				return fmt.Errorf("bearer token has expired, waiting for next refresh")
 			}
 
 			if since >= expires*3/4 {
@@ -291,17 +287,11 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) (
 		}
 	}
 
-	return false, nil
+	return nil
 }
 
 func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) (io.ReadCloser, int64) {
-	shouldWait, err := r.tryAddBearer(ctx, chunk)
-	if shouldWait {
-		// Bearer token is not ready or has expired, release chunk to pending
-		klog.Infof("Bearer token not ready for chunk %s, releasing to pending", chunk.Name)
-		s.handleReleaseToPending()
-		return nil, 0
-	}
+	err := r.tryAddBearer(ctx, chunk)
 	if err != nil {
 		s.handleProcessErrorAndRetryable("", err)
 		return nil, 0
@@ -829,9 +819,13 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 
 	var pendingChunks []*v1alpha1.Chunk
 
-	// Filter for Pending state
+	// Filter for Pending state and check bearer readiness
 	for _, chunk := range chunks {
 		if chunk.Status.HandlerName == "" && chunk.Status.Phase == v1alpha1.ChunkPhasePending {
+			// Skip chunks whose bearer token is not ready
+			if !r.isBearerReady(chunk) {
+				continue
+			}
 			pendingChunks = append(pendingChunks, chunk.DeepCopy())
 		}
 	}
@@ -848,6 +842,46 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 	})
 
 	return pendingChunks, nil
+}
+
+// isBearerReady checks if the bearer token is ready for use
+// Returns true if the chunk has no bearer, or if the bearer is ready and valid
+// Returns false if the bearer is not ready or has expired
+func (r *ChunkRunner) isBearerReady(chunk *v1alpha1.Chunk) bool {
+	if chunk.Spec.BearerName == "" {
+		return true
+	}
+
+	bearer, err := r.bearerInformer.Lister().Get(chunk.Spec.BearerName)
+	if err != nil {
+		// If bearer not found, skip this chunk for now
+		if apierrors.IsNotFound(err) {
+			return false
+		}
+		// For other errors, let the chunk be processed and handle the error there
+		return true
+	}
+
+	// Check if bearer has token info
+	if bearer.Status.TokenInfo == nil {
+		// Bearer is not ready yet
+		return false
+	}
+
+	// Check if token has expired
+	if bearer.Status.TokenInfo.Token != "" {
+		issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
+		expiresIn := bearer.Status.TokenInfo.ExpiresIn
+		since := time.Since(issuedAt)
+		expires := time.Duration(expiresIn) * time.Second
+
+		if since >= expires {
+			// Token has expired
+			return false
+		}
+	}
+
+	return true
 }
 
 type hashEncoding interface {
@@ -910,20 +944,6 @@ func (s *state) handleProcessErrorAndRetryable(typ string, err error) {
 		} else {
 			ss.Status.Retryable = false
 		}
-		return ss, nil
-	})
-}
-
-// handleReleaseToPending releases the chunk back to pending phase without consuming retry attempts,
-// typically used when waiting for external dependencies like bearer tokens.
-// This method clears the phase, handler name, and conditions while preserving the retry count,
-// which is the key difference from failure-based phase transitions.
-func (s *state) handleReleaseToPending() {
-	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
-		ss.Status.Phase = v1alpha1.ChunkPhasePending
-		ss.Status.HandlerName = ""
-		ss.Status.Conditions = nil
-		// Retry count is intentionally preserved
 		return ss, nil
 	})
 }
