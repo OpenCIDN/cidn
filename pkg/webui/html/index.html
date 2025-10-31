@@ -378,34 +378,12 @@
             text-decoration: underline;
         }
 
-        .link-info-toggle {
-            cursor: pointer;
-            user-select: none;
-            display: inline-block;
-            color: var(--color-status-progress);
-        }
-
-        .link-info-toggle:hover {
-            text-decoration: underline;
-        }
-
-        .link-info-content {
-            display: none;
-            margin-top: 0.25rem;
-        }
-
-        .link-info-content.expanded {
-            display: block;
-            margin-top: 0.5rem;
-        }
-
         .member-item {
             display: inline-block;
             margin: 0.25rem 0.5rem 0.25rem 0;
             padding: 0.25rem 0.5rem;
             border-radius: 0.25rem;
             background: rgba(0, 0, 0, 0.05);
-            display: inline-block;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -624,9 +602,8 @@
             let linkInfo = '';
             if (isGroup && data.members && data.members.length > 0) {
                 const memberLinks = data.members.map(member =>
-                    `${svgIcon(member.phase.toLowerCase())}<a href="#${member.uid}">${member.displayName}</a> `
-                ).join('');
-                const toggleId = 'toggle-' + elementId;
+                    `${svgIcon(member.phase.toLowerCase())}<a href="#${member.uid}">${member.displayName}</a>`
+                ).join(' ');
                 linkInfo = `<span class="member-item">${memberLinks}</span>`;
             } else if (!isGroup && data.group) {
                 const groupId = 'group-' + data.group;
