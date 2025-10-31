@@ -24,6 +24,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -102,7 +103,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 			}
 			data, err := json.Marshal(aggregate)
 			if err != nil {
-				fmt.Printf("Error marshaling group aggregate: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error marshaling group aggregate: %v\n", err)
 				return
 			}
 			event.Data = data
@@ -386,10 +387,8 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 			allSucceeded = false
 		case v1alpha1.BlobPhaseSucceeded:
 			allPending = false
-			// allSucceeded remains as is
 		case v1alpha1.BlobPhasePending:
 			allSucceeded = false
-			// allPending remains as is
 		case v1alpha1.BlobPhaseUnknown:
 			allPending = false
 			allSucceeded = false
