@@ -915,10 +915,12 @@ func (s *state) handleProcessErrorAndRetryable(typ string, err error) {
 
 // handleReleaseToPending releases the chunk back to pending phase without consuming retry attempts,
 // typically used when waiting for external dependencies like bearer tokens.
+// Note: This preserves the current retry count, only resetting the phase and handler name.
 func (s *state) handleReleaseToPending() {
 	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 		ss.Status.Phase = v1alpha1.ChunkPhasePending
 		ss.Status.HandlerName = ""
+		// Retry count is intentionally preserved
 		return ss, nil
 	})
 }
