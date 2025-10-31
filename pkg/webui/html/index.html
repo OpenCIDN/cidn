@@ -453,14 +453,7 @@
             const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
             const sizeClasses = ['size-unit-bytes', 'size-unit-kib', 'size-unit-mib', 'size-unit-gib', 'size-unit-tib', 'size-unit-pib'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-            let b = parseFloat(bytes / k ** i);
-
-            if (i) {
-                b = b.toFixed(2);
-            } else {
-                b = b.toFixed(0);
-            }
+            const b = (bytes / k ** i).toFixed(i ? 2 : 0);
             return `<span class="${sizeClasses[i]}">${b} ${sizes[i]}</span>`;
         };
 
@@ -485,14 +478,22 @@
             const succeeded = data.succeededChunks || 0;
             const failed = data.failedChunks || 0;
             const chunksNumber = data.chunksNumber || 0;
-            const idle = data.chunksNumber - pending - running - succeeded - failed;
+            const idle = chunksNumber - pending - running - succeeded - failed;
+
+            const icons = [
+                { type: 'idle', count: idle },
+                { type: 'pending', count: pending },
+                { type: 'failed', count: failed },
+                { type: 'running', count: running },
+                { type: 'succeeded', count: succeeded }
+            ];
+
+            const iconHTML = chunksNumber > 8
+                ? icons.filter(i => i.count > 0).map(i => `${svgIcon(i.type)}<span>${i.count}</span>`).join(' ')
+                : icons.map(i => svgIcon(i.type).repeat(i.count)).join('');
 
             return `<span title="Chunks status: idle, pending, failed, running, succeeded / total">
-            ${chunksNumber > 8 ?
-                    `${idle > 0 ? `${svgIcon('idle')}<span>${idle}</span>` : ''} ${pending > 0 ? `${svgIcon('pending')}<span>${pending}</span>` : ''} ${failed > 0 ? `${svgIcon('failed')}<span>${failed}</span>` : ''} ${running > 0 ? `${svgIcon('running')}<span>${running}</span>` : ''} ${succeeded > 0 ? `${svgIcon('succeeded')}<span>${succeeded}</span>` : ''}`
-                    :
-                    `${svgIcon('idle').repeat(idle)}${svgIcon('pending').repeat(pending)}${svgIcon('failed').repeat(failed)}${svgIcon('running').repeat(running)}${svgIcon('succeeded').repeat(succeeded)}`
-                } <span>/ ${chunksNumber}</span>
+            ${iconHTML} <span>/ ${chunksNumber}</span>
             </span>`;
         }
 
@@ -506,14 +507,8 @@
         };
 
         const clearDataItem = (event) => {
-            const elementId = `${event.lastEventId}`;
-            const element = document.getElementById(elementId);
-
-            if (element) {
-                element.remove();
-            }
-            return;
-        }
+            document.getElementById(event.lastEventId)?.remove();
+        };
 
         const dataItem = elementId => {
             const element = document.createElement('div');
@@ -540,11 +535,11 @@
         };
 
         const generateItemContent = (data, elementId) => {
-            const name = data.name;
-            const displayName = data.displayName || name;
+            const displayName = data.displayName || data.name;
             const size = data.total || 0;
             const progress = data.progress || 0;
             const errors = data.errors || [];
+            const hasChunks = data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks);
 
             const header = `
                 <div class="data-header">
@@ -555,32 +550,25 @@
 
             switch (data.phase) {
                 case 'Running': {
-                    // Calculate speed and remaining time if this is a running item
                     let speed = 0;
                     let remainingTime = 0;
-                    if (data.phase === 'Running') {
-                        const now = Date.now();
-                        if (progressData[data.name]) {
-                            const prev = progressData[data.name];
-                            const timeDiff = (now - prev.time) / 1000; // in seconds
-                            const progressDiff = progress - prev.progress;
-                            if (timeDiff > 0 && progressDiff > 0) {
-                                speed = progressDiff / timeDiff;
-                                if (size > 0) {
-                                    remainingTime = (size - progress) / speed;
-                                    if (prev.remainingTime) {
-                                        remainingTime = (remainingTime * 9 + prev.remainingTime) / 10;
-                                    }
-                                    remainingTime = Math.round(remainingTime);
+                    const now = Date.now();
+                    if (progressData[data.name]) {
+                        const prev = progressData[data.name];
+                        const timeDiff = (now - prev.time) / 1000;
+                        const progressDiff = progress - prev.progress;
+                        if (timeDiff > 0 && progressDiff > 0) {
+                            speed = progressDiff / timeDiff;
+                            if (size > 0) {
+                                remainingTime = (size - progress) / speed;
+                                if (prev.remainingTime) {
+                                    remainingTime = (remainingTime * 9 + prev.remainingTime) / 10;
                                 }
+                                remainingTime = Math.round(remainingTime);
                             }
                         }
-                        progressData[data.name] = {
-                            progress: progress,
-                            remainingTime: remainingTime,
-                            time: now,
-                        };
                     }
+                    progressData[data.name] = { progress, remainingTime, time: now };
 
                     let progressPercent = size > 0 ? (progress / size * 100).toFixed(0) : 0;
                     if (progressPercent > 99 && size != progress) {
@@ -600,14 +588,14 @@
                     ${highlightError(escapeErrors(errors))}
                     <div class="progress-text">
                         ${size > 0 ? highlightProgress(progress, size) : ''}
-                        ${data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks) ? highlightChunksInfo(data) : ''}
+                        ${hasChunks ? highlightChunksInfo(data) : ''}
                     </div>`;
                 case 'Pending':
                 case 'Unknown':
                     return `${header}
                     <div class="progress-text">
                         ${size > 0 ? highlightProgress(progress, size) : ''}
-                        ${data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks) ? highlightChunksInfo(data) : ''}
+                        ${hasChunks ? highlightChunksInfo(data) : ''}
                     </div>`;
                 case 'Succeeded':
                     return `${header}
@@ -713,37 +701,26 @@
             }, 100);
         };
 
+        const handleRenderEvent = (event) => {
+            try {
+                renderDataItem(event);
+            } catch (e) {
+                console.error('Error parsing event data:', e);
+                showError(`Error parsing event data: ${e.message}`);
+            }
+
+            const hash = window.location.hash;
+            if (hash && event.lastEventId == hash.substring(1)) {
+                checkAndExpandTargetContainer();
+            }
+        };
+
         const startStream = async () => {
             try {
                 const eventSource = new EventSource('/api/events');
 
-                eventSource.addEventListener('ADD', (event) => {
-                    try {
-                        renderDataItem(event);
-                    } catch (e) {
-                        console.error('Error parsing event data:', e);
-                        showError(`Error parsing event data: ${e.message}`);
-                    }
-
-                    const hash = window.location.hash;
-                    if (hash && event.lastEventId == hash.substring(1)) {
-                        checkAndExpandTargetContainer();
-                    };
-                });
-
-                eventSource.addEventListener('UPDATE', (event) => {
-                    try {
-                        renderDataItem(event);
-                    } catch (e) {
-                        console.error('Error parsing event data:', e);
-                        showError(`Error parsing event data: ${e.message}`);
-                    }
-
-                    const hash = window.location.hash;
-                    if (hash && event.lastEventId == hash.substring(1)) {
-                        checkAndExpandTargetContainer();
-                    };
-                });
+                eventSource.addEventListener('ADD', handleRenderEvent);
+                eventSource.addEventListener('UPDATE', handleRenderEvent);
 
                 eventSource.addEventListener('DELETE', (event) => {
                     try {
