@@ -22,6 +22,8 @@ import (
 )
 
 func TestErrBearerExpired(t *testing.T) {
+	t.Helper()
+	
 	msg := "bearer token has expired, waiting for next refresh"
 	err := NewErrBearerExpired(msg)
 	

@@ -50,7 +50,7 @@ import (
 )
 
 const (
-	// ConditionTypeBearerExpired indicates that a chunk processing was interrupted because its bearer token expired
+	// ConditionTypeBearerExpired indicates that a chunk processing was interrupted because its bearer token expired.
 	ConditionTypeBearerExpired = "BearerExpired"
 )
 
@@ -63,7 +63,7 @@ type ErrBearerExpired struct {
 	msg string
 }
 
-// NewErrBearerExpired creates a new ErrBearerExpired error with the given message
+// NewErrBearerExpired creates a new ErrBearerExpired error with the given message.
 func NewErrBearerExpired(msg string) *ErrBearerExpired {
 	return &ErrBearerExpired{msg: msg}
 }
