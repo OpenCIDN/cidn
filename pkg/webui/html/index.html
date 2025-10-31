@@ -395,7 +395,8 @@
         }
 
         .link-info-content.expanded {
-            display: inline;
+            display: block;
+            margin-top: 0.5rem;
         }
 
         .member-count {
@@ -407,6 +408,50 @@
 
         .member-count:hover {
             text-decoration: underline;
+        }
+
+        .member-item {
+            display: inline-block;
+            margin: 0.25rem 0.5rem 0.25rem 0;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .member-item {
+                background: rgba(255, 255, 255, 0.1);
+            }
+        }
+
+        .member-item a {
+            margin: 0;
+        }
+
+        .member-status {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.25rem;
+            vertical-align: middle;
+        }
+
+        .member-status.Running {
+            background: var(--color-status-progress);
+        }
+
+        .member-status.Pending,
+        .member-status.Unknown {
+            background: var(--color-status-waiting);
+        }
+
+        .member-status.Failed {
+            background: var(--color-status-error);
+        }
+
+        .member-status.Succeeded {
+            background: var(--color-status-success);
         }
     </style>
 </head>
@@ -615,8 +660,8 @@
             let linkInfo = '';
             if (isGroup && data.members && data.members.length > 0) {
                 // Group: show links to member blobs (collapsed by default)
-                const memberLinks = data.members.map(memberId => 
-                    `<a href="#${memberId}">${memberId}</a>`
+                const memberLinks = data.members.map(member => 
+                    `<span class="member-item"><span class="member-status ${member.phase}"></span><a href="#${member.uid}">${member.displayName}</a></span>`
                 ).join('');
                 const toggleId = 'toggle-' + elementId;
                 linkInfo = `<div class="link-info">

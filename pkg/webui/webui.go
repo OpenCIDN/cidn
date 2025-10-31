@@ -286,13 +286,20 @@ func createEvent(eventType string, blob *v1alpha1.Blob) Event {
 	return event
 }
 
+// memberInfo holds information about a member blob in a group
+type memberInfo struct {
+	UID         string             `json:"uid"`
+	DisplayName string             `json:"displayName"`
+	Phase       v1alpha1.BlobPhase `json:"phase"`
+}
+
 // cleanedBlob is a reduced view of Blob for the WebUI
 // Only relevant fields are exposed
 type cleanedBlob struct {
 	Name        string `json:"name"`
 	DisplayName string `json:"displayName,omitempty"`
 	Group       string `json:"group,omitempty"`
-	Members     []string `json:"members,omitempty"` // For group aggregates: list of member blob names
+	Members     []memberInfo `json:"members,omitempty"` // For group aggregates: list of member blob info
 
 	Priority     int64 `json:"priority,omitempty"`
 	Total        int64 `json:"total"`
@@ -357,7 +364,7 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 		Name:        groupName,
 		DisplayName: groupName,
 		Group:       groupName,
-		Members:     make([]string, 0, len(blobs)),
+		Members:     make([]memberInfo, 0, len(blobs)),
 	}
 
 	var totalSize int64
@@ -375,8 +382,18 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 	allPending := true
 
 	for blobUID, blob := range blobs {
-		// Add member to the list
-		aggregate.Members = append(aggregate.Members, string(blobUID))
+		// Add member info to the list
+		displayName := blob.Name
+		if blob.Annotations != nil {
+			if dn := blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]; dn != "" {
+				displayName = dn
+			}
+		}
+		aggregate.Members = append(aggregate.Members, memberInfo{
+			UID:         string(blobUID),
+			DisplayName: displayName,
+			Phase:       blob.Status.Phase,
+		})
 		
 		totalSize += blob.Status.Total
 		totalProgress += blob.Status.Progress
