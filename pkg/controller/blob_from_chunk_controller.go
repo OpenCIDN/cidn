@@ -217,7 +217,6 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
-			c.deleteChunksInNonFinalStates(ctx, blob)
 		}
 	}
 	return nil
@@ -246,7 +245,6 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 				Type:    "Sha256Verification",
 				Message: err.Error(),
 			})
-			c.deleteChunksInNonFinalStates(ctx, blob)
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
 			blob.Status.Progress = chunk.Status.Progress
@@ -263,7 +261,6 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 		} else {
 			blob.Status.Phase = v1alpha1.BlobPhaseFailed
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
-			c.deleteChunksInNonFinalStates(ctx, blob)
 		}
 	case v1alpha1.ChunkPhaseRunning, v1alpha1.ChunkPhaseUnknown:
 		blob.Status.PendingChunks = 0
