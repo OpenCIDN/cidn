@@ -626,10 +626,9 @@
                     <span id="${toggleId}" class="link-info-content">${memberLinks}</span>
                 </div>`;
             } else if (!isGroup && data.group) {
+                // Individual blob: show link to group (collapsed by default)
                 const groupId = 'group-' + data.group;
-                linkInfo = `<div class="link-info">
-                    <a href="#${groupId}">${data.group}</a>
-                </div>`;
+                linkInfo = `<a href="#${groupId}">${data.group}</a>`;
             }
 
             const header = `
