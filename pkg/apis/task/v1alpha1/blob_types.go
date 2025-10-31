@@ -182,4 +182,6 @@ type BlobList struct {
 const (
 	// BlobDisplayNameAnnotation is the annotation key for the display name of a blob.
 	BlobDisplayNameAnnotation = "blob.task.opencidn.daocloud.io/display-name"
+	// BlobGroupAnnotation is the annotation key for the group name of a blob.
+	BlobGroupAnnotation = "blob.task.opencidn.daocloud.io/group"
 )
