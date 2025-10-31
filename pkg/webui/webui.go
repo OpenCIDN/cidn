@@ -374,19 +374,26 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 			maxPriority = blob.Spec.Priority
 		}
 
-		if blob.Status.Phase == v1alpha1.BlobPhaseRunning {
+		// Track phase states
+		switch blob.Status.Phase {
+		case v1alpha1.BlobPhaseRunning:
 			hasRunning = true
 			allPending = false
 			allSucceeded = false
-		} else if blob.Status.Phase == v1alpha1.BlobPhaseFailed {
+		case v1alpha1.BlobPhaseFailed:
 			hasFailed = true
 			allPending = false
 			allSucceeded = false
-		} else if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded {
+		case v1alpha1.BlobPhaseSucceeded:
 			allPending = false
-		} else if blob.Status.Phase == v1alpha1.BlobPhasePending || blob.Status.Phase == v1alpha1.BlobPhaseUnknown {
+			// allSucceeded remains as is
+		case v1alpha1.BlobPhasePending:
 			allSucceeded = false
-		} else {
+			// allPending remains as is
+		case v1alpha1.BlobPhaseUnknown:
+			allPending = false
+			allSucceeded = false
+		default:
 			allPending = false
 			allSucceeded = false
 		}
