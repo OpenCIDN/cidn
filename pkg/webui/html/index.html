@@ -243,7 +243,7 @@
             margin: 0;
         }
 
-        .status-status-item-count {
+        .status-item-count {
             margin-right: auto;
         }
 
@@ -431,7 +431,7 @@
                 <svg width="24" height="24">
                     <use xlink:href="#icon-running"></use>
                 </svg>
-                Processing <span class="status-status-item-count">[0]</span>
+                Processing <span class="status-item-count">[0]</span>
             </h2>
             <div id="processing-container" class="status-container"></div>
         </div>
@@ -440,7 +440,7 @@
                 <svg width="24" height="24">
                     <use xlink:href="#icon-pending"></use>
                 </svg>
-                Pending <span class="status-status-item-count">[0]</span>
+                Pending <span class="status-item-count">[0]</span>
             </h2>
             <div id="pending-container" class="status-container" style="display: none;"></div>
         </div>
@@ -449,7 +449,7 @@
                 <svg width="24" height="24">
                     <use xlink:href="#icon-failed"></use>
                 </svg>
-                Failed <span class="status-status-item-count">[0]</span>
+                Failed <span class="status-item-count">[0]</span>
             </h2>
             <div id="failed-container" class="status-container" style="display: none;"></div>
         </div>
@@ -458,7 +458,7 @@
                 <svg width="24" height="24">
                     <use xlink:href="#icon-succeeded"></use>
                 </svg>
-                Completed <span class="status-status-item-count">[0]</span>
+                Completed <span class="status-item-count">[0]</span>
             </h2>
             <div id="completed-container" class="status-container" style="display: none;"></div>
         </div>
@@ -814,7 +814,7 @@
             const title = container.previousElementSibling;
             if (!title) return;
 
-            const countSpan = title.querySelector('.status-status-item-count');
+            const countSpan = title.querySelector('.status-item-count');
             if (!countSpan) return;
 
             const observer = new MutationObserver(() => {
