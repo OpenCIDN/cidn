@@ -277,15 +277,7 @@
             gap: 0.5rem;
             min-width: 0;
             flex-wrap: wrap;
-        }
-
-        .data-header>strong {
-            flex: 1;
-            overflow: hidden;
             white-space: nowrap;
-            text-overflow: ellipsis;
-            font-weight: 600;
-            font-size: 0.95em;
         }
 
         .progress-container {
@@ -372,6 +364,7 @@
             color: var(--color-status-progress);
             text-decoration: none;
             margin: 0 0.25rem;
+            white-space: nowrap;
         }
 
         .link-info a:hover {
@@ -588,12 +581,12 @@
                 'Failed': 'failed'
             };
             let linkInfo = '';
-            if (isGroup && data.members && data.members.length > 0) {
+            if (data.members && data.members.length > 0) {
                 const memberLinks = data.members.map(member =>
-                    `${svgIcon(iconMap[member.phase])}<a href="#${member.uid}">${member.displayName}</a>`
+                    `<a href="#${member.uid}">${svgIcon(iconMap[member.phase])}${member.displayName}</a>`
                 ).join(' ');
                 linkInfo = `<span class="link-info">${memberLinks}</span>`;
-            } else if (!isGroup && data.group) {
+            } else if (data.group) {
                 const groupId = 'group-' + data.group;
                 linkInfo = `<span class="link-info"><a href="#${groupId}">${data.group}</a></span>`;
             }

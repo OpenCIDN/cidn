@@ -385,10 +385,20 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 				displayName = dn
 			}
 		}
+
+		phase := blob.Status.Phase
+		if phase == v1alpha1.BlobPhaseRunning &&
+			blob.Status.Progress == 0 &&
+			blob.Status.RunningChunks == 0 &&
+			blob.Status.FailedChunks == 0 &&
+			blob.Status.SucceededChunks == 0 {
+			phase = v1alpha1.BlobPhasePending
+		}
+
 		aggregate.Members = append(aggregate.Members, memberInfo{
 			UID:         string(blobUID),
 			DisplayName: displayName,
-			Phase:       blob.Status.Phase,
+			Phase:       phase,
 		})
 
 		totalSize += blob.Status.Total
