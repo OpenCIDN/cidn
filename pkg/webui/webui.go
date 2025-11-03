@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -300,6 +301,7 @@ type cleanedBlob struct {
 	Name        string       `json:"name"`
 	DisplayName string       `json:"displayName,omitempty"`
 	Group       string       `json:"group,omitempty"`
+	Tags        []string     `json:"tags,omitempty"`
 	Members     []memberInfo `json:"members,omitempty"` // For group aggregates: list of member blob info
 
 	Priority     int64 `json:"priority,omitempty"`
@@ -326,6 +328,18 @@ func cleanBlobForWebUI(blob *v1alpha1.Blob) *cleanedBlob {
 	if blob.Annotations != nil {
 		cleaned.DisplayName = blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
 		cleaned.Group = blob.Annotations[v1alpha1.BlobGroupAnnotation]
+		
+		// Parse tags from comma-separated annotation
+		if tagsStr := blob.Annotations[v1alpha1.BlobTagsAnnotation]; tagsStr != "" {
+			tags := strings.Split(tagsStr, ",")
+			cleaned.Tags = make([]string, 0, len(tags))
+			for _, tag := range tags {
+				tag = strings.TrimSpace(tag)
+				if tag != "" {
+					cleaned.Tags = append(cleaned.Tags, tag)
+				}
+			}
+		}
 	}
 
 	// Set spec fields
@@ -378,6 +392,9 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 	var idleChunks int64
 	var maxPriority int64
 	var hasFailed bool
+	
+	// Collect unique tags from all blobs in the group
+	tagSet := make(map[string]bool)
 
 	for blobUID, blob := range blobs {
 		// Add member info to the list
@@ -385,6 +402,17 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 		if blob.Annotations != nil {
 			if dn := blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]; dn != "" {
 				displayName = dn
+			}
+			
+			// Collect tags from this blob
+			if tagsStr := blob.Annotations[v1alpha1.BlobTagsAnnotation]; tagsStr != "" {
+				tags := strings.Split(tagsStr, ",")
+				for _, tag := range tags {
+					tag = strings.TrimSpace(tag)
+					if tag != "" {
+						tagSet[tag] = true
+					}
+				}
 			}
 		}
 
@@ -419,6 +447,15 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 		if blob.Spec.Priority > maxPriority {
 			maxPriority = blob.Spec.Priority
 		}
+	}
+	
+	// Convert tag set to sorted slice
+	if len(tagSet) > 0 {
+		aggregate.Tags = make([]string, 0, len(tagSet))
+		for tag := range tagSet {
+			aggregate.Tags = append(aggregate.Tags, tag)
+		}
+		sort.Strings(aggregate.Tags)
 	}
 
 	sort.Slice(aggregate.Members, func(i, j int) bool {

@@ -354,6 +354,25 @@
             margin-left: 0.5rem;
         }
 
+        .tag-badge {
+            display: inline-block;
+            padding: 0.125rem 0.5rem;
+            background: var(--color-status-waiting);
+            color: white;
+            border-radius: 0.25rem;
+            font-size: 0.75em;
+            font-weight: 500;
+            margin-left: 0.25rem;
+            margin-top: 0.25rem;
+        }
+
+        .tags-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+            margin-top: 0.25rem;
+        }
+
         .link-info {
             font-size: 0.875em;
             color: var(--color-text-secondary);
@@ -591,11 +610,21 @@
                 linkInfo = `<span class="link-info"><a href="#${groupId}">${data.group}</a></span>`;
             }
 
+            // Generate tags HTML
+            let tagsHTML = '';
+            if (data.tags && data.tags.length > 0) {
+                const tagBadges = data.tags.map(tag => 
+                    `<span class="tag-badge">${escapeHtml(tag)}</span>`
+                ).join('');
+                tagsHTML = `<div class="tags-container">${tagBadges}</div>`;
+            }
+
             const header = `
                 <div class="data-header">
                     ${displayName}
                     <a href="#${elementId}" class="anchor-link">#</a>
                 </div>
+                ${tagsHTML}
                 ${linkInfo}
             `;
 

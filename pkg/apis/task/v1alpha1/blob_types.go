@@ -184,4 +184,6 @@ const (
 	BlobDisplayNameAnnotation = "blob.task.opencidn.daocloud.io/display-name"
 	// BlobGroupAnnotation is the annotation key for the group name of a blob.
 	BlobGroupAnnotation = "blob.task.opencidn.daocloud.io/group"
+	// BlobTagsAnnotation is the annotation key for tags of a blob. Multiple tags are comma-separated.
+	BlobTagsAnnotation = "blob.task.opencidn.daocloud.io/tags"
 )
