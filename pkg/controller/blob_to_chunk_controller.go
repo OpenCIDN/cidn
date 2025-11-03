@@ -568,7 +568,122 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 	return mp, nil
 }
 
+// chunkCounts holds the count of chunks in different phases
+type chunkCounts struct {
+	pending int
+	running int
+	failed  int
+}
+
+// countChunksByPhase counts chunks grouped by their phase
+func countChunksByPhase(chunks []*v1alpha1.Chunk) chunkCounts {
+	counts := chunkCounts{}
+	for _, chunk := range chunks {
+		switch chunk.Status.Phase {
+		case v1alpha1.ChunkPhasePending:
+			counts.pending++
+		case v1alpha1.ChunkPhaseRunning:
+			counts.running++
+		case v1alpha1.ChunkPhaseFailed:
+			counts.failed++
+		}
+	}
+	return counts
+}
+
+// calculateChunksToCreate determines how many chunks should be created
+func calculateChunksToCreate(blob *v1alpha1.Blob, counts chunkCounts) int {
+	if counts.failed != 0 {
+		return 0
+	}
+
+	if counts.pending >= int(blob.Spec.MaximumPending) {
+		return 0
+	}
+
+	toCreate := int(blob.Spec.MaximumRunning) - (counts.pending + counts.running)
+	if toCreate <= 0 {
+		return 0
+	}
+
+	if toCreate > int(blob.Spec.MaximumPending) {
+		toCreate = int(blob.Spec.MaximumPending)
+	}
+
+	return toCreate
+}
+
+// getOrCreateMultipart retrieves an existing multipart or creates a new one
+func (c *BlobToChunkController) getOrCreateMultipart(ctx context.Context, blob *v1alpha1.Blob) (*v1alpha1.Multipart, error) {
+	mp, err := c.multipartInformer.Lister().Get(blob.Name)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+		return c.toMultipart(ctx, blob)
+	}
+
+	// Validate existing multipart matches current blob configuration
+	needsRecreation, err := c.needsMultipartRecreation(blob, mp)
+	if err != nil {
+		return nil, err
+	}
+	if needsRecreation {
+		if err := c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{}); err != nil {
+			return nil, err
+		}
+		return c.toMultipart(ctx, blob)
+	}
+
+	return mp, nil
+}
+
+// needsMultipartRecreation checks if multipart needs to be recreated
+func (c *BlobToChunkController) needsMultipartRecreation(blob *v1alpha1.Blob, mp *v1alpha1.Multipart) (bool, error) {
+	destinationNames := make([]string, 0, len(blob.Spec.Destination))
+	for _, dst := range blob.Spec.Destination {
+		s3 := c.s3[dst.Name]
+		if s3 == nil {
+			return false, fmt.Errorf("s3 client for destination %q not found", dst.Name)
+		}
+		destinationNames = append(destinationNames, dst.Name)
+	}
+
+	needsRecreation := !slices.Equal(destinationNames, mp.DestinationNames) ||
+		blob.Spec.ChunksNumber != int64(len(mp.UploadEtags))
+	return needsRecreation, nil
+}
+
+// scheduleChunkDeletion schedules a succeeded chunk for deletion
+func (c *BlobToChunkController) scheduleChunkDeletion(ctx context.Context, name string) error {
+	err := c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
+	if err == nil {
+		return nil
+	}
+
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+
+	return err
+}
+
+// scheduleChunkCreation schedules a chunk for creation
+func (c *BlobToChunkController) scheduleChunkCreation(ctx context.Context, chunk *v1alpha1.Chunk) error {
+	_, err := c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
+
+	if apierrors.IsAlreadyExists(err) {
+		return nil
+	}
+
+	return err
+}
+
 func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blob) error {
+	// Get existing chunks and count by phase
 	chunks, err := c.chunkInformer.Lister().List(labels.SelectorFromSet(labels.Set{
 		BlobUIDLabelKey: string(blob.UID),
 	}))
@@ -576,78 +691,38 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 		return err
 	}
 
-	pendingCount := 0
-	runningCount := 0
-	failedCount := 0
-	for _, chunk := range chunks {
-		switch chunk.Status.Phase {
-		case v1alpha1.ChunkPhasePending:
-			pendingCount++
-		case v1alpha1.ChunkPhaseRunning:
-			runningCount++
-		case v1alpha1.ChunkPhaseFailed:
-			failedCount++
-		}
-	}
-	if failedCount != 0 {
+	counts := countChunksByPhase(chunks)
+	toCreate := calculateChunksToCreate(blob, counts)
+	if toCreate == 0 {
 		return nil
 	}
 
-	if pendingCount >= int(blob.Spec.MaximumPending) {
-		return nil
-	}
-
-	toCreate := int(blob.Spec.MaximumRunning) - (pendingCount + runningCount)
-	if toCreate <= 0 {
-		return nil
-	}
-
-	if toCreate > int(blob.Spec.MaximumPending) {
-		toCreate = int(blob.Spec.MaximumPending)
-	}
-
-	mp, err := c.multipartInformer.Lister().Get(blob.Name)
+	// Get or create multipart upload
+	mp, err := c.getOrCreateMultipart(ctx, blob)
 	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-
-		mp, err = c.toMultipart(ctx, blob)
-		if err != nil {
-			return err
-		}
-
-		if mp == nil {
-			return nil
-		}
-	} else {
-		destinationNames := make([]string, 0, len(blob.Spec.Destination))
-		for _, dst := range blob.Spec.Destination {
-			s3 := c.s3[dst.Name]
-			if s3 == nil {
-				return fmt.Errorf("s3 client for destination %q not found", dst.Name)
-			}
-			destinationNames = append(destinationNames, dst.Name)
-		}
-
-		if !slices.Equal(destinationNames, mp.DestinationNames) ||
-			blob.Spec.ChunksNumber != int64(len(mp.UploadEtags)) {
-			err := c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
-			if err != nil {
-				return err
-			}
-
-			mp, err = c.toMultipart(ctx, blob)
-			if err != nil {
-				return err
-			}
-
-			if mp == nil {
-				return nil
-			}
-		}
+		return err
+	}
+	if mp == nil {
+		return nil
 	}
 
+	// Create chunks
+	return c.createChunks(ctx, blob, mp, toCreate)
+}
+
+// shouldSkipChunk checks if a chunk should be skipped (already uploaded)
+func shouldSkipChunk(mp *v1alpha1.Multipart, chunkIndex int64) bool {
+	if len(mp.UploadEtags) == 0 {
+		return false
+	}
+	if chunkIndex >= int64(len(mp.UploadEtags)) {
+		return false
+	}
+	return len(mp.UploadEtags[chunkIndex].Etags) != 0
+}
+
+// createChunks creates the specified number of chunks for the blob
+func (c *BlobToChunkController) createChunks(ctx context.Context, blob *v1alpha1.Blob, mp *v1alpha1.Multipart, toCreate int) error {
 	created := 0
 	p0 := decimalStringLength(blob.Spec.ChunksNumber)
 	s0 := hexStringLength(blob.Status.Total)
@@ -655,6 +730,7 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 
 	g, _ := errgroup.WithContext(ctx)
 	g.SetLimit(toCreate)
+
 	for i := int64(0); i < blob.Spec.ChunksNumber && created < toCreate; i++ {
 		start := i * blob.Spec.ChunkSize
 		end := start + blob.Spec.ChunkSize
@@ -665,20 +741,14 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 		num := i + 1
 		name := fmt.Sprintf("blob:part:%s:%0*d:%0*x-%0*x", blob.Name, p0, num, s0, start, s0, end)
 
-		if len(mp.UploadEtags) != 0 &&
-			len(mp.UploadEtags[i].Etags) != 0 {
-			if i < int64(len(mp.UploadEtags)-1) && len(mp.UploadEtags[i+1].Etags) != 0 {
+		// Skip if chunk is already uploaded
+		if shouldSkipChunk(mp, i) {
+			// Schedule deletion if this is not the last pending chunk
+			if i < int64(len(mp.UploadEtags)-1) && shouldSkipChunk(mp, i+1) {
 				chunk, err := c.chunkInformer.Lister().Get(name)
 				if err == nil && chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
 					g.Go(func() error {
-						err = c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
-						if err != nil {
-							if !apierrors.IsNotFound(err) {
-								klog.Errorf("failed to delete chunk %s: %v", name, err)
-							}
-						}
-
-						return nil
+						return c.scheduleChunkDeletion(ctx, name)
 					})
 				}
 			}
@@ -686,6 +756,7 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 			continue
 		}
 
+		// Skip if chunk already exists
 		if _, err := c.chunkInformer.Lister().Get(name); err == nil {
 			lastName = name
 			continue
@@ -693,25 +764,15 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 			return err
 		}
 
+		// Build and schedule chunk creation
 		chunk, err := c.buildChunk(blob, name, num, start, end, lastName, mp.UploadIDs)
 		if err != nil {
 			return err
 		}
 
 		g.Go(func() error {
-			_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
-			if err == nil {
-				return nil
-			}
-
-			if !apierrors.IsAlreadyExists(err) {
-				klog.Errorf("failed to create chunk %s: %v", chunk.Name, err)
-				return nil
-			}
-
-			return err
+			return c.scheduleChunkCreation(ctx, chunk)
 		})
-
 		created++
 		lastName = name
 	}
