@@ -293,6 +293,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to check for existing chunk: %v", err)
 	}
+
 	chunk := &v1alpha1.Chunk{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: chunkName,
@@ -434,6 +435,18 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 			Phase: v1alpha1.ChunkPhasePending,
 		},
 	}
+
+	group := blob.Annotations[v1alpha1.BlobGroupAnnotation]
+	if group != "" {
+		chunk.Annotations[v1alpha1.ChunkGroupAnnotation] = group
+		chunk.Annotations[v1alpha1.ChunkGroupIgnoreSizeAnnotation] = "true"
+	}
+
+	blobName := blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
+	if blobName == "" {
+		blobName = blob.Name
+	}
+	chunk.Annotations[v1alpha1.ChunkDisplayNameAnnotation] = fmt.Sprintf("Part %d of %s", num, blobName)
 
 	if blob.Spec.ContentSha256 != "" {
 		chunk.Spec.Sha256PartialPreviousName = lastName

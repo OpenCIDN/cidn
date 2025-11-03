@@ -193,3 +193,12 @@ type ChunkList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Chunk `json:"items"`
 }
+
+const (
+	// ChunkDisplayNameAnnotation is the annotation key for the display name of a chunk.
+	ChunkDisplayNameAnnotation = "chunk.task.opencidn.daocloud.io/display-name"
+	// ChunkGroupAnnotation is the annotation key for the group name of a chunk.
+	ChunkGroupAnnotation = "chunk.task.opencidn.daocloud.io/group"
+	// ChunkGroupIgnoreSizeAnnotation is the annotation key to ignore size when grouping chunks.
+	ChunkGroupIgnoreSizeAnnotation = "chunk.task.opencidn.daocloud.io/group-ignore-size"
+)

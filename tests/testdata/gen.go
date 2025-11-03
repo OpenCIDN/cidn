@@ -60,6 +60,8 @@ apiVersion: task.opencidn.daocloud.io/v1alpha1
 kind: Blob
 metadata:
   name: blob.{{.Destination}}.1-1.hash-error
+  annotations:
+    blob.task.opencidn.daocloud.io/display-name: "Blob with hash error {{.Destination}}"
 spec:
   minimumChunkSize: 200000000
   maximumRunning: 5
@@ -75,6 +77,9 @@ apiVersion: task.opencidn.daocloud.io/v1alpha1
 kind: Blob
 metadata:
   name: blob.{{.Destination}}.1-1
+  annotations:
+    blob.task.opencidn.daocloud.io/display-name: "Blob with one source and one destination {{.Destination}}"
+    blob.task.opencidn.daocloud.io/group: "blob.1-1"
 spec:
   minimumChunkSize: 100000000
   maximumRunning: 5
@@ -91,6 +96,8 @@ apiVersion: task.opencidn.daocloud.io/v1alpha1
 kind: Blob
 metadata:
   name: blob.{{.Destination}}.2-2
+  annotations:
+    blob.task.opencidn.daocloud.io/display-name: "Blob with two sources and two destinations {{.Destination}}"
 spec:
   minimumChunkSize: 134217728
   maximumRunning: 5
