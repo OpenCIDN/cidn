@@ -39,16 +39,12 @@ func (viewerAuthorizer) Authorize(ctx context.Context, a authorizer.Attributes) 
 		return authorizer.DecisionNoOpinion, "", nil
 	}
 
-	if a.GetResource() != "blobs" {
-		return authorizer.DecisionNoOpinion, "", nil
-	}
-
-	switch a.GetSubresource() {
-	case "":
+	switch a.GetResource() {
+	case "blobs", "chunks":
 		if a.IsReadOnly() {
 			return authorizer.DecisionAllow, "", nil
 		}
 	}
 
-	return authorizer.DecisionNoOpinion, "", nil
+	return authorizer.DecisionDeny, "", nil
 }
