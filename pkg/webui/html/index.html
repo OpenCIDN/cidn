@@ -14,6 +14,12 @@
             --color-status-error: #D32F2D;
             --color-status-success: #388E3C;
 
+            --color-indicator-primary: #FFD700;
+            --color-indicator-secondary: #FFA500;
+            --color-indicator-glow: rgba(255, 215, 0, 0.8);
+            --color-indicator-glow-secondary: rgba(255, 165, 0, 0.6);
+            --color-indicator-shadow: rgba(255, 215, 0, 0.5);
+
             --color-icon-progress: #1565C0;
             --color-icon-waiting: #FF8F00;
             --color-icon-error: #B71C1C;
@@ -55,6 +61,12 @@
                 --color-status-waiting: #FFE082;
                 --color-status-error: #FF8A80;
                 --color-status-success: #81C784;
+
+                --color-indicator-primary: #FFD700;
+                --color-indicator-secondary: #FFA500;
+                --color-indicator-glow: rgba(255, 215, 0, 0.8);
+                --color-indicator-glow-secondary: rgba(255, 165, 0, 0.6);
+                --color-indicator-shadow: rgba(255, 215, 0, 0.5);
 
                 --color-icon-progress: #1E88E5;
                 --color-icon-waiting: #FFB300;
@@ -303,9 +315,9 @@
             transform: translateY(-50%);
             width: 3px;
             height: 1.5rem;
-            background: linear-gradient(to bottom, #FFD700, #FFA500);
+            background: linear-gradient(to bottom, var(--color-indicator-primary), var(--color-indicator-secondary));
             border-radius: 2px;
-            box-shadow: 0 0 8px rgba(255, 215, 0, 0.8), 0 0 4px rgba(255, 165, 0, 0.6);
+            box-shadow: 0 0 8px var(--color-indicator-glow), 0 0 4px var(--color-indicator-glow-secondary);
             z-index: 10;
         }
 
@@ -316,9 +328,9 @@
             right: -1rem;
             font-size: 0.7rem;
             font-weight: bold;
-            color: #FFA500;
+            color: var(--color-indicator-secondary);
             white-space: nowrap;
-            text-shadow: 0 0 3px rgba(255, 215, 0, 0.5);
+            text-shadow: 0 0 3px var(--color-indicator-shadow);
         }
 
         .progress-text {
