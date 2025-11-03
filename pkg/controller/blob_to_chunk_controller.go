@@ -654,43 +654,32 @@ func (c *BlobToChunkController) needsMultipartRecreation(blob *v1alpha1.Blob, mp
 	return needsRecreation, nil
 }
 
-// shouldSkipChunk checks if a chunk should be skipped (already uploaded)
-func shouldSkipChunk(mp *v1alpha1.Multipart, chunkIndex int64) bool {
-	if len(mp.UploadEtags) == 0 {
-		return false
-	}
-	if chunkIndex >= int64(len(mp.UploadEtags)) {
-		return false
-	}
-	return len(mp.UploadEtags[chunkIndex].Etags) != 0
-}
-
 // scheduleChunkDeletion schedules a succeeded chunk for deletion
-func (c *BlobToChunkController) scheduleChunkDeletion(ctx context.Context, g *errgroup.Group, name string) {
-	g.Go(func() error {
-		err := c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
-		if err != nil && !apierrors.IsNotFound(err) {
-			klog.Errorf("failed to delete chunk %s: %v", name, err)
-		}
+func (c *BlobToChunkController) scheduleChunkDeletion(ctx context.Context, name string) error {
+	err := c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
+	if err == nil {
 		return nil
-	})
+	}
+
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+
+	return err
 }
 
 // scheduleChunkCreation schedules a chunk for creation
-func (c *BlobToChunkController) scheduleChunkCreation(ctx context.Context, g *errgroup.Group, chunk *v1alpha1.Chunk) {
-	g.Go(func() error {
-		_, err := c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
-		if err == nil {
-			return nil
-		}
+func (c *BlobToChunkController) scheduleChunkCreation(ctx context.Context, chunk *v1alpha1.Chunk) error {
+	_, err := c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
 
-		if !apierrors.IsAlreadyExists(err) {
-			klog.Errorf("failed to create chunk %s: %v", chunk.Name, err)
-			return nil
-		}
+	if apierrors.IsAlreadyExists(err) {
+		return nil
+	}
 
-		return err
-	})
+	return err
 }
 
 func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blob) error {
@@ -721,6 +710,17 @@ func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blo
 	return c.createChunks(ctx, blob, mp, toCreate)
 }
 
+// shouldSkipChunk checks if a chunk should be skipped (already uploaded)
+func shouldSkipChunk(mp *v1alpha1.Multipart, chunkIndex int64) bool {
+	if len(mp.UploadEtags) == 0 {
+		return false
+	}
+	if chunkIndex >= int64(len(mp.UploadEtags)) {
+		return false
+	}
+	return len(mp.UploadEtags[chunkIndex].Etags) != 0
+}
+
 // createChunks creates the specified number of chunks for the blob
 func (c *BlobToChunkController) createChunks(ctx context.Context, blob *v1alpha1.Blob, mp *v1alpha1.Multipart, toCreate int) error {
 	created := 0
@@ -747,7 +747,9 @@ func (c *BlobToChunkController) createChunks(ctx context.Context, blob *v1alpha1
 			if i < int64(len(mp.UploadEtags)-1) && shouldSkipChunk(mp, i+1) {
 				chunk, err := c.chunkInformer.Lister().Get(name)
 				if err == nil && chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
-					c.scheduleChunkDeletion(ctx, g, name)
+					g.Go(func() error {
+						return c.scheduleChunkDeletion(ctx, name)
+					})
 				}
 			}
 			lastName = name
@@ -768,7 +770,9 @@ func (c *BlobToChunkController) createChunks(ctx context.Context, blob *v1alpha1
 			return err
 		}
 
-		c.scheduleChunkCreation(ctx, g, chunk)
+		g.Go(func() error {
+			return c.scheduleChunkCreation(ctx, chunk)
+		})
 		created++
 		lastName = name
 	}
