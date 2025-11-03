@@ -284,7 +284,7 @@
             height: 1rem;
             background: var(--color-progress-track);
             border-radius: 1rem;
-            overflow: hidden;
+            overflow: visible;
             position: relative;
             box-shadow: inset 0 1px 2px var(--shadow-sm);
         }
@@ -293,6 +293,32 @@
             height: 100%;
             background: linear-gradient(90deg, var(--color-status-progress), var(--color-status-progress));
             position: relative;
+            border-radius: 1rem;
+        }
+
+        .progress-100-indicator {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 1.5rem;
+            background: linear-gradient(to bottom, #FFD700, #FFA500);
+            border-radius: 2px;
+            box-shadow: 0 0 8px rgba(255, 215, 0, 0.8), 0 0 4px rgba(255, 165, 0, 0.6);
+            z-index: 10;
+        }
+
+        .progress-100-indicator::before {
+            content: '100%';
+            position: absolute;
+            top: -1.5rem;
+            right: -1rem;
+            font-size: 0.7rem;
+            font-weight: bold;
+            color: #FFA500;
+            white-space: nowrap;
+            text-shadow: 0 0 3px rgba(255, 215, 0, 0.5);
         }
 
         .progress-text {
@@ -632,7 +658,7 @@
                             ${highlightSpeed(speed, remainingTime)} 
                             ${data.chunksNumber ? highlightChunksInfo(data) : `<span></span>`}
                         </div>
-                    ${size > 0 ? `<div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>` : ''}`;
+                    ${size > 0 ? `<div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div><div class="progress-100-indicator"></div></div>` : ''}`;
                 }
                 case 'Failed':
                     return `${header}
