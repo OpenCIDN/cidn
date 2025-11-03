@@ -289,6 +289,24 @@
             box-shadow: inset 0 1px 2px var(--shadow-sm);
         }
 
+        .progress-container::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: rgba(0, 0, 0, 0.2);
+            transform: translateX(-50%);
+            z-index: 1;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .progress-container::after {
+                background: rgba(255, 255, 255, 0.2);
+            }
+        }
+
         .progress-bar {
             height: 100%;
             background: linear-gradient(90deg, var(--color-status-progress), var(--color-status-progress));
