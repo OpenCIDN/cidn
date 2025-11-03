@@ -22,7 +22,7 @@ DIR="$(dirname "${BASH_SOURCE[0]}")"
 
 ROOT_DIR="$(realpath "${DIR}/..")"
 
-KUBE_VERSION=v0.33.2
+KUBE_VERSION=v0.34.1
 
 function deepcopy-gen() {
   go run k8s.io/code-generator/cmd/deepcopy-gen@${KUBE_VERSION} "$@"
@@ -53,7 +53,7 @@ function informer-gen() {
 }
 
 function openapi-gen() {
-  go run k8s.io/kube-openapi/cmd/openapi-gen@v0.0.0-20250318190949-c8a335a9a2ff "$@"
+  go run k8s.io/kube-openapi/cmd/openapi-gen@v0.0.0-20250910181357-589584f1c912 "$@"
 }
 
 # Clean up previously generated files
