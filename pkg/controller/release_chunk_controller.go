@@ -195,6 +195,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			newChunk := chunk.DeepCopy()
 			newChunk.Status.Phase = v1alpha1.ChunkPhasePending
 			newChunk.Status.Conditions = nil
+			newChunk.Status.Retryable = false
 			newChunk.Status.Retry++
 			newChunk.Status.HandlerName = ""
 			klog.Infof("Transitioning chunk %s from Failed to Pending phase and clearing handler", name)
