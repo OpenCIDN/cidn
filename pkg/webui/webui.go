@@ -375,7 +375,9 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 	var runningChunks int64
 	var succeededChunks int64
 	var failedChunks int64
+	var idleChunks int64
 	var maxPriority int64
+	var hasFailed bool
 
 	for blobUID, blob := range blobs {
 		// Add member info to the list
@@ -408,6 +410,11 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 		runningChunks += blob.Status.RunningChunks
 		succeededChunks += blob.Status.SucceededChunks
 		failedChunks += blob.Status.FailedChunks
+		idleChunks += blob.Spec.ChunksNumber - (blob.Status.PendingChunks + blob.Status.RunningChunks + blob.Status.SucceededChunks + blob.Status.FailedChunks)
+
+		if phase == v1alpha1.BlobPhaseFailed {
+			hasFailed = true
+		}
 
 		if blob.Spec.Priority > maxPriority {
 			maxPriority = blob.Spec.Priority
@@ -428,11 +435,12 @@ func aggregateBlobs(groupName string, blobs map[string]*v1alpha1.Blob) *cleanedB
 	aggregate.Priority = maxPriority
 
 	switch {
+
+	case (hasFailed || failedChunks > 0) && pendingChunks == 0 && runningChunks == 0 && idleChunks == 0:
+		aggregate.Phase = v1alpha1.BlobPhaseFailed
 	case succeededChunks == totalChunks && totalChunks > 0:
 		aggregate.Phase = v1alpha1.BlobPhaseSucceeded
-	case failedChunks > 0 && pendingChunks == 0 && runningChunks == 0:
-		aggregate.Phase = v1alpha1.BlobPhaseFailed
-	case totalProgress > 0:
+	case totalSize > 0:
 		aggregate.Phase = v1alpha1.BlobPhaseRunning
 	default:
 		aggregate.Phase = v1alpha1.BlobPhasePending

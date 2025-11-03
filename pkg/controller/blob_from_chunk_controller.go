@@ -149,8 +149,9 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
 		}
 
+		blobStatus := blob.Status.DeepCopy()
 		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
-			b.Status = blob.Status
+			b.Status = *blobStatus
 			return b
 		})
 		if err != nil {
@@ -176,8 +177,9 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 		}
 	}
 
+	blobStatus := blob.Status.DeepCopy()
 	_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
-		b.Status = blob.Status
+		b.Status = *blobStatus
 		return b
 	})
 	if err != nil {

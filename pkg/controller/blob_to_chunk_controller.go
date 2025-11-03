@@ -119,17 +119,15 @@ func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
 		klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
 	}
 
-	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded || blob.Status.Phase == v1alpha1.BlobPhaseFailed {
-		_, err = c.multipartInformer.Lister().Get(blob.Name)
+	_, err = c.multipartInformer.Lister().Get(blob.Name)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			klog.Errorf("failed to get multipart for blob %s: %v", blob.Name, err)
+		}
+	} else {
+		err = c.client.TaskV1alpha1().Multiparts().Delete(context.Background(), blob.Name, metav1.DeleteOptions{})
 		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				klog.Errorf("failed to get multipart for blob %s: %v", blob.Name, err)
-			}
-		} else {
-			err = c.client.TaskV1alpha1().Multiparts().Delete(context.Background(), blob.Name, metav1.DeleteOptions{})
-			if err != nil {
-				klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
-			}
+			klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
 		}
 	}
 }
@@ -381,6 +379,10 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 
 	if len(chunk.Spec.Destination) == 0 {
 		_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status.SucceededChunks = 1
+			b.Status.FailedChunks = 0
+			b.Status.PendingChunks = 0
+			b.Status.RunningChunks = 0
 			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
 			b.Status.Progress = b.Status.Total
 			return b
@@ -530,25 +532,6 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 			}
 		}
 		uploadIDs = append(uploadIDs, mp.UploadID())
-	}
-
-	allEmpty := true
-	for _, id := range uploadIDs {
-		if id != "" {
-			allEmpty = false
-			break
-		}
-	}
-	if allEmpty {
-		_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
-			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
-			b.Status.Progress = b.Status.Total
-			return b
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to update blob status: %v", err)
-		}
-		return nil, nil
 	}
 
 	mp := &v1alpha1.Multipart{
@@ -744,7 +727,7 @@ func (c *BlobToChunkController) createChunks(ctx context.Context, blob *v1alpha1
 		// Skip if chunk is already uploaded
 		if shouldSkipChunk(mp, i) {
 			// Schedule deletion if this is not the last pending chunk
-			if i < int64(len(mp.UploadEtags)-1) && shouldSkipChunk(mp, i+1) {
+			if shouldSkipChunk(mp, i+1) {
 				chunk, err := c.chunkInformer.Lister().Get(name)
 				if err == nil && chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
 					g.Go(func() error {
