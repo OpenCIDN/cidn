@@ -671,6 +671,7 @@
                         ${size ? highlightProgress(progress, size) : `<span></span>`}
                         ${highlightSpeed(speed, remainingTime)} 
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                        ${formatCreatedAt(data.createdAt)}
                     </div>
                     <div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>`;
                 }
@@ -680,6 +681,7 @@
                     <div class="progress-text">
                         ${size ? highlightProgress(progress, size) : `<span></span>`}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                        ${formatCreatedAt(data.createdAt)}
                     </div>`;
                 case 'Pending':
                 case 'Unknown':
@@ -687,12 +689,14 @@
                     <div class="progress-text">
                         ${size ? highlightProgress(progress, size) : `<span></span>`}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                        ${formatCreatedAt(data.createdAt)}
                     </div>`;
                 case 'Succeeded':
                     return `${header}
                     <div class="progress-text">
                         ${size ? highlightBytes(size) : `<span></span>`}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                        ${formatCreatedAt(data.createdAt)}
                     </div>`;
             }
         };
@@ -844,6 +848,35 @@
                 minutes > 0 ? `<span class="time-unit-m">${minutes} m</span>` : null,
                 `<span class="time-unit-s">${seconds} s</span>`
             ].filter(Boolean).join(' ');
+        };
+
+        const formatCreatedAt = createdAt => {
+            if (!createdAt) return '';
+            try {
+                const date = new Date(createdAt);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffSecs = Math.floor(diffMs / 1000);
+                const diffMins = Math.floor(diffSecs / 60);
+                const diffHours = Math.floor(diffMins / 60);
+                const diffDays = Math.floor(diffHours / 24);
+
+                let timeAgo = '';
+                if (diffDays > 0) {
+                    timeAgo = `${diffDays}d ago`;
+                } else if (diffHours > 0) {
+                    timeAgo = `${diffHours}h ago`;
+                } else if (diffMins > 0) {
+                    timeAgo = `${diffMins}m ago`;
+                } else {
+                    timeAgo = `${diffSecs}s ago`;
+                }
+
+                const formattedDate = date.toLocaleString();
+                return `<span class="time-text" title="${formattedDate}">${timeAgo}</span>`;
+            } catch (e) {
+                return '';
+            }
         };
 
         document.addEventListener('DOMContentLoaded', () => {

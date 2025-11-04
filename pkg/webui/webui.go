@@ -440,9 +440,10 @@ type entry struct {
 	Tags        []string          `json:"tags,omitempty"`
 	Members     []entryMemberInfo `json:"members,omitempty"` // For group aggregates: list of member info
 
-	Priority     int64 `json:"priority,omitempty"`
-	Total        int64 `json:"total"`
-	ChunksNumber int64 `json:"chunksNumber"`
+	Priority     int64  `json:"priority,omitempty"`
+	Total        int64  `json:"total"`
+	ChunksNumber int64  `json:"chunksNumber"`
+	CreatedAt    string `json:"createdAt,omitempty"` // Creation timestamp in RFC3339 format
 
 	Phase           string `json:"phase"`
 	Progress        int64  `json:"progress"`
@@ -495,6 +496,7 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 	e.Priority = blob.Spec.Priority
 	e.Total = blob.Status.Total
 	e.ChunksNumber = blob.Spec.ChunksNumber
+	e.CreatedAt = blob.CreationTimestamp.Format(time.RFC3339)
 
 	// Set status fields
 	e.Phase = string(blob.Status.Phase)
@@ -546,6 +548,7 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 	e.Priority = chunk.Spec.Priority
 	e.Total = chunk.Spec.Total
 	e.Progress = chunk.Status.Progress
+	e.CreatedAt = chunk.CreationTimestamp.Format(time.RFC3339)
 
 	// Set status fields
 	e.Phase = string(chunk.Status.Phase)
