@@ -148,6 +148,10 @@ type BlobSource struct {
 
 	// BearerName is the name of the Bearer resource that should be used for authentication.
 	BearerName string `json:"bearerName,omitempty"`
+
+	// Headers contains the HTTP headers for the request
+	// +optional
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // BlobDestination defines the destination for a blob.

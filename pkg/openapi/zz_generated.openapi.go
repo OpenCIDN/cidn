@@ -509,6 +509,22 @@ func schema_pkg_apis_task_v1alpha1_BlobSource(ref common.ReferenceCallback) comm
 							Format:      "",
 						},
 					},
+					"headers": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Headers contains the HTTP headers for the request",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
 				},
 				Required: []string{"url"},
 			},

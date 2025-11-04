@@ -193,6 +193,10 @@ func (*blobStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object
 		if newBlob.Spec.Source[i].URL != oldBlob.Spec.Source[i].URL {
 			errList = append(errList, field.Forbidden(field.NewPath("spec", "source").Index(i).Child("url"), "source URL is immutable"))
 		}
+
+		if (newBlob.Spec.Source[i].Headers != nil || oldBlob.Spec.Source[i].Headers != nil) && !reflect.DeepEqual(newBlob.Spec.Source[i].Headers, oldBlob.Spec.Source[i].Headers) {
+			errList = append(errList, field.Forbidden(field.NewPath("spec", "source").Index(i).Child("headers"), "source headers are immutable"))
+		}
 	}
 
 	if !reflect.DeepEqual(newBlob.Spec.Destination, oldBlob.Spec.Destination) {

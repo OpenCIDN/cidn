@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"net/textproto"
 	"slices"
 	"time"
 
@@ -216,6 +217,12 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 
 	src := blob.Spec.Source[0]
 
+	headers := map[string]string{}
+
+	for k, v := range src.Headers {
+		headers[textproto.CanonicalMIMEHeaderKey(k)] = v
+	}
+
 	chunk := &v1alpha1.Chunk{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: chunkName,
@@ -246,11 +253,9 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 	chunk.Spec.BearerName = src.BearerName
 	chunk.Spec.Source = v1alpha1.ChunkHTTP{
 		Request: v1alpha1.ChunkHTTPRequest{
-			Method: http.MethodHead,
-			URL:    src.URL,
-			Headers: map[string]string{
-				"Accept": "*/*",
-			},
+			Method:  http.MethodHead,
+			URL:     src.URL,
+			Headers: headers,
 		},
 		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusOK,
@@ -329,12 +334,18 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 
 	src := blob.Spec.Source[0]
 
+	headers := map[string]string{}
+
+	for k, v := range src.Headers {
+		headers[textproto.CanonicalMIMEHeaderKey(k)] = v
+	}
+
 	chunk.Spec.BearerName = src.BearerName
 	chunk.Spec.Source = v1alpha1.ChunkHTTP{
 		Request: v1alpha1.ChunkHTTPRequest{
 			Method:  http.MethodGet,
 			URL:     src.URL,
-			Headers: map[string]string{},
+			Headers: headers,
 		},
 		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusOK,
@@ -458,14 +469,20 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 
 	src := blob.Spec.Source[num%int64(len(blob.Spec.Source))]
 
+	headers := map[string]string{
+		"Range": fmt.Sprintf("bytes=%d-%d", start, end-1),
+	}
+
+	for k, v := range src.Headers {
+		headers[textproto.CanonicalMIMEHeaderKey(k)] = v
+	}
+
 	chunk.Spec.BearerName = src.BearerName
 	chunk.Spec.Source = v1alpha1.ChunkHTTP{
 		Request: v1alpha1.ChunkHTTPRequest{
-			Method: http.MethodGet,
-			URL:    src.URL,
-			Headers: map[string]string{
-				"Range": fmt.Sprintf("bytes=%d-%d", start, end-1),
-			},
+			Method:  http.MethodGet,
+			URL:     src.URL,
+			Headers: headers,
 		},
 		Response: v1alpha1.ChunkHTTPResponse{
 			StatusCode: http.StatusPartialContent,
