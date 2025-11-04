@@ -273,13 +273,6 @@ func schema_pkg_apis_task_v1alpha1_BearerStatus(ref common.ReferenceCallback) co
 							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BearerTokenInfo"),
 						},
 					},
-					"retry": {
-						SchemaProps: spec.SchemaProps{
-							Description: "Retry is the number of times the manifest has been retried.",
-							Type:        []string{"integer"},
-							Format:      "int64",
-						},
-					},
 					"conditions": {
 						VendorExtensible: spec.VendorExtensible{
 							Extensions: spec.Extensions{

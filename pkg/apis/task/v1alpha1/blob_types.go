@@ -187,4 +187,10 @@ const (
 	// BlobTagAnnotation is the annotation key for tags of a blob.
 	// Multiple tags can be specified as a comma-separated list.
 	BlobTagAnnotation = "blob.task.opencidn.daocloud.io/tags"
+	// BlobTTLAnnotation is the annotation key for the time-to-live duration of a blob.
+	// When set, the blob will be automatically deleted after the specified duration
+	// following its transition to a terminal state (Succeeded or Failed).
+	// The value should be a valid duration string (e.g., "1h", "30m", "3600s").
+	// If not set, the blob will not be automatically deleted.
+	BlobTTLAnnotation = "blob.task.opencidn.daocloud.io/ttl"
 )

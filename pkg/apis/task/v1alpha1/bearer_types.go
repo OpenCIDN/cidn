@@ -72,9 +72,6 @@ type BearerStatus struct {
 	// TokenInfo contains information about the authentication token
 	TokenInfo *BearerTokenInfo `json:"tokenInfo,omitempty"`
 
-	// Retry is the number of times the manifest has been retried.
-	Retry int64 `json:"retry,omitempty"`
-
 	// Conditions holds conditions for the Bearer.
 	// +patchMergeKey=type
 	// +patchStrategy=merge
@@ -122,3 +119,12 @@ type BearerTokenInfo struct {
 	// IssuedAt is the timestamp when the token was issued
 	IssuedAt metav1.Time `json:"issued_at,omitempty"`
 }
+
+const (
+	// BearerTTLAnnotation is the annotation key for the time-to-live duration of a bearer.
+	// When set, the bearer will be automatically deleted after the specified duration
+	// following its transition to a terminal state or token expiration.
+	// The value should be a valid duration string (e.g., "1h", "30m", "3600s").
+	// If not set, defaults to token expiration time plus 25% buffer for succeeded bearers.
+	BearerTTLAnnotation = "bearer.task.opencidn.daocloud.io/ttl"
+)

@@ -179,25 +179,32 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 			return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
 		}
 	case v1alpha1.BlobPhaseFailed:
-		dur := time.Hour
-		sub := time.Since(lastSeenTime)
-		if sub < dur {
-			return dur - sub, nil
+		ttl, ok := getTTLDuration(blob.ObjectMeta, v1alpha1.BlobTTLAnnotation)
+		if !ok {
+			return 0, nil
 		}
 
-		klog.Infof("Deleting failed blob %s after 1 hour", name)
+		sub := time.Since(lastSeenTime)
+		if sub < ttl {
+			return ttl - sub, nil
+		}
+
+		klog.Infof("Deleting failed blob %s after %v", name, ttl)
 		err = c.client.TaskV1alpha1().Blobs().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
 		}
 	case v1alpha1.BlobPhaseSucceeded:
-		dur := time.Hour
+		ttl, ok := getTTLDuration(blob.ObjectMeta, v1alpha1.BlobTTLAnnotation)
+		if !ok {
+			return 0, nil
+		}
 		sub := time.Since(lastSeenTime)
-		if sub < dur {
-			return dur - sub, nil
+		if sub < ttl {
+			return ttl - sub, nil
 		}
 
-		klog.Infof("Deleting succeeded blob %s after 1 hour", name)
+		klog.Infof("Deleting succeeded blob %s after %v", name, ttl)
 		err = c.client.TaskV1alpha1().Blobs().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
