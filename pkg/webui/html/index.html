@@ -628,7 +628,7 @@
 
                     return `${header}
                     <div class="progress-text">
-                        ${highlightProgress(progress, size)}
+                        ${size ? highlightProgress(progress, size) : `<span></span>`}
                         ${highlightSpeed(speed, remainingTime)} 
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>
@@ -638,20 +638,20 @@
                     return `${header}
                     ${highlightError(escapeErrors(errors))}
                     <div class="progress-text">
-                        ${highlightProgress(progress, size)}
+                        ${size ? highlightProgress(progress, size) : `<span></span>`}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>`;
                 case 'Pending':
                 case 'Unknown':
                     return `${header}
                     <div class="progress-text">
-                        ${highlightProgress(progress, size)}
+                        ${size ? highlightProgress(progress, size) : `<span></span>`}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>`;
                 case 'Succeeded':
                     return `${header}
                     <div class="progress-text">
-                        ${highlightBytes(size > 0 ? size : progress)}
+                        ${size ? highlightBytes(size) : `<span></span>`}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>`;
             }
