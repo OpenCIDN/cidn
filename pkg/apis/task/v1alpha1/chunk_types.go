@@ -201,4 +201,7 @@ const (
 	ChunkGroupAnnotation = "chunk.task.opencidn.daocloud.io/group"
 	// ChunkGroupIgnoreSizeAnnotation is the annotation key to ignore size when grouping chunks.
 	ChunkGroupIgnoreSizeAnnotation = "chunk.task.opencidn.daocloud.io/group-ignore-size"
+	// ChunkTagAnnotation is the annotation key for tags of a chunk.
+	// Multiple tags can be specified as a comma-separated list.
+	ChunkTagAnnotation = "chunk.task.opencidn.daocloud.io/tags"
 )
