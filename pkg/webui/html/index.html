@@ -44,8 +44,6 @@
             --color-time-s: #78909C;
             --color-time-m: #546E7A;
             --color-time-h: #37474F;
-
-            --color-tag-bg: #607D8B;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -88,8 +86,6 @@
                 --color-time-s: #90A4AE;
                 --color-time-m: #78909C;
                 --color-time-h: #607D8B;
-
-                --color-tag-bg: #546E7A;
             }
         }
 
@@ -555,29 +551,19 @@
             // Simple hash function to generate a consistent color for each tag
             let hash = 0;
             for (let i = 0; i < tag.length; i++) {
-                hash = ((hash << 5) - hash) + tag.charCodeAt(i);
-                hash = hash & hash; // Convert to 32bit integer
+                hash = (hash << 5) - hash + tag.charCodeAt(i);
             }
             
             // Predefined color palette with good contrast on white text
             const colors = [
                 '#607D8B', // Blue Grey
                 '#795548', // Brown
-                '#5D4037', // Dark Brown
                 '#00897B', // Teal
-                '#00695C', // Dark Teal
                 '#388E3C', // Green
-                '#2E7D32', // Dark Green
                 '#1976D2', // Blue
-                '#1565C0', // Dark Blue
                 '#7B1FA2', // Purple
-                '#6A1B9A', // Dark Purple
                 '#C2185B', // Pink
-                '#AD1457', // Dark Pink
-                '#D84315', // Deep Orange
-                '#BF360C', // Dark Deep Orange
                 '#F57C00', // Orange
-                '#E65100', // Dark Orange
             ];
             
             return colors[Math.abs(hash) % colors.length];
