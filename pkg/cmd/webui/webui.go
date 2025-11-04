@@ -24,6 +24,7 @@ import (
 
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/webui"
+	"github.com/gorilla/handlers"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -66,7 +67,7 @@ func NewWebUICommand(ctx context.Context) *cobra.Command {
 			handler := webui.NewHandler(clientset, flags.UpdateInterval)
 			server := &http.Server{
 				Addr:    fmt.Sprintf(":%d", flags.Port),
-				Handler: handler,
+				Handler: handlers.CompressHandler(handler),
 			}
 
 			go func() {
