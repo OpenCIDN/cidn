@@ -491,18 +491,19 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 		e.Tags = parseTagsFromAnnotation(blob.Annotations[v1alpha1.WebuiTagAnnotation])
 	}
 
-	// Set spec fields
 	e.Priority = blob.Spec.Priority
 	e.Total = blob.Status.Total
-	e.ChunksNumber = blob.Spec.ChunksNumber
-
-	// Set status fields
-	e.Phase = string(blob.Status.Phase)
 	e.Progress = blob.Status.Progress
+	e.ChunksNumber = blob.Spec.ChunksNumber
+	e.Phase = string(blob.Status.Phase)
 	e.PendingChunks = blob.Status.PendingChunks
 	e.RunningChunks = blob.Status.RunningChunks
 	e.SucceededChunks = blob.Status.SucceededChunks
 	e.FailedChunks = blob.Status.FailedChunks
+
+	if e.Total <= 0 {
+		e.Total = e.Progress
+	}
 
 	if e.Phase == string(v1alpha1.BlobPhaseRunning) &&
 		e.Progress == 0 &&
@@ -542,14 +543,14 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 		e.Tags = parseTagsFromAnnotation(chunk.Annotations[v1alpha1.WebuiTagAnnotation])
 	}
 
-	// Set spec fields
 	e.Priority = chunk.Spec.Priority
 	e.Total = chunk.Spec.Total
 	e.Progress = chunk.Status.Progress
-
-	// Set status fields
 	e.Phase = string(chunk.Status.Phase)
-	e.Progress = chunk.Status.Progress
+
+	if e.Total <= 0 {
+		e.Total = e.Progress
+	}
 
 	if len(chunk.Status.Conditions) > 0 {
 		e.Errors = make([]string, 0, len(chunk.Status.Conditions))
