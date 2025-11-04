@@ -94,12 +94,6 @@ func (c *ReleaseChunkController) enqueueChunk(obj interface{}) {
 		return
 	}
 
-	if chunk.Status.Phase != v1alpha1.ChunkPhaseRunning &&
-		chunk.Status.Phase != v1alpha1.ChunkPhaseUnknown &&
-		chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
-		return
-	}
-
 	key := chunk.Name
 
 	c.lastSeenMut.Lock()
@@ -191,7 +185,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			return dur - sub, nil
 		}
 
-		if chunk.Status.Retryable {
+		if chunk.Status.Retryable && chunk.Status.Retry < chunk.Spec.MaximumRetry {
 			newChunk := chunk.DeepCopy()
 			newChunk.Status.Phase = v1alpha1.ChunkPhasePending
 			newChunk.Status.Conditions = nil
@@ -204,6 +198,25 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			if err != nil {
 				return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
 			}
+		} else {
+			// Delete failed chunks that have exceeded max retries or are not retryable
+			klog.Infof("Deleting failed chunk %s after max retries or non-retryable error", name)
+			err = c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
+			if err != nil && !apierrors.IsNotFound(err) {
+				return 10 * time.Second, fmt.Errorf("failed to delete chunk %s: %v", name, err)
+			}
+		}
+	case v1alpha1.ChunkPhaseSucceeded:
+		dur := time.Hour
+		sub := time.Since(lastSeenTime)
+		if sub < dur {
+			return dur - sub, nil
+		}
+
+		klog.Infof("Deleting succeeded chunk %s after 1 hour", name)
+		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return 10 * time.Second, fmt.Errorf("failed to delete chunk %s: %v", name, err)
 		}
 	}
 	return 0, nil
