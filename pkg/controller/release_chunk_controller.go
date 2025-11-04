@@ -207,7 +207,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			}
 		} else {
 			// If the chunk has a TTL annotation and is not retryable, delete it after the TTL
-			ttl, ok := getTTLDuration(chunk.ObjectMeta, v1alpha1.ChunkTTLAnnotation)
+			ttl, ok := getTTLDuration(chunk.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 			if !ok {
 				return 0, nil
 			}
@@ -225,7 +225,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 		}
 	case v1alpha1.ChunkPhaseSucceeded:
 		// Only delete succeeded chunks if TTL annotation is set
-		ttl, ok := getTTLDuration(chunk.ObjectMeta, v1alpha1.ChunkTTLAnnotation)
+		ttl, ok := getTTLDuration(chunk.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 		if !ok {
 			return 0, nil
 		}

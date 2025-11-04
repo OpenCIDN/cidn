@@ -436,17 +436,17 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 		},
 	}
 
-	group := blob.Annotations[v1alpha1.BlobGroupAnnotation]
+	group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]
 	if group != "" {
-		chunk.Annotations[v1alpha1.ChunkGroupAnnotation] = group
-		chunk.Annotations[v1alpha1.ChunkGroupIgnoreSizeAnnotation] = "true"
+		chunk.Annotations[v1alpha1.WebuiGroupAnnotation] = group
+		chunk.Annotations[v1alpha1.WebuiGroupIgnoreSizeAnnotation] = "true"
 	}
 
-	blobName := blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
+	blobName := blob.Annotations[v1alpha1.WebuiDisplayNameAnnotation]
 	if blobName == "" {
 		blobName = blob.Name
 	}
-	chunk.Annotations[v1alpha1.ChunkDisplayNameAnnotation] = fmt.Sprintf("Part %d of %s", num, blobName)
+	chunk.Annotations[v1alpha1.WebuiDisplayNameAnnotation] = fmt.Sprintf("Part %d of %s", num, blobName)
 
 	if blob.Spec.ContentSha256 != "" {
 		chunk.Spec.Sha256PartialPreviousName = lastName

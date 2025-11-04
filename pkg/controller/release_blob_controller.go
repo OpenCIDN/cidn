@@ -179,7 +179,7 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 			return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
 		}
 	case v1alpha1.BlobPhaseFailed:
-		ttl, ok := getTTLDuration(blob.ObjectMeta, v1alpha1.BlobTTLAnnotation)
+		ttl, ok := getTTLDuration(blob.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 		if !ok {
 			return 0, nil
 		}
@@ -195,7 +195,7 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
 		}
 	case v1alpha1.BlobPhaseSucceeded:
-		ttl, ok := getTTLDuration(blob.ObjectMeta, v1alpha1.BlobTTLAnnotation)
+		ttl, ok := getTTLDuration(blob.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 		if !ok {
 			return 0, nil
 		}

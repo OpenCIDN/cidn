@@ -160,7 +160,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				displayName := blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
+				displayName := blob.Annotations[v1alpha1.WebuiDisplayNameAnnotation]
 				if displayName == "" {
 					return
 				}
@@ -173,7 +173,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				updateBuffer[string(blob.UID)] = nil
 
 				// Track group membership
-				if group := blob.Annotations[v1alpha1.BlobGroupAnnotation]; group != "" {
+				if group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
 					updateGroupAggregate(group, string(blob.UID), e)
 				}
 			},
@@ -195,7 +195,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				displayName := newBlob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
+				displayName := newBlob.Annotations[v1alpha1.WebuiDisplayNameAnnotation]
 				if displayName == "" {
 					return
 				}
@@ -213,8 +213,8 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				}
 
 				// Update group membership
-				oldGroup := oldBlob.Annotations[v1alpha1.BlobGroupAnnotation]
-				newGroup := newBlob.Annotations[v1alpha1.BlobGroupAnnotation]
+				oldGroup := oldBlob.Annotations[v1alpha1.WebuiGroupAnnotation]
+				newGroup := newBlob.Annotations[v1alpha1.WebuiGroupAnnotation]
 
 				// Remove from old group if changed
 				if oldGroup != "" && oldGroup != newGroup {
@@ -236,7 +236,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				displayName := blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
+				displayName := blob.Annotations[v1alpha1.WebuiDisplayNameAnnotation]
 				if displayName == "" {
 					return
 				}
@@ -249,7 +249,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				updates <- event
 
 				// Remove from group
-				if group := blob.Annotations[v1alpha1.BlobGroupAnnotation]; group != "" {
+				if group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
 					removeFromGroup(group, string(blob.UID))
 				}
 			},
@@ -272,7 +272,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				displayName := chunk.Annotations[v1alpha1.ChunkDisplayNameAnnotation]
+				displayName := chunk.Annotations[v1alpha1.WebuiDisplayNameAnnotation]
 				if displayName == "" {
 					return
 				}
@@ -285,7 +285,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				updateBuffer[string(chunk.UID)] = nil
 
 				// Track group membership
-				if group := chunk.Annotations[v1alpha1.ChunkGroupAnnotation]; group != "" {
+				if group := chunk.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
 					updateGroupAggregate(group, string(chunk.UID), e)
 				}
 			},
@@ -307,7 +307,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				displayName := newChunk.Annotations[v1alpha1.ChunkDisplayNameAnnotation]
+				displayName := newChunk.Annotations[v1alpha1.WebuiDisplayNameAnnotation]
 				if displayName == "" {
 					return
 				}
@@ -325,8 +325,8 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				}
 
 				// Update group membership
-				oldGroup := oldChunk.Annotations[v1alpha1.ChunkGroupAnnotation]
-				newGroup := newChunk.Annotations[v1alpha1.ChunkGroupAnnotation]
+				oldGroup := oldChunk.Annotations[v1alpha1.WebuiGroupAnnotation]
+				newGroup := newChunk.Annotations[v1alpha1.WebuiGroupAnnotation]
 
 				// Remove from old group if changed
 				if oldGroup != "" && oldGroup != newGroup {
@@ -348,7 +348,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				displayName := chunk.Annotations[v1alpha1.ChunkDisplayNameAnnotation]
+				displayName := chunk.Annotations[v1alpha1.WebuiDisplayNameAnnotation]
 				if displayName == "" {
 					return
 				}
@@ -361,7 +361,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				updates <- event
 
 				// Remove from group
-				if group := chunk.Annotations[v1alpha1.ChunkGroupAnnotation]; group != "" {
+				if group := chunk.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
 					removeFromGroup(group, string(chunk.UID))
 				}
 			},
@@ -484,11 +484,11 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 	e.Name = blob.Name
 	e.DisplayName = blob.Name
 	if blob.Annotations != nil {
-		if dn := blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]; dn != "" {
+		if dn := blob.Annotations[v1alpha1.WebuiDisplayNameAnnotation]; dn != "" {
 			e.DisplayName = dn
 		}
-		e.Group = blob.Annotations[v1alpha1.BlobGroupAnnotation]
-		e.Tags = parseTagsFromAnnotation(blob.Annotations[v1alpha1.BlobTagAnnotation])
+		e.Group = blob.Annotations[v1alpha1.WebuiGroupAnnotation]
+		e.Tags = parseTagsFromAnnotation(blob.Annotations[v1alpha1.WebuiTagAnnotation])
 	}
 
 	// Set spec fields
@@ -530,16 +530,16 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 	e.Name = chunk.Name
 	e.DisplayName = chunk.Name
 	if chunk.Annotations != nil {
-		if dn := chunk.Annotations[v1alpha1.ChunkDisplayNameAnnotation]; dn != "" {
+		if dn := chunk.Annotations[v1alpha1.WebuiDisplayNameAnnotation]; dn != "" {
 			e.DisplayName = dn
 		}
-		e.Group = chunk.Annotations[v1alpha1.ChunkGroupAnnotation]
+		e.Group = chunk.Annotations[v1alpha1.WebuiGroupAnnotation]
 
-		if ignoreSize := chunk.Annotations[v1alpha1.ChunkGroupIgnoreSizeAnnotation]; ignoreSize == "true" {
+		if ignoreSize := chunk.Annotations[v1alpha1.WebuiGroupIgnoreSizeAnnotation]; ignoreSize == "true" {
 			e.groupIgnoreSize = true
 		}
 
-		e.Tags = parseTagsFromAnnotation(chunk.Annotations[v1alpha1.ChunkTagAnnotation])
+		e.Tags = parseTagsFromAnnotation(chunk.Annotations[v1alpha1.WebuiTagAnnotation])
 	}
 
 	// Set spec fields

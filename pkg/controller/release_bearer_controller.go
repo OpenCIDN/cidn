@@ -182,7 +182,7 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
 		}
 	case v1alpha1.BearerPhaseFailed:
-		ttl, ok := getTTLDuration(bearer.ObjectMeta, v1alpha1.BearerTTLAnnotation)
+		ttl, ok := getTTLDuration(bearer.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 		if !ok {
 			return 0, nil
 		}
@@ -198,7 +198,7 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
 		}
 	case v1alpha1.BearerPhaseSucceeded:
-		ttl, ok := getTTLDuration(bearer.ObjectMeta, v1alpha1.BearerTTLAnnotation)
+		ttl, ok := getTTLDuration(bearer.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 
 		issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
 		expiresIn := bearer.Status.TokenInfo.ExpiresIn
