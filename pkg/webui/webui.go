@@ -171,9 +171,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				updates <- event
 				updateBuffer[string(blob.UID)] = nil
 
-				// Track group membership
-				if group := blob.Annotations[v1alpha1.BlobGroupAnnotation]; group != "" {
-					updateGroupAggregate(group, string(blob.UID), e)
+				// Track group membership (supports multiple groups)
+				if groupAnnotation := blob.Annotations[v1alpha1.BlobGroupAnnotation]; groupAnnotation != "" {
+					groups := v1alpha1.ParseGroups(groupAnnotation)
+					for _, group := range groups {
+						updateGroupAggregate(group, string(blob.UID), e)
+					}
 				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
@@ -211,18 +214,39 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					updates <- event
 				}
 
-				// Update group membership
-				oldGroup := oldBlob.Annotations[v1alpha1.BlobGroupAnnotation]
-				newGroup := newBlob.Annotations[v1alpha1.BlobGroupAnnotation]
+				// Update group membership (supports multiple groups)
+				oldGroupAnnotation := oldBlob.Annotations[v1alpha1.BlobGroupAnnotation]
+				newGroupAnnotation := newBlob.Annotations[v1alpha1.BlobGroupAnnotation]
 
-				// Remove from old group if changed
-				if oldGroup != "" && oldGroup != newGroup {
-					removeFromGroup(oldGroup, string(newBlob.UID))
+				oldGroups := v1alpha1.ParseGroups(oldGroupAnnotation)
+				newGroups := v1alpha1.ParseGroups(newGroupAnnotation)
+
+				// Create maps for efficient lookup
+				oldGroupsMap := make(map[string]bool)
+				for _, g := range oldGroups {
+					oldGroupsMap[g] = true
+				}
+				newGroupsMap := make(map[string]bool)
+				for _, g := range newGroups {
+					newGroupsMap[g] = true
 				}
 
-				// Add to new group
-				if newGroup != "" {
-					updateGroupAggregate(newGroup, string(newBlob.UID), e)
+				// Remove from groups that are no longer present
+				for _, group := range oldGroups {
+					if !newGroupsMap[group] {
+						removeFromGroup(group, string(newBlob.UID))
+					}
+				}
+
+				// Add to new groups
+				for _, group := range newGroups {
+					if oldGroupsMap[group] {
+						// Already in group, just update
+						updateGroupAggregate(group, string(newBlob.UID), e)
+					} else {
+						// New group membership
+						updateGroupAggregate(group, string(newBlob.UID), e)
+					}
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
@@ -247,9 +271,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				event := createEvent("DELETE", string(blob.UID), e)
 				updates <- event
 
-				// Remove from group
-				if group := blob.Annotations[v1alpha1.BlobGroupAnnotation]; group != "" {
-					removeFromGroup(group, string(blob.UID))
+				// Remove from all groups
+				if groupAnnotation := blob.Annotations[v1alpha1.BlobGroupAnnotation]; groupAnnotation != "" {
+					groups := v1alpha1.ParseGroups(groupAnnotation)
+					for _, group := range groups {
+						removeFromGroup(group, string(blob.UID))
+					}
 				}
 			},
 		})
@@ -283,9 +310,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				updates <- event
 				updateBuffer[string(chunk.UID)] = nil
 
-				// Track group membership
-				if group := chunk.Annotations[v1alpha1.ChunkGroupAnnotation]; group != "" {
-					updateGroupAggregate(group, string(chunk.UID), e)
+				// Track group membership (supports multiple groups)
+				if groupAnnotation := chunk.Annotations[v1alpha1.ChunkGroupAnnotation]; groupAnnotation != "" {
+					groups := v1alpha1.ParseGroups(groupAnnotation)
+					for _, group := range groups {
+						updateGroupAggregate(group, string(chunk.UID), e)
+					}
 				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
@@ -323,18 +353,39 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					updates <- event
 				}
 
-				// Update group membership
-				oldGroup := oldChunk.Annotations[v1alpha1.ChunkGroupAnnotation]
-				newGroup := newChunk.Annotations[v1alpha1.ChunkGroupAnnotation]
+				// Update group membership (supports multiple groups)
+				oldGroupAnnotation := oldChunk.Annotations[v1alpha1.ChunkGroupAnnotation]
+				newGroupAnnotation := newChunk.Annotations[v1alpha1.ChunkGroupAnnotation]
 
-				// Remove from old group if changed
-				if oldGroup != "" && oldGroup != newGroup {
-					removeFromGroup(oldGroup, string(newChunk.UID))
+				oldGroups := v1alpha1.ParseGroups(oldGroupAnnotation)
+				newGroups := v1alpha1.ParseGroups(newGroupAnnotation)
+
+				// Create maps for efficient lookup
+				oldGroupsMap := make(map[string]bool)
+				for _, g := range oldGroups {
+					oldGroupsMap[g] = true
+				}
+				newGroupsMap := make(map[string]bool)
+				for _, g := range newGroups {
+					newGroupsMap[g] = true
 				}
 
-				// Add to new group
-				if newGroup != "" {
-					updateGroupAggregate(newGroup, string(newChunk.UID), e)
+				// Remove from groups that are no longer present
+				for _, group := range oldGroups {
+					if !newGroupsMap[group] {
+						removeFromGroup(group, string(newChunk.UID))
+					}
+				}
+
+				// Add to new groups
+				for _, group := range newGroups {
+					if oldGroupsMap[group] {
+						// Already in group, just update
+						updateGroupAggregate(group, string(newChunk.UID), e)
+					} else {
+						// New group membership
+						updateGroupAggregate(group, string(newChunk.UID), e)
+					}
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
@@ -359,9 +410,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				event := createEvent("DELETE", string(chunk.UID), e)
 				updates <- event
 
-				// Remove from group
-				if group := chunk.Annotations[v1alpha1.ChunkGroupAnnotation]; group != "" {
-					removeFromGroup(group, string(chunk.UID))
+				// Remove from all groups
+				if groupAnnotation := chunk.Annotations[v1alpha1.ChunkGroupAnnotation]; groupAnnotation != "" {
+					groups := v1alpha1.ParseGroups(groupAnnotation)
+					for _, group := range groups {
+						removeFromGroup(group, string(chunk.UID))
+					}
 				}
 			},
 		})
@@ -435,8 +489,9 @@ type entryMemberInfo struct {
 type entry struct {
 	Name        string            `json:"name"`
 	DisplayName string            `json:"displayName,omitempty"`
-	Group       string            `json:"group,omitempty"`
-	Members     []entryMemberInfo `json:"members,omitempty"` // For group aggregates: list of member info
+	Group       string            `json:"group,omitempty"`       // Deprecated: Use Groups instead. Kept for backward compatibility.
+	Groups      []string          `json:"groups,omitempty"`      // List of groups this entry belongs to
+	Members     []entryMemberInfo `json:"members,omitempty"`     // For group aggregates: list of member info
 
 	Priority     int64 `json:"priority,omitempty"`
 	Total        int64 `json:"total"`
@@ -465,7 +520,9 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 		if dn := blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]; dn != "" {
 			e.DisplayName = dn
 		}
-		e.Group = blob.Annotations[v1alpha1.BlobGroupAnnotation]
+		groupAnnotation := blob.Annotations[v1alpha1.BlobGroupAnnotation]
+		e.Group = groupAnnotation // Backward compatibility
+		e.Groups = v1alpha1.ParseGroups(groupAnnotation)
 	}
 
 	// Set spec fields
@@ -510,7 +567,9 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 		if dn := chunk.Annotations[v1alpha1.ChunkDisplayNameAnnotation]; dn != "" {
 			e.DisplayName = dn
 		}
-		e.Group = chunk.Annotations[v1alpha1.ChunkGroupAnnotation]
+		groupAnnotation := chunk.Annotations[v1alpha1.ChunkGroupAnnotation]
+		e.Group = groupAnnotation // Backward compatibility
+		e.Groups = v1alpha1.ParseGroups(groupAnnotation)
 
 		if ignoreSize := chunk.Annotations[v1alpha1.ChunkGroupIgnoreSizeAnnotation]; ignoreSize == "true" {
 			e.groupIgnoreSize = true
