@@ -669,9 +669,9 @@
                     return `${header}
                     <div class="progress-text">
                         ${size ? highlightProgress(progress, size) : `<span></span>`}
+                        ${formatCreatedAt(data.createdAt)}
                         ${highlightSpeed(speed, remainingTime)} 
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
-                        ${formatCreatedAt(data.createdAt)}
                     </div>
                     <div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>`;
                 }
@@ -680,23 +680,23 @@
                     ${highlightError(escapeErrors(errors))}
                     <div class="progress-text">
                         ${size ? highlightProgress(progress, size) : `<span></span>`}
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                         ${formatCreatedAt(data.createdAt)}
+                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>`;
                 case 'Pending':
                 case 'Unknown':
                     return `${header}
                     <div class="progress-text">
                         ${size ? highlightProgress(progress, size) : `<span></span>`}
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                         ${formatCreatedAt(data.createdAt)}
+                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>`;
                 case 'Succeeded':
                     return `${header}
                     <div class="progress-text">
                         ${size ? highlightBytes(size) : `<span></span>`}
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                         ${formatCreatedAt(data.createdAt)}
+                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>`;
             }
         };
