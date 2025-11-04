@@ -197,8 +197,12 @@ type ChunkList struct {
 const (
 	// ChunkDisplayNameAnnotation is the annotation key for the display name of a chunk.
 	ChunkDisplayNameAnnotation = "chunk.task.opencidn.daocloud.io/display-name"
-	// ChunkGroupAnnotation is the annotation key for the group names of a chunk.
-	// The value should be a comma-separated list of group names (e.g., "group1,group2,group3").
+	// ChunkGroupAnnotationPrefix is the annotation key prefix for group membership of a chunk.
+	// To add a chunk to multiple groups, use separate annotation keys with this prefix followed by the group name.
+	// For example: "chunk.task.opencidn.daocloud.io/group/group1", "chunk.task.opencidn.daocloud.io/group/group2"
+	ChunkGroupAnnotationPrefix = "chunk.task.opencidn.daocloud.io/group/"
+	// ChunkGroupAnnotation is deprecated. Use ChunkGroupAnnotationPrefix instead.
+	// Kept for backward compatibility with single-group annotations.
 	ChunkGroupAnnotation = "chunk.task.opencidn.daocloud.io/group"
 	// ChunkGroupIgnoreSizeAnnotation is the annotation key to ignore size when grouping chunks.
 	ChunkGroupIgnoreSizeAnnotation = "chunk.task.opencidn.daocloud.io/group-ignore-size"

@@ -18,38 +18,70 @@ package v1alpha1
 
 import "strings"
 
-// ParseGroups parses a comma-separated group annotation value into a slice of group names.
-// Empty strings are filtered out.
-func ParseGroups(groupAnnotation string) []string {
-	if groupAnnotation == "" {
+// GetGroups extracts all group names from annotations using the specified prefix.
+// It looks for annotation keys that start with the prefix and extracts the group name
+// from the suffix of each matching key.
+func GetGroups(annotations map[string]string, prefix string) []string {
+	if annotations == nil || prefix == "" {
 		return nil
 	}
 	
-	groups := strings.Split(groupAnnotation, ",")
-	result := make([]string, 0, len(groups))
-	for _, g := range groups {
-		g = strings.TrimSpace(g)
-		if g != "" {
-			result = append(result, g)
+	groups := make([]string, 0)
+	for key := range annotations {
+		if strings.HasPrefix(key, prefix) {
+			groupName := strings.TrimPrefix(key, prefix)
+			if groupName != "" {
+				groups = append(groups, groupName)
+			}
 		}
 	}
-	return result
+	
+	return groups
 }
 
-// FormatGroups formats a slice of group names into a comma-separated string.
-func FormatGroups(groups []string) string {
-	if len(groups) == 0 {
-		return ""
+// SetGroups sets group annotations for the given groups using the specified prefix.
+// It removes all existing group annotations with the prefix and adds new ones.
+func SetGroups(annotations map[string]string, prefix string, groups []string) {
+	if annotations == nil || prefix == "" {
+		return
 	}
 	
-	// Filter out empty strings
-	filtered := make([]string, 0, len(groups))
-	for _, g := range groups {
-		g = strings.TrimSpace(g)
-		if g != "" {
-			filtered = append(filtered, g)
+	// Remove all existing group annotations
+	for key := range annotations {
+		if strings.HasPrefix(key, prefix) {
+			delete(annotations, key)
 		}
 	}
 	
-	return strings.Join(filtered, ",")
+	// Add new group annotations
+	for _, group := range groups {
+		group = strings.TrimSpace(group)
+		if group != "" {
+			annotations[prefix+group] = ""
+		}
+	}
+}
+
+// AddGroup adds a single group annotation using the specified prefix.
+func AddGroup(annotations map[string]string, prefix string, group string) {
+	if annotations == nil || prefix == "" {
+		return
+	}
+	
+	group = strings.TrimSpace(group)
+	if group != "" {
+		annotations[prefix+group] = ""
+	}
+}
+
+// RemoveGroup removes a single group annotation using the specified prefix.
+func RemoveGroup(annotations map[string]string, prefix string, group string) {
+	if annotations == nil || prefix == "" {
+		return
+	}
+	
+	group = strings.TrimSpace(group)
+	if group != "" {
+		delete(annotations, prefix+group)
+	}
 }

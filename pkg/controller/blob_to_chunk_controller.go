@@ -442,6 +442,13 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 		chunk.Annotations[v1alpha1.ChunkGroupIgnoreSizeAnnotation] = "true"
 	}
 
+	// Copy group annotations from blob to chunk
+	blobGroups := v1alpha1.GetGroups(blob.Annotations, v1alpha1.BlobGroupAnnotationPrefix)
+	if len(blobGroups) > 0 {
+		v1alpha1.SetGroups(chunk.Annotations, v1alpha1.ChunkGroupAnnotationPrefix, blobGroups)
+		chunk.Annotations[v1alpha1.ChunkGroupIgnoreSizeAnnotation] = "true"
+	}
+
 	blobName := blob.Annotations[v1alpha1.BlobDisplayNameAnnotation]
 	if blobName == "" {
 		blobName = blob.Name

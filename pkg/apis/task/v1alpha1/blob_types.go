@@ -182,7 +182,11 @@ type BlobList struct {
 const (
 	// BlobDisplayNameAnnotation is the annotation key for the display name of a blob.
 	BlobDisplayNameAnnotation = "blob.task.opencidn.daocloud.io/display-name"
-	// BlobGroupAnnotation is the annotation key for the group names of a blob.
-	// The value should be a comma-separated list of group names (e.g., "group1,group2,group3").
+	// BlobGroupAnnotationPrefix is the annotation key prefix for group membership of a blob.
+	// To add a blob to multiple groups, use separate annotation keys with this prefix followed by the group name.
+	// For example: "blob.task.opencidn.daocloud.io/group/group1", "blob.task.opencidn.daocloud.io/group/group2"
+	BlobGroupAnnotationPrefix = "blob.task.opencidn.daocloud.io/group/"
+	// BlobGroupAnnotation is deprecated. Use BlobGroupAnnotationPrefix instead.
+	// Kept for backward compatibility with single-group annotations.
 	BlobGroupAnnotation = "blob.task.opencidn.daocloud.io/group"
 )
