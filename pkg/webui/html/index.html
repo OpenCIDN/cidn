@@ -361,7 +361,6 @@
         .tag-badge {
             display: inline-block;
             padding: 0.125rem 0.5rem;
-            background: var(--color-tag-bg);
             color: white;
             border-radius: 0.25rem;
             font-size: 0.75em;
@@ -552,10 +551,42 @@
             document.getElementById(event.lastEventId)?.remove();
         };
 
+        const getTagColor = (tag) => {
+            // Simple hash function to generate a consistent color for each tag
+            let hash = 0;
+            for (let i = 0; i < tag.length; i++) {
+                hash = ((hash << 5) - hash) + tag.charCodeAt(i);
+                hash = hash & hash; // Convert to 32bit integer
+            }
+            
+            // Predefined color palette with good contrast on white text
+            const colors = [
+                '#607D8B', // Blue Grey
+                '#795548', // Brown
+                '#5D4037', // Dark Brown
+                '#00897B', // Teal
+                '#00695C', // Dark Teal
+                '#388E3C', // Green
+                '#2E7D32', // Dark Green
+                '#1976D2', // Blue
+                '#1565C0', // Dark Blue
+                '#7B1FA2', // Purple
+                '#6A1B9A', // Dark Purple
+                '#C2185B', // Pink
+                '#AD1457', // Dark Pink
+                '#D84315', // Deep Orange
+                '#BF360C', // Dark Deep Orange
+                '#F57C00', // Orange
+                '#E65100', // Dark Orange
+            ];
+            
+            return colors[Math.abs(hash) % colors.length];
+        };
+
         const renderTagBadges = (tags) => {
             if (!tags || tags.length === 0) return '';
             return tags.map(tag => 
-                `<span class="tag-badge">${escapeHtml(tag)}</span>`
+                `<span class="tag-badge" style="background-color: ${getTagColor(tag)};">${escapeHtml(tag)}</span>`
             ).join('');
         };
 
