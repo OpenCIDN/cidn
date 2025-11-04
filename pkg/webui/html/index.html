@@ -44,6 +44,8 @@
             --color-time-s: #78909C;
             --color-time-m: #546E7A;
             --color-time-h: #37474F;
+
+            --color-tag-bg: #607D8B;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -86,6 +88,8 @@
                 --color-time-s: #90A4AE;
                 --color-time-m: #78909C;
                 --color-time-h: #607D8B;
+
+                --color-tag-bg: #546E7A;
             }
         }
 
@@ -354,6 +358,17 @@
             margin-left: 0.5rem;
         }
 
+        .tag-badge {
+            display: inline-block;
+            padding: 0.125rem 0.5rem;
+            background: var(--color-tag-bg);
+            color: white;
+            border-radius: 0.25rem;
+            font-size: 0.75em;
+            font-weight: 500;
+            margin-left: 0.25rem;
+        }
+
         .link-info {
             font-size: 0.875em;
             color: var(--color-text-secondary);
@@ -537,6 +552,13 @@
             document.getElementById(event.lastEventId)?.remove();
         };
 
+        const renderTagBadges = (tags) => {
+            if (!tags || tags.length === 0) return '';
+            return tags.map(tag => 
+                `<span class="tag-badge">${escapeHtml(tag)}</span>`
+            ).join('');
+        };
+
         const dataItem = elementId => {
             const element = document.createElement('div');
             element.id = elementId;
@@ -593,6 +615,7 @@
 
             const header = `
                 <div class="data-header">
+                    ${renderTagBadges(data.tags)}
                     ${displayName}
                     <a href="#${elementId}" class="anchor-link">#</a>
                 </div>

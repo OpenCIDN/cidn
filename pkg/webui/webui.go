@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -436,6 +437,7 @@ type entry struct {
 	Name        string            `json:"name"`
 	DisplayName string            `json:"displayName,omitempty"`
 	Group       string            `json:"group,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
 	Members     []entryMemberInfo `json:"members,omitempty"` // For group aggregates: list of member info
 
 	Priority     int64 `json:"priority,omitempty"`
@@ -454,6 +456,26 @@ type entry struct {
 	groupIgnoreSize bool `json:"-"`
 }
 
+// parseTagsFromAnnotation parses a comma-separated list of tags from an annotation value
+func parseTagsFromAnnotation(tagsStr string) []string {
+	if tagsStr == "" {
+		return nil
+	}
+	tags := strings.Split(tagsStr, ",")
+	result := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if trimmed := strings.TrimSpace(tag); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+
+	sort.Strings(result)
+	return result
+}
+
 // blobToEntry converts a Blob to an entry for the WebUI
 func blobToEntry(blob *v1alpha1.Blob) *entry {
 	e := &entry{}
@@ -466,6 +488,7 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 			e.DisplayName = dn
 		}
 		e.Group = blob.Annotations[v1alpha1.BlobGroupAnnotation]
+		e.Tags = parseTagsFromAnnotation(blob.Annotations[v1alpha1.BlobTagAnnotation])
 	}
 
 	// Set spec fields
@@ -515,6 +538,8 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 		if ignoreSize := chunk.Annotations[v1alpha1.ChunkGroupIgnoreSizeAnnotation]; ignoreSize == "true" {
 			e.groupIgnoreSize = true
 		}
+
+		e.Tags = parseTagsFromAnnotation(chunk.Annotations[v1alpha1.ChunkTagAnnotation])
 	}
 
 	// Set spec fields
