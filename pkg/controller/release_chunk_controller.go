@@ -96,7 +96,8 @@ func (c *ReleaseChunkController) enqueueChunk(obj interface{}) {
 
 	if chunk.Status.Phase != v1alpha1.ChunkPhaseRunning &&
 		chunk.Status.Phase != v1alpha1.ChunkPhaseUnknown &&
-		chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
+		chunk.Status.Phase != v1alpha1.ChunkPhaseFailed &&
+		chunk.Status.Phase != v1alpha1.ChunkPhaseSucceeded {
 		return
 	}
 
@@ -185,13 +186,13 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
 		}
 	case v1alpha1.ChunkPhaseFailed:
-		dur := time.Duration(math.Pow(2, float64(chunk.Status.Retry))) * time.Second
-		sub := time.Since(lastSeenTime)
-		if sub < dur {
-			return dur - sub, nil
-		}
-
 		if chunk.Status.Retryable {
+			dur := time.Duration(math.Pow(2, float64(chunk.Status.Retry))) * time.Second
+			sub := time.Since(lastSeenTime)
+			if sub < dur {
+				return dur - sub, nil
+			}
+
 			newChunk := chunk.DeepCopy()
 			newChunk.Status.Phase = v1alpha1.ChunkPhasePending
 			newChunk.Status.Conditions = nil
@@ -204,6 +205,40 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			if err != nil {
 				return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
 			}
+		} else {
+			// If the chunk has a TTL annotation and is not retryable, delete it after the TTL
+			ttl, ok := getTTLDuration(chunk.ObjectMeta, v1alpha1.ChunkTTLAnnotation)
+			if !ok {
+				return 0, nil
+			}
+
+			sub := time.Since(lastSeenTime)
+			if sub < ttl {
+				return ttl - sub, nil
+			}
+
+			klog.Infof("Deleting failed chunk %s after %v", name, ttl)
+			err = c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
+			if err != nil && !apierrors.IsNotFound(err) {
+				return 10 * time.Second, fmt.Errorf("failed to delete chunk %s: %v", name, err)
+			}
+		}
+	case v1alpha1.ChunkPhaseSucceeded:
+		// Only delete succeeded chunks if TTL annotation is set
+		ttl, ok := getTTLDuration(chunk.ObjectMeta, v1alpha1.ChunkTTLAnnotation)
+		if !ok {
+			return 0, nil
+		}
+
+		sub := time.Since(lastSeenTime)
+		if sub < ttl {
+			return ttl - sub, nil
+		}
+
+		klog.Infof("Deleting succeeded chunk %s after %v", name, ttl)
+		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return 10 * time.Second, fmt.Errorf("failed to delete chunk %s: %v", name, err)
 		}
 	}
 	return 0, nil

@@ -204,4 +204,10 @@ const (
 	// ChunkTagAnnotation is the annotation key for tags of a chunk.
 	// Multiple tags can be specified as a comma-separated list.
 	ChunkTagAnnotation = "chunk.task.opencidn.daocloud.io/tags"
+	// ChunkTTLAnnotation is the annotation key for the time-to-live duration of a chunk.
+	// When set, the chunk will be automatically deleted after the specified duration
+	// following its transition to a terminal state (Succeeded or Failed).
+	// The value should be a valid duration string (e.g., "1h", "30m", "3600s").
+	// If not set, chunks in Succeeded state are not auto-deleted by default.
+	ChunkTTLAnnotation = "chunk.task.opencidn.daocloud.io/ttl"
 )

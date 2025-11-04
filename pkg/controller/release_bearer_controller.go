@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
@@ -96,7 +95,8 @@ func (c *ReleaseBearerController) enqueueBearer(obj interface{}) {
 
 	if bearer.Status.Phase != v1alpha1.BearerPhaseRunning &&
 		bearer.Status.Phase != v1alpha1.BearerPhaseUnknown &&
-		bearer.Status.Phase != v1alpha1.BearerPhaseFailed {
+		bearer.Status.Phase != v1alpha1.BearerPhaseFailed &&
+		bearer.Status.Phase != v1alpha1.BearerPhaseSucceeded {
 		return
 	}
 
@@ -154,21 +154,6 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 	}
 
 	switch bearer.Status.Phase {
-	case v1alpha1.BearerPhaseSucceeded:
-		issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
-		expiresIn := bearer.Status.TokenInfo.ExpiresIn
-
-		since := time.Since(issuedAt)
-		expires := time.Duration(expiresIn) * time.Second
-
-		if since < expires+expires/4 {
-			return expires - since + expires/4, nil
-		}
-
-		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, bearer.Name, metav1.DeleteOptions{})
-		if err != nil {
-			return 10 * time.Second, fmt.Errorf("failed to update bearer %s: %v", name, err)
-		}
 	case v1alpha1.BearerPhaseRunning:
 		dur := 60 * time.Second
 		sub := time.Since(lastSeenTime)
@@ -197,16 +182,44 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
 		}
 	case v1alpha1.BearerPhaseFailed:
-		dur := time.Duration(math.Pow(2, float64(bearer.Status.Retry))) * time.Second
-		sub := time.Since(lastSeenTime)
-		if sub < dur {
-			return dur - sub, nil
+		ttl, ok := getTTLDuration(bearer.ObjectMeta, v1alpha1.BearerTTLAnnotation)
+		if !ok {
+			return 0, nil
 		}
 
-		klog.Infof("Deleting failed blob %s after 1 hour", name)
+		sub := time.Since(lastSeenTime)
+		if sub < ttl {
+			return ttl - sub, nil
+		}
+
+		klog.Infof("Deleting failed bearer %s after %v", name, ttl)
 		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
-			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
+			return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
+		}
+	case v1alpha1.BearerPhaseSucceeded:
+		ttl, ok := getTTLDuration(bearer.ObjectMeta, v1alpha1.BearerTTLAnnotation)
+
+		issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
+		expiresIn := bearer.Status.TokenInfo.ExpiresIn
+		expires := time.Duration(expiresIn) * time.Second
+		since := time.Since(issuedAt)
+
+		if ok {
+			ttl = max(ttl, expires-since)
+		} else {
+			ttl = expires - since + expires/4
+		}
+
+		sub := time.Since(lastSeenTime)
+		if sub < ttl {
+			return ttl - sub, nil
+		}
+
+		klog.Infof("Deleting succeeded bearer %s after token expiration", name)
+		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, bearer.Name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
 		}
 	}
 	return 0, nil

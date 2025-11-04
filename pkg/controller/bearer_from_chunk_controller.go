@@ -176,7 +176,6 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 			if retryable {
 				b.Status.Phase = v1alpha1.BearerPhaseRunning
 			} else {
-				b.Status.Retry = chunk.Status.Retry
 				b.Status.Phase = v1alpha1.BearerPhaseFailed
 				b.Status.Conditions = v1alpha1.AppendConditions(b.Status.Conditions, chunk.Status.Conditions...)
 			}
