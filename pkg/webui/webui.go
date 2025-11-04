@@ -547,7 +547,6 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 	// Set spec fields
 	e.Priority = chunk.Spec.Priority
 	e.Total = chunk.Spec.Total
-	e.Progress = chunk.Status.Progress
 	e.CreatedAt = chunk.CreationTimestamp.Format(time.RFC3339)
 
 	// Set status fields
