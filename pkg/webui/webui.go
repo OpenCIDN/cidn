@@ -238,15 +238,9 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					}
 				}
 
-				// Add to new groups
+				// Add to new groups (or update if already present)
 				for _, group := range newGroups {
-					if oldGroupsMap[group] {
-						// Already in group, just update
-						updateGroupAggregate(group, string(newBlob.UID), e)
-					} else {
-						// New group membership
-						updateGroupAggregate(group, string(newBlob.UID), e)
-					}
+					updateGroupAggregate(group, string(newBlob.UID), e)
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
@@ -377,15 +371,9 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					}
 				}
 
-				// Add to new groups
+				// Add to new groups (or update if already present)
 				for _, group := range newGroups {
-					if oldGroupsMap[group] {
-						// Already in group, just update
-						updateGroupAggregate(group, string(newChunk.UID), e)
-					} else {
-						// New group membership
-						updateGroupAggregate(group, string(newChunk.UID), e)
-					}
+					updateGroupAggregate(group, string(newChunk.UID), e)
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
