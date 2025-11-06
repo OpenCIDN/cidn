@@ -212,9 +212,16 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 				return 0, nil
 			}
 
-			sub := time.Since(lastSeenTime)
-			if sub < ttl {
-				return ttl - sub, nil
+			// Use CompletionTime if available, otherwise fall back to lastSeenTime
+			var timeSinceCompletion time.Duration
+			if chunk.Status.CompletionTime != nil {
+				timeSinceCompletion = time.Since(chunk.Status.CompletionTime.Time)
+			} else {
+				timeSinceCompletion = time.Since(lastSeenTime)
+			}
+
+			if timeSinceCompletion < ttl {
+				return ttl - timeSinceCompletion, nil
 			}
 
 			klog.Infof("Deleting failed chunk %s after %v", name, ttl)
@@ -230,9 +237,16 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			return 0, nil
 		}
 
-		sub := time.Since(lastSeenTime)
-		if sub < ttl {
-			return ttl - sub, nil
+		// Use CompletionTime if available, otherwise fall back to lastSeenTime
+		var timeSinceCompletion time.Duration
+		if chunk.Status.CompletionTime != nil {
+			timeSinceCompletion = time.Since(chunk.Status.CompletionTime.Time)
+		} else {
+			timeSinceCompletion = time.Since(lastSeenTime)
+		}
+
+		if timeSinceCompletion < ttl {
+			return ttl - timeSinceCompletion, nil
 		}
 
 		klog.Infof("Deleting succeeded chunk %s after %v", name, ttl)

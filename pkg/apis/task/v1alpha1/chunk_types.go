@@ -99,6 +99,11 @@ type ChunkStatus struct {
 	// Retryable indicates whether the chunk can be retried.
 	Retryable bool `json:"retryable,omitempty"`
 
+	// CompletionTime represents the time when the chunk reached a terminal phase (Succeeded or Failed).
+	// This field is used to calculate the TTL for resource cleanup.
+	// +optional
+	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+
 	// Conditions holds conditions for the Chunk.
 	// +patchMergeKey=type
 	// +patchStrategy=merge

@@ -395,7 +395,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 			b.Status.FailedChunks = 0
 			b.Status.PendingChunks = 0
 			b.Status.RunningChunks = 0
-			b.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			utils.SetBlobTerminalPhase(b, v1alpha1.BlobPhaseSucceeded)
 			b.Status.Progress = b.Status.Total
 			return b
 		})
