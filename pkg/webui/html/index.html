@@ -44,6 +44,8 @@
             --color-time-s: #78909C;
             --color-time-m: #546E7A;
             --color-time-h: #37474F;
+
+            --color-timestamp: #546E7A;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -86,6 +88,8 @@
                 --color-time-s: #90A4AE;
                 --color-time-m: #78909C;
                 --color-time-h: #607D8B;
+
+                --color-timestamp: #78909C;
             }
         }
 
@@ -380,6 +384,19 @@
         .link-info a:hover {
             text-decoration: underline;
         }
+
+        .timestamp-info {
+            font-size: 0.75em;
+            color: var(--color-timestamp);
+            margin-top: 0.25rem;
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .timestamp-label {
+            font-weight: 500;
+        }
     </style>
 </head>
 
@@ -637,6 +654,7 @@
                     <a href="#${elementId}" class="anchor-link">#</a>
                 </div>
                 ${linkInfo}
+                ${formatTimestampInfo(data.creationTime, data.completionTime)}
             `;
 
             switch (data.phase) {
@@ -844,6 +862,46 @@
                 minutes > 0 ? `<span class="time-unit-m">${minutes} m</span>` : null,
                 `<span class="time-unit-s">${seconds} s</span>`
             ].filter(Boolean).join(' ');
+        };
+
+        const formatTimestamp = isoTimestamp => {
+            if (!isoTimestamp) return '';
+            try {
+                const date = new Date(isoTimestamp);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffSec = Math.floor(diffMs / 1000);
+                const diffMin = Math.floor(diffSec / 60);
+                const diffHour = Math.floor(diffMin / 60);
+                const diffDay = Math.floor(diffHour / 24);
+
+                let relativeTime = '';
+                if (diffSec < 60) {
+                    relativeTime = `${diffSec}s ago`;
+                } else if (diffMin < 60) {
+                    relativeTime = `${diffMin}m ago`;
+                } else if (diffHour < 24) {
+                    relativeTime = `${diffHour}h ago`;
+                } else {
+                    relativeTime = `${diffDay}d ago`;
+                }
+
+                const fullTime = date.toLocaleString();
+                return `<span title="${fullTime}">${relativeTime}</span>`;
+            } catch (e) {
+                return isoTimestamp;
+            }
+        };
+
+        const formatTimestampInfo = (creationTime, completionTime) => {
+            const parts = [];
+            if (creationTime) {
+                parts.push(`<span class="timestamp-label">Created:</span> ${formatTimestamp(creationTime)}`);
+            }
+            if (completionTime) {
+                parts.push(`<span class="timestamp-label">Completed:</span> ${formatTimestamp(completionTime)}`);
+            }
+            return parts.length > 0 ? `<div class="timestamp-info">${parts.join('')}</div>` : '';
         };
 
         document.addEventListener('DOMContentLoaded', () => {

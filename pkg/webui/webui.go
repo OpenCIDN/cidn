@@ -451,6 +451,9 @@ type entry struct {
 	SucceededChunks int64  `json:"succeededChunks,omitempty"`
 	FailedChunks    int64  `json:"failedChunks,omitempty"`
 
+	CreationTime   string `json:"creationTime,omitempty"`
+	CompletionTime string `json:"completionTime,omitempty"`
+
 	Errors []string `json:"errors,omitempty"`
 
 	groupIgnoreSize bool `json:"-"`
@@ -501,6 +504,14 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 	e.SucceededChunks = blob.Status.SucceededChunks
 	e.FailedChunks = blob.Status.FailedChunks
 
+	// Set timestamps
+	if !blob.CreationTimestamp.IsZero() {
+		e.CreationTime = blob.CreationTimestamp.Format(time.RFC3339)
+	}
+	if blob.Status.CompletionTime != nil && !blob.Status.CompletionTime.IsZero() {
+		e.CompletionTime = blob.Status.CompletionTime.Format(time.RFC3339)
+	}
+
 	if e.Total <= 0 {
 		e.Total = e.Progress
 	}
@@ -547,6 +558,14 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 	e.Total = chunk.Spec.Total
 	e.Progress = chunk.Status.Progress
 	e.Phase = string(chunk.Status.Phase)
+
+	// Set timestamps
+	if !chunk.CreationTimestamp.IsZero() {
+		e.CreationTime = chunk.CreationTimestamp.Format(time.RFC3339)
+	}
+	if chunk.Status.CompletionTime != nil && !chunk.Status.CompletionTime.IsZero() {
+		e.CompletionTime = chunk.Status.CompletionTime.Format(time.RFC3339)
+	}
 
 	if e.Total <= 0 {
 		e.Total = e.Progress
