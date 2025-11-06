@@ -194,7 +194,7 @@ func (c *BearerToChunkController) toGetChunk(ctx context.Context, bearer *v1alph
 			},
 		},
 		Spec: v1alpha1.ChunkSpec{
-			Priority:           bearer.Spec.Priority,
+			Priority:           bearer.Spec.Priority + 1,
 			MaximumRetry:       bearer.Spec.MaximumRetry,
 			InlineResponseBody: true,
 		},
