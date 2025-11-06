@@ -868,6 +868,10 @@
             if (!isoTimestamp) return '';
             try {
                 const date = new Date(isoTimestamp);
+                // Check if the date is valid
+                if (isNaN(date.getTime())) {
+                    return isoTimestamp;
+                }
                 const now = new Date();
                 const diffMs = now - date;
                 const diffSec = Math.floor(diffMs / 1000);
@@ -901,7 +905,7 @@
             if (completionTime) {
                 parts.push(`<span class="timestamp-label">Completed:</span> ${formatTimestamp(completionTime)}`);
             }
-            return parts.length > 0 ? `<div class="timestamp-info">${parts.join('')}</div>` : '';
+            return parts.length > 0 ? `<div class="timestamp-info">${parts.join(' ')}</div>` : '';
         };
 
         document.addEventListener('DOMContentLoaded', () => {
