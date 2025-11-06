@@ -627,6 +627,13 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "int64",
 						},
 					},
+					"forceAcceptRanges": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ForceAcceptRanges forces the blob to support range requests regardless of server response. When set to true, the blob will be treated as if it supports range requests even if the server doesn't advertise 'Accept-Ranges: bytes' in the response headers. This is useful for servers that support range requests but don't properly advertise it.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"source", "destination", "priority"},
 			},
