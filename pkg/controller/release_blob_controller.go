@@ -184,9 +184,16 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 			return 0, nil
 		}
 
-		sub := time.Since(lastSeenTime)
-		if sub < ttl {
-			return ttl - sub, nil
+		// Use CompletionTime if available, otherwise fall back to lastSeenTime
+		var timeSinceCompletion time.Duration
+		if blob.Status.CompletionTime != nil {
+			timeSinceCompletion = time.Since(blob.Status.CompletionTime.Time)
+		} else {
+			timeSinceCompletion = time.Since(lastSeenTime)
+		}
+
+		if timeSinceCompletion < ttl {
+			return ttl - timeSinceCompletion, nil
 		}
 
 		klog.Infof("Deleting failed blob %s after %v", name, ttl)
@@ -199,9 +206,17 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 		if !ok {
 			return 0, nil
 		}
-		sub := time.Since(lastSeenTime)
-		if sub < ttl {
-			return ttl - sub, nil
+
+		// Use CompletionTime if available, otherwise fall back to lastSeenTime
+		var timeSinceCompletion time.Duration
+		if blob.Status.CompletionTime != nil {
+			timeSinceCompletion = time.Since(blob.Status.CompletionTime.Time)
+		} else {
+			timeSinceCompletion = time.Since(lastSeenTime)
+		}
+
+		if timeSinceCompletion < ttl {
+			return ttl - timeSinceCompletion, nil
 		}
 
 		klog.Infof("Deleting succeeded blob %s after %v", name, ttl)

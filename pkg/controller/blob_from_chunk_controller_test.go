@@ -157,7 +157,7 @@ func TestDeleteChunksInNonFinalStates(t *testing.T) {
 			for _, chunk := range tt.chunks {
 				objs = append(objs, chunk)
 			}
-			
+
 			client := fake.NewSimpleClientset(objs...)
 			sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
 

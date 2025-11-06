@@ -714,6 +714,12 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 							Format:      "int64",
 						},
 					},
+					"completionTime": {
+						SchemaProps: spec.SchemaProps{
+							Description: "CompletionTime represents the time when the blob reached a terminal phase (Succeeded or Failed). This field is used to calculate the TTL for resource cleanup.",
+							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
+						},
+					},
 					"conditions": {
 						VendorExtensible: spec.VendorExtensible{
 							Extensions: spec.Extensions{
@@ -743,7 +749,7 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition", "k8s.io/apimachinery/pkg/apis/meta/v1.Time"},
 	}
 }
 
@@ -1169,6 +1175,12 @@ func schema_pkg_apis_task_v1alpha1_ChunkStatus(ref common.ReferenceCallback) com
 							Format:      "",
 						},
 					},
+					"completionTime": {
+						SchemaProps: spec.SchemaProps{
+							Description: "CompletionTime represents the time when the chunk reached a terminal phase (Succeeded or Failed). This field is used to calculate the TTL for resource cleanup.",
+							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
+						},
+					},
 					"conditions": {
 						VendorExtensible: spec.VendorExtensible{
 							Extensions: spec.Extensions{
@@ -1198,7 +1210,7 @@ func schema_pkg_apis_task_v1alpha1_ChunkStatus(ref common.ReferenceCallback) com
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPResponse", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPResponse", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Condition", "k8s.io/apimachinery/pkg/apis/meta/v1.Time"},
 	}
 }
 

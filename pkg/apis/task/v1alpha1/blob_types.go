@@ -93,6 +93,11 @@ type BlobStatus struct {
 	// Retry is the number of times the blob has been retried.
 	Retry int64 `json:"retry,omitempty"`
 
+	// CompletionTime represents the time when the blob reached a terminal phase (Succeeded or Failed).
+	// This field is used to calculate the TTL for resource cleanup.
+	// +optional
+	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+
 	// Conditions holds conditions for the Blob.
 	// +patchMergeKey=type
 	// +patchStrategy=merge

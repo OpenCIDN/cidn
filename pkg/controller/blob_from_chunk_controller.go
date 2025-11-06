@@ -217,7 +217,7 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 		if chunk.Status.Retryable {
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 		} else {
-			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
 		}
 	}
@@ -242,13 +242,13 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 		blob.Status.FailedChunks = 0
 		err := c.verifySha256(ctx, blob)
 		if err != nil {
-			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
 				Type:    "Sha256Verification",
 				Message: err.Error(),
 			})
 		} else {
-			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseSucceeded)
 			blob.Status.Progress = chunk.Status.Progress
 		}
 	case v1alpha1.ChunkPhaseFailed:
@@ -261,7 +261,7 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 			blob.Status.Phase = v1alpha1.BlobPhaseRunning
 			blob.Status.Progress = chunk.Status.Progress
 		} else {
-			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
 		}
 	case v1alpha1.ChunkPhaseRunning, v1alpha1.ChunkPhaseUnknown:
@@ -350,7 +350,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	if failedCount != 0 {
 		if retryCount >= blob.Spec.MaximumRetry {
 			blob.Status.Retry = blob.Spec.MaximumRetry
-			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 			for _, chunk := range chunks {
 				if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
 					blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
@@ -369,7 +369,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 			}
 			if hasNonRetryableFailure {
 				blob.Status.Retry = blob.Spec.MaximumRetry
-				blob.Status.Phase = v1alpha1.BlobPhaseFailed
+				utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 				for _, chunk := range chunks {
 					if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
 						blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
@@ -397,7 +397,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 			totalSize += etag.Size
 		}
 		if totalSize != blob.Status.Total {
-			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 			blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
 				Type:    "SizeMismatch",
 				Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, blob.Status.Total),
@@ -438,7 +438,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		}
 		err = g.Wait()
 		if err != nil {
-			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 			blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
 				Type:    "MultipartCommit",
 				Message: err.Error(),
@@ -449,14 +449,14 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 
 		err := c.verifySha256(ctx, blob)
 		if err != nil {
-			blob.Status.Phase = v1alpha1.BlobPhaseFailed
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
 				Type:    "Sha256Verification",
 				Message: err.Error(),
 			})
 			c.deleteChunksInNonFinalStates(ctx, blob)
 		} else {
-			blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseSucceeded)
 
 			err = c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
 			if err != nil {
