@@ -24,10 +24,8 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -84,31 +82,17 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 		updates := make(chan Event, 4)
 		defer close(updates)
 
-		// Buffer for aggregated updates
-		var mut sync.Mutex
-		updateBuffer := map[string]*Event{}
+		bufferUpdates := make(chan Event, 4)
+		defer close(bufferUpdates)
+
 		// Track group for aggregation
 		groups := map[string]map[string]*entry{}
 		ticker := time.NewTicker(updateInterval)
 		defer ticker.Stop()
 
 		// Helper function to delete a group aggregate
-		deleteGroupAggregate := func(group string) {
-			if group == "" {
-				return
-			}
-			delete(groups, group)
-			delete(updateBuffer, "group-"+group)
-			event := Event{Type: "DELETE", ID: "group-" + group}
-			updates <- event
-		}
 
-		// Helper function to update group aggregate
-		updateGroupAggregate := func(group string, blobUID string, e *entry) {
-			if group == "" {
-				return
-			}
-
+		createGroupEvent := func(group string, blobUID string, e *entry) Event {
 			if groups[group] == nil {
 				groups[group] = make(map[string]*entry)
 			}
@@ -120,33 +104,27 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 			aggregate := aggregateEntries(group, groups[group])
 			event := Event{
 				Type: "UPDATE",
-				ID:   "group-" + group,
+				ID:   "group:" + group,
 			}
-			data, err := json.Marshal(aggregate)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshaling group aggregate: %v\n", err)
-				return
-			}
+			data, _ := json.Marshal(aggregate)
 			event.Data = data
-			updateBuffer["group-"+group] = &event
+			return event
 		}
 
 		// Helper function to remove blob from group and update or delete group aggregate
-		removeFromGroup := func(group string, blobUID string) {
-			if group == "" {
-				return
-			}
+		removeFromGroup := func(group string, blobUID string) Event {
 			// Check if group exists before attempting to modify
 			if _, exists := groups[group]; !exists {
-				return
+				event := Event{Type: "DELETE", ID: "group-" + group}
+				return event
 			}
 
 			delete(groups[group], blobUID)
 			if len(groups[group]) == 0 {
-				deleteGroupAggregate(group)
-			} else {
-				updateGroupAggregate(group, blobUID, nil)
+				event := Event{Type: "DELETE", ID: "group-" + group}
+				return event
 			}
+			return createGroupEvent(group, blobUID, nil)
 		}
 
 		resourceEventHandlerRegistration, err := blobInformerInstance.AddEventHandler(&cache.ResourceEventHandlerFuncs{
@@ -165,16 +143,14 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				mut.Lock()
-				defer mut.Unlock()
 				e := blobToEntry(blob)
 				event := createEvent("ADD", string(blob.UID), e)
 				updates <- event
-				updateBuffer[string(blob.UID)] = nil
 
 				// Track group membership
 				if group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
-					updateGroupAggregate(group, string(blob.UID), e)
+					groupEvent := createGroupEvent(group, string(blob.UID), e)
+					updates <- groupEvent
 				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
@@ -200,15 +176,13 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				mut.Lock()
-				defer mut.Unlock()
 				e := blobToEntry(newBlob)
 				event := createEvent("UPDATE", string(newBlob.UID), e)
-				_, ok = updateBuffer[string(newBlob.UID)]
-				if ok && oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Status.Total {
-					updateBuffer[string(newBlob.UID)] = &event
+
+				needBuffer := oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Status.Total
+				if needBuffer {
+					bufferUpdates <- event
 				} else {
-					updateBuffer[string(newBlob.UID)] = nil
 					updates <- event
 				}
 
@@ -223,7 +197,13 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				// Add to new group
 				if newGroup != "" {
-					updateGroupAggregate(newGroup, string(newBlob.UID), e)
+					groupEvent := createGroupEvent(newGroup, string(newBlob.UID), e)
+					if needBuffer {
+						bufferUpdates <- groupEvent
+					} else {
+						updates <- groupEvent
+					}
+
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
@@ -241,16 +221,14 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				mut.Lock()
-				defer mut.Unlock()
-				delete(updateBuffer, string(blob.UID))
 				e := blobToEntry(blob)
 				event := createEvent("DELETE", string(blob.UID), e)
-				updates <- event
+				bufferUpdates <- event
 
 				// Remove from group
 				if group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
-					removeFromGroup(group, string(blob.UID))
+					groupEvent := removeFromGroup(group, string(blob.UID))
+					bufferUpdates <- groupEvent
 				}
 			},
 		})
@@ -277,16 +255,14 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				mut.Lock()
-				defer mut.Unlock()
 				e := chunkToEntry(chunk)
 				event := createEvent("ADD", string(chunk.UID), e)
 				updates <- event
-				updateBuffer[string(chunk.UID)] = nil
 
 				// Track group membership
 				if group := chunk.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
-					updateGroupAggregate(group, string(chunk.UID), e)
+					groupEvent := createGroupEvent(group, string(chunk.UID), e)
+					updates <- groupEvent
 				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
@@ -312,15 +288,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				mut.Lock()
-				defer mut.Unlock()
 				e := chunkToEntry(newChunk)
 				event := createEvent("UPDATE", string(newChunk.UID), e)
-				_, ok = updateBuffer[string(newChunk.UID)]
-				if ok && oldChunk.Status.Phase == newChunk.Status.Phase && newChunk.Status.Progress != newChunk.Spec.Total {
-					updateBuffer[string(newChunk.UID)] = &event
+				needBuffer := oldChunk.Status.Phase == newChunk.Status.Phase && newChunk.Status.Progress != newChunk.Spec.Total
+				if needBuffer {
+					bufferUpdates <- event
 				} else {
-					updateBuffer[string(newChunk.UID)] = nil
 					updates <- event
 				}
 
@@ -330,12 +303,22 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				// Remove from old group if changed
 				if oldGroup != "" && oldGroup != newGroup {
-					removeFromGroup(oldGroup, string(newChunk.UID))
+					groupEvent := removeFromGroup(oldGroup, string(newChunk.UID))
+					if needBuffer {
+						bufferUpdates <- groupEvent
+					} else {
+						updates <- groupEvent
+					}
 				}
 
 				// Add to new group
 				if newGroup != "" {
-					updateGroupAggregate(newGroup, string(newChunk.UID), e)
+					groupEvent := createGroupEvent(newGroup, string(newChunk.UID), e)
+					if needBuffer {
+						bufferUpdates <- groupEvent
+					} else {
+						updates <- groupEvent
+					}
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
@@ -353,16 +336,14 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 
-				mut.Lock()
-				defer mut.Unlock()
-				delete(updateBuffer, string(chunk.UID))
 				e := chunkToEntry(chunk)
 				event := createEvent("DELETE", string(chunk.UID), e)
 				updates <- event
 
 				// Remove from group
 				if group := chunk.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
-					removeFromGroup(group, string(chunk.UID))
+					groupEvent := removeFromGroup(group, string(chunk.UID))
+					bufferUpdates <- groupEvent
 				}
 			},
 		})
@@ -372,30 +353,30 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 		}
 		defer chunkInformerInstance.RemoveEventHandler(chunkEventHandlerRegistration)
 
+		bufferUpdateMap := map[string]*Event{}
 		// Stream updates to client
 		flusher := w.(http.Flusher)
 		for {
 			select {
 			case <-ticker.C:
-				func() {
-					mut.Lock()
-					defer mut.Unlock()
-					if len(updateBuffer) != 0 {
-						for _, event := range updateBuffer {
-							if event == nil {
-								continue
-							}
-							_, err := event.WriteTo(w)
-							if err != nil {
-								fmt.Printf("Error writing event: %v\n", err)
-								return
-							}
+				if len(bufferUpdateMap) != 0 {
+					for _, event := range bufferUpdateMap {
+						if event == nil {
+							continue
 						}
-						flusher.Flush()
-						clear(updateBuffer)
+						_, err := event.WriteTo(w)
+						if err != nil {
+							fmt.Printf("Error writing event: %v\n", err)
+							return
+						}
 					}
-				}()
+					flusher.Flush()
+					clear(bufferUpdateMap)
+				}
+			case event := <-bufferUpdates:
+				bufferUpdateMap[event.ID] = &event
 			case event := <-updates:
+				bufferUpdateMap[event.ID] = nil
 				_, err := event.WriteTo(w)
 				if err != nil {
 					fmt.Printf("Error writing event: %v\n", err)
