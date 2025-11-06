@@ -250,30 +250,33 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 
 			issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
 			expiresIn := bearer.Status.TokenInfo.ExpiresIn
-			since := time.Since(issuedAt)
-			expires := time.Duration(expiresIn) * time.Second
 
-			if since >= expires {
-				_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
-					b.Status.HandlerName = ""
-					b.Status.Phase = v1alpha1.BearerPhasePending
-					return b
-				})
-				if err != nil {
-					return err
+			if expiresIn > 0 && !issuedAt.IsZero() {
+				since := time.Since(issuedAt)
+				expires := time.Duration(expiresIn) * time.Second
+
+				if since >= expires {
+					_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+						b.Status.HandlerName = ""
+						b.Status.Phase = v1alpha1.BearerPhasePending
+						return b
+					})
+					if err != nil {
+						return err
+					}
+
+					return fmt.Errorf("%w: bearer %s token has expired", ErrBearerNotReady, bearer.Name)
 				}
 
-				return fmt.Errorf("%w: bearer %s token has expired", ErrBearerNotReady, bearer.Name)
-			}
-
-			if since >= expires*3/4 {
-				_, err := utils.UpdateResourceStatusWithRetry(context.Background(), r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
-					b.Status.HandlerName = ""
-					b.Status.Phase = v1alpha1.BearerPhasePending
-					return b
-				})
-				if err != nil {
-					klog.Errorf("Failed to update bearer %s status: %v", bearer.Name, err)
+				if since >= expires*3/4 {
+					_, err := utils.UpdateResourceStatusWithRetry(context.Background(), r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+						b.Status.HandlerName = ""
+						b.Status.Phase = v1alpha1.BearerPhasePending
+						return b
+					})
+					if err != nil {
+						klog.Errorf("Failed to update bearer %s status: %v", bearer.Name, err)
+					}
 				}
 			}
 		}
@@ -796,23 +799,25 @@ func (r *ChunkRunner) getPending(ctx context.Context) (*v1alpha1.Chunk, error) {
 					continue
 				}
 
-				issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
 				expiresIn := bearer.Status.TokenInfo.ExpiresIn
-				since := time.Since(issuedAt)
-				expires := time.Duration(expiresIn) * time.Second
+				issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
+				if expiresIn > 0 && !issuedAt.IsZero() {
+					since := time.Since(issuedAt)
+					expires := time.Duration(expiresIn) * time.Second
 
-				if since >= expires {
-					if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
-						_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
-							b.Status.HandlerName = ""
-							b.Status.Phase = v1alpha1.BearerPhasePending
-							return b
-						})
-						if err != nil {
-							klog.Warningf("Failed to update bearer %s status: %v", bearer.Name, err)
+					if since >= expires {
+						if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
+							_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+								b.Status.HandlerName = ""
+								b.Status.Phase = v1alpha1.BearerPhasePending
+								return b
+							})
+							if err != nil {
+								klog.Warningf("Failed to update bearer %s status: %v", bearer.Name, err)
+							}
 						}
+						continue
 					}
-					continue
 				}
 			}
 		}

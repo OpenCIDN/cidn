@@ -200,26 +200,39 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 	case v1alpha1.BearerPhaseSucceeded:
 		ttl, ok := getTTLDuration(bearer.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 
-		issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
 		expiresIn := bearer.Status.TokenInfo.ExpiresIn
-		expires := time.Duration(expiresIn) * time.Second
-		since := time.Since(issuedAt)
+		issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
+		if expiresIn != 0 && !issuedAt.IsZero() {
+			expires := time.Duration(expiresIn) * time.Second
+			since := time.Since(issuedAt)
 
-		if ok {
-			ttl = max(ttl, expires-since)
-		} else {
-			ttl = expires - since + expires/4
-		}
+			if ok {
+				ttl = max(ttl, expires-since)
+			} else {
+				ttl = expires - since + expires/4
+			}
 
-		sub := time.Since(lastSeenTime)
-		if sub < ttl {
-			return ttl - sub, nil
-		}
+			sub := time.Since(lastSeenTime)
+			if sub < ttl {
+				return ttl - sub, nil
+			}
 
-		klog.Infof("Deleting succeeded bearer %s after token expiration", name)
-		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, bearer.Name, metav1.DeleteOptions{})
-		if err != nil && !apierrors.IsNotFound(err) {
-			return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
+			klog.Infof("Deleting succeeded bearer %s after token expiration", name)
+			err = c.client.TaskV1alpha1().Bearers().Delete(ctx, bearer.Name, metav1.DeleteOptions{})
+			if err != nil && !apierrors.IsNotFound(err) {
+				return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
+			}
+		} else if ok {
+			sub := time.Since(lastSeenTime)
+			if sub < ttl {
+				return ttl - sub, nil
+			}
+
+			klog.Infof("Deleting succeeded bearer %s after %v", name, ttl)
+			err = c.client.TaskV1alpha1().Bearers().Delete(ctx, name, metav1.DeleteOptions{})
+			if err != nil && !apierrors.IsNotFound(err) {
+				return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
+			}
 		}
 	}
 	return 0, nil
