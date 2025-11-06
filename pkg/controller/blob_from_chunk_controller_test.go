@@ -194,3 +194,143 @@ func TestDeleteChunksInNonFinalStates(t *testing.T) {
 		})
 	}
 }
+
+func TestForceAcceptRanges(t *testing.T) {
+	tests := []struct {
+		name                     string
+		blob                     *v1alpha1.Blob
+		chunk                    *v1alpha1.Chunk
+		expectedAcceptRanges     bool
+		expectAcceptRangesInResp bool
+	}{
+		{
+			name: "ForceAcceptRanges set to true overrides server response",
+			blob: &v1alpha1.Blob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-blob-force-true",
+				},
+				Spec: v1alpha1.BlobSpec{
+					ForceAcceptRanges: true,
+				},
+				Status: v1alpha1.BlobStatus{
+					Phase: v1alpha1.BlobPhasePending,
+				},
+			},
+			chunk: &v1alpha1.Chunk{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "blob:head:test-blob-force-true:0",
+				},
+				Status: v1alpha1.ChunkStatus{
+					Phase: v1alpha1.ChunkPhaseSucceeded,
+					SourceResponse: &v1alpha1.ChunkHTTPResponse{
+						Headers: map[string]string{
+							"content-length": "1024",
+							"accept-ranges":  "none", // Server says it doesn't support ranges
+						},
+					},
+				},
+			},
+			expectedAcceptRanges:     true,
+			expectAcceptRangesInResp: false,
+		},
+		{
+			name: "ForceAcceptRanges false respects server response - accepts ranges",
+			blob: &v1alpha1.Blob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-blob-force-false",
+				},
+				Spec: v1alpha1.BlobSpec{
+					ForceAcceptRanges: false,
+				},
+				Status: v1alpha1.BlobStatus{
+					Phase: v1alpha1.BlobPhasePending,
+				},
+			},
+			chunk: &v1alpha1.Chunk{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "blob:head:test-blob-force-false:0",
+				},
+				Status: v1alpha1.ChunkStatus{
+					Phase: v1alpha1.ChunkPhaseSucceeded,
+					SourceResponse: &v1alpha1.ChunkHTTPResponse{
+						Headers: map[string]string{
+							"content-length": "2048",
+							"accept-ranges":  "bytes",
+						},
+					},
+				},
+			},
+			expectedAcceptRanges:     true,
+			expectAcceptRangesInResp: true,
+		},
+		{
+			name: "ForceAcceptRanges false respects server response - no ranges",
+			blob: &v1alpha1.Blob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-blob-no-force",
+				},
+				Spec: v1alpha1.BlobSpec{
+					ForceAcceptRanges: false,
+				},
+				Status: v1alpha1.BlobStatus{
+					Phase: v1alpha1.BlobPhasePending,
+				},
+			},
+			chunk: &v1alpha1.Chunk{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "blob:head:test-blob-no-force:0",
+				},
+				Status: v1alpha1.ChunkStatus{
+					Phase: v1alpha1.ChunkPhaseSucceeded,
+					SourceResponse: &v1alpha1.ChunkHTTPResponse{
+						Headers: map[string]string{
+							"content-length": "512",
+							"accept-ranges":  "none",
+						},
+					},
+				},
+			},
+			expectedAcceptRanges:     false,
+			expectAcceptRangesInResp: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			// Create fake client
+			client := fake.NewSimpleClientset(tt.chunk)
+			sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
+
+			// Create controller
+			controller := NewBlobFromChunkController(
+				"test-handler",
+				map[string]*sss.SSS{},
+				client,
+				sharedInformerFactory,
+			)
+
+			// Start informers and wait for cache sync
+			sharedInformerFactory.Start(ctx.Done())
+			sharedInformerFactory.WaitForCacheSync(ctx.Done())
+
+			// Call the function under test
+			err := controller.fromHeadChunk(ctx, tt.blob)
+			if err != nil {
+				t.Fatalf("fromHeadChunk failed: %v", err)
+			}
+
+			// Verify the AcceptRanges field is set correctly
+			if tt.blob.Status.AcceptRanges != tt.expectedAcceptRanges {
+				t.Errorf("Expected AcceptRanges to be %v, got %v", tt.expectedAcceptRanges, tt.blob.Status.AcceptRanges)
+			}
+
+			// Verify server response was as expected
+			serverAcceptsRanges := tt.chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
+			if serverAcceptsRanges != tt.expectAcceptRangesInResp {
+				t.Errorf("Expected server accept-ranges header to indicate %v, got %v", tt.expectAcceptRangesInResp, serverAcceptsRanges)
+			}
+		})
+	}
+}

@@ -142,6 +142,13 @@ type BlobSpec struct {
 	// MaximumRetry is the number of times the chunk has been retried.
 	// +default=3
 	MaximumRetry int64 `json:"maximumRetry,omitempty"`
+
+	// ForceAcceptRanges forces the blob to support range requests regardless of server response.
+	// When set to true, the blob will be treated as if it supports range requests even if the
+	// server doesn't advertise 'Accept-Ranges: bytes' in the response headers.
+	// This is useful for servers that support range requests but don't properly advertise it.
+	// +optional
+	ForceAcceptRanges bool `json:"forceAcceptRanges,omitempty"`
 }
 
 // BlobSource defines the source for a blob.

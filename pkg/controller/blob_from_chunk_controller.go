@@ -210,7 +210,12 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 			blob.Status.Total = -1
 		} else {
 			blob.Status.Total = total
-			blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
+			// Use ForceAcceptRanges if set, otherwise check the server response
+			if blob.Spec.ForceAcceptRanges {
+				blob.Status.AcceptRanges = true
+			} else {
+				blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
+			}
 		}
 	case v1alpha1.ChunkPhaseFailed:
 		blob.Status.Retry = chunk.Status.Retry
