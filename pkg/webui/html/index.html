@@ -581,7 +581,7 @@
             element.id = elementId;
             element.className = 'data-item';
             // Add group styling if this is a group aggregate
-            if (elementId.startsWith('group-')) {
+            if (elementId.startsWith('group:')) {
                 element.classList.add('data-item-group');
             }
             element.style.animation = 'item-entrance 0.3s';
@@ -605,12 +605,12 @@
         };
 
         const generateItemContent = (data, elementId) => {
-            const displayName = data.displayName || data.name;
+            const name = data.name;
             const size = data.total || 0;
             const progress = data.progress || 0;
             const errors = data.errors || [];
             const hasChunks = data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks);
-            const isGroup = elementId.startsWith('group-');
+            const isGroup = elementId.startsWith('group:');
 
             const iconMap = {
                 'Pending': 'pending',
@@ -622,18 +622,18 @@
             let linkInfo = '';
             if (data.members && data.members.length > 0) {
                 const memberLinks = data.members.map(member =>
-                    `<a href="#${member.uid}">${svgIcon(iconMap[member.phase])}${member.displayName}</a>`
+                    `<a href="#${member.uid}">${svgIcon(iconMap[member.phase])}${member.name}</a>`
                 ).join(' ');
                 linkInfo = `<span class="link-info">${memberLinks}</span>`;
             } else if (data.group) {
-                const groupId = 'group-' + data.group;
+                const groupId = 'group:' + data.group;
                 linkInfo = `<span class="link-info"><a href="#${groupId}">${data.group}</a></span>`;
             }
 
             const header = `
                 <div class="data-header">
                     ${renderTagBadges(data.tags)}
-                    ${displayName}
+                    ${name}
                     <a href="#${elementId}" class="anchor-link">#</a>
                 </div>
                 ${linkInfo}
@@ -644,22 +644,23 @@
                     let speed = 0;
                     let remainingTime = 0;
                     const now = Date.now();
-                    if (progressData[data.name]) {
-                        const prev = progressData[data.name];
+                    if (progressData[name]) {
+                        const prev = progressData[name];
                         const timeDiff = (now - prev.time) / 1000;
                         const progressDiff = progress - prev.progress;
                         if (timeDiff > 0 && progressDiff > 0) {
-                            speed = progressDiff / timeDiff;
+                            const currentSpeed = progressDiff / timeDiff;
+                            speed = prev.speed ? (currentSpeed * 0.7 + prev.speed * 0.3) : currentSpeed;
                             if (size > 0) {
                                 remainingTime = (size - progress) / speed;
                                 if (prev.remainingTime) {
-                                    remainingTime = (remainingTime * 9 + prev.remainingTime) / 10;
+                                    remainingTime = (remainingTime * 0.7 + prev.remainingTime * 0.3);
                                 }
                                 remainingTime = Math.round(remainingTime);
                             }
                         }
                     }
-                    progressData[data.name] = { progress, remainingTime, time: now };
+                    progressData[name] = { progress, remainingTime, time: now, speed };
 
                     let progressPercent = size > 0 ? (progress / size * 100).toFixed(0) : 0;
                     if (progressPercent > 99 && size != progress) {
