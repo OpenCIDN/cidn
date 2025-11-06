@@ -179,7 +179,7 @@
             min-height: 2rem;
         }
 
-        .status-container:has(.groups-container:empty):has(.items-container:empty)::after {
+        .status-container:empty::after {
             content: 'None';
             display: block;
             text-align: center;
@@ -380,36 +380,6 @@
         .link-info a:hover {
             text-decoration: underline;
         }
-
-        .groups-container,
-        .items-container {
-            position: relative;
-        }
-
-        .groups-container:not(:empty) {
-            margin-bottom: 1rem;
-        }
-
-        .groups-container:not(:empty)::before {
-            content: 'Groups';
-            display: block;
-            font-size: 0.9em;
-            font-weight: 600;
-            color: var(--color-text-secondary);
-            margin-bottom: 0.5rem;
-            padding: 0.25rem 0.5rem;
-            border-left: 3px solid var(--color-status-progress);
-        }
-
-        .items-container:not(:empty)::before {
-            content: 'Individual Items';
-            display: block;
-            font-size: 0.9em;
-            font-weight: 600;
-            color: var(--color-text-secondary);
-            margin-bottom: 0.5rem;
-            padding: 0.25rem 0.5rem;
-        }
     </style>
 </head>
 
@@ -473,10 +443,7 @@
                 </svg>
                 Processing <span class="status-item-count">[0]</span>
             </h2>
-            <div id="processing-container" class="status-container">
-                <div id="processing-groups-container" class="groups-container"></div>
-                <div id="processing-items-container" class="items-container"></div>
-            </div>
+            <div id="processing-container" class="status-container"></div>
         </div>
         <div class="status-block">
             <h2 class="status-title pending collapsed" onclick="toggleContainer('pending-container')">
@@ -485,10 +452,7 @@
                 </svg>
                 Pending <span class="status-item-count">[0]</span>
             </h2>
-            <div id="pending-container" class="status-container" style="display: none;">
-                <div id="pending-groups-container" class="groups-container"></div>
-                <div id="pending-items-container" class="items-container"></div>
-            </div>
+            <div id="pending-container" class="status-container" style="display: none;"></div>
         </div>
         <div class="status-block">
             <h2 class="status-title failed collapsed" onclick="toggleContainer('failed-container')">
@@ -497,10 +461,7 @@
                 </svg>
                 Failed <span class="status-item-count">[0]</span>
             </h2>
-            <div id="failed-container" class="status-container" style="display: none;">
-                <div id="failed-groups-container" class="groups-container"></div>
-                <div id="failed-items-container" class="items-container"></div>
-            </div>
+            <div id="failed-container" class="status-container" style="display: none;"></div>
         </div>
         <div class="status-block">
             <h2 class="status-title completed collapsed" onclick="toggleContainer('completed-container')">
@@ -509,10 +470,7 @@
                 </svg>
                 Completed <span class="status-item-count">[0]</span>
             </h2>
-            <div id="completed-container" class="status-container" style="display: none;">
-                <div id="completed-groups-container" class="groups-container"></div>
-                <div id="completed-items-container" class="items-container"></div>
-            </div>
+            <div id="completed-container" class="status-container" style="display: none;"></div>
         </div>
     </div>
 
@@ -522,20 +480,6 @@
             pending: document.getElementById('pending-container'),
             failed: document.getElementById('failed-container'),
             completed: document.getElementById('completed-container')
-        };
-
-        const groupContainers = {
-            processing: document.getElementById('processing-groups-container'),
-            pending: document.getElementById('pending-groups-container'),
-            failed: document.getElementById('failed-groups-container'),
-            completed: document.getElementById('completed-groups-container')
-        };
-
-        const itemContainers = {
-            processing: document.getElementById('processing-items-container'),
-            pending: document.getElementById('pending-items-container'),
-            failed: document.getElementById('failed-items-container'),
-            completed: document.getElementById('completed-items-container')
         };
 
         const highlightBytes = (bytes) => {
@@ -648,9 +592,7 @@
             const elementId = event.lastEventId;
             const element = document.getElementById(elementId) || dataItem(elementId);
             const data = JSON.parse(event.data);
-            const isGroup = elementId.startsWith('group-');
-            const statusKey = statusMap[data.phase];
-            const targetContainer = isGroup ? groupContainers[statusKey] : itemContainers[statusKey];
+            const targetContainer = containers[statusMap[data.phase]];
 
             if (element.parentNode !== targetContainer) {
                 element.remove();
