@@ -197,6 +197,9 @@ func (c *ChunkToBearerController) toBearer(ctx context.Context, chunk *v1alpha1.
 	bearer := &v1alpha1.Bearer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: chunk.Spec.BearerName,
+			Annotations: map[string]string{
+				v1alpha1.ReleaseTTLAnnotation: "24h",
+			},
 		},
 		Spec: v1alpha1.BearerSpec{
 			URL:          realmURL.String(),

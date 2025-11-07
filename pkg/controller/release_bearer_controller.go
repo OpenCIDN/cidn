@@ -207,9 +207,9 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			since := time.Since(issuedAt)
 
 			if ok {
-				ttl = max(ttl, expires-since)
+				ttl = min(ttl, expires-since)
 			} else {
-				ttl = expires - since + expires/4
+				ttl = expires - since
 			}
 
 			sub := time.Since(lastSeenTime)
