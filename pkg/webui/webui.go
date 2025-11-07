@@ -562,6 +562,8 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 	var idleChunks int64
 	var maxPriority int64
 	var hasFailed bool
+	var hasRunning bool
+	var hasPending bool
 
 	for uid, e := range entries {
 		// Add member info to the list
@@ -571,8 +573,13 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 			Phase: e.Phase,
 		})
 
-		if e.Phase == "Failed" {
+		switch e.Phase {
+		case "Failed":
 			hasFailed = true
+		case "Running":
+			hasRunning = true
+		case "Pending":
+			hasPending = true
 		}
 
 		if e.Priority > maxPriority {
@@ -607,13 +614,14 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 	aggregate.FailedChunks = failedChunks
 	aggregate.Priority = maxPriority
 
-	switch {
+	completed := pendingChunks == 0 && runningChunks == 0 && idleChunks == 0 && !hasRunning && !hasPending
 
-	case (hasFailed || failedChunks > 0) && pendingChunks == 0 && runningChunks == 0 && idleChunks == 0:
+	switch {
+	case completed && (hasFailed || failedChunks > 0):
 		aggregate.Phase = "Failed"
-	case succeededChunks == totalChunks && totalChunks > 0:
+	case completed:
 		aggregate.Phase = "Succeeded"
-	case totalSize > 0:
+	case hasRunning || hasPending:
 		aggregate.Phase = "Running"
 	default:
 		aggregate.Phase = "Pending"
