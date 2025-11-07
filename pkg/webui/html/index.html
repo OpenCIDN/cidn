@@ -622,7 +622,7 @@
             let linkInfo = '';
             if (data.members && data.members.length > 0) {
                 const memberLinks = data.members.map(member =>
-                    `<a href="#${member.uid}">${svgIcon(iconMap[member.phase])}${member.name}</a>`
+                    `<a href="#${member.id}">${svgIcon(iconMap[member.phase])}${member.name}</a>`
                 ).join(' ');
                 linkInfo = `<span class="link-info">${memberLinks}</span>`;
             } else if (data.group) {

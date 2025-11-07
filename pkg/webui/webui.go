@@ -92,13 +92,13 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 		// Helper function to delete a group aggregate
 
-		createGroupEvent := func(group string, blobUID string, e *entry) Event {
+		createGroupEvent := func(group string, name string, e *entry) Event {
 			if groups[group] == nil {
 				groups[group] = make(map[string]*entry)
 			}
 
 			if e != nil {
-				groups[group][blobUID] = e
+				groups[group][name] = e
 			}
 
 			aggregate := aggregateEntries(group, groups[group])
@@ -112,19 +112,19 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 		}
 
 		// Helper function to remove blob from group and update or delete group aggregate
-		removeFromGroup := func(group string, blobUID string) Event {
+		removeFromGroup := func(group string, name string) Event {
 			// Check if group exists before attempting to modify
 			if _, exists := groups[group]; !exists {
-				event := Event{Type: "DELETE", ID: "group-" + group}
+				event := Event{Type: "DELETE", ID: "group:" + group}
 				return event
 			}
 
-			delete(groups[group], blobUID)
+			delete(groups[group], name)
 			if len(groups[group]) == 0 {
-				event := Event{Type: "DELETE", ID: "group-" + group}
+				event := Event{Type: "DELETE", ID: "group:" + group}
 				return event
 			}
-			return createGroupEvent(group, blobUID, nil)
+			return createGroupEvent(group, name, nil)
 		}
 
 		resourceEventHandlerRegistration, err := blobInformerInstance.AddEventHandler(&cache.ResourceEventHandlerFuncs{
@@ -144,12 +144,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				}
 
 				e := blobToEntry(blob)
-				event := createEvent("ADD", string(blob.UID), e)
+				event := createEvent("ADD", blob.Name, e)
 				updates <- event
 
 				// Track group membership
 				if group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
-					groupEvent := createGroupEvent(group, string(blob.UID), e)
+					groupEvent := createGroupEvent(group, blob.Name, e)
 					updates <- groupEvent
 				}
 			},
@@ -177,7 +177,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				}
 
 				e := blobToEntry(newBlob)
-				event := createEvent("UPDATE", string(newBlob.UID), e)
+				event := createEvent("UPDATE", newBlob.Name, e)
 
 				needBuffer := oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Status.Total
 				if needBuffer {
@@ -192,12 +192,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				// Remove from old group if changed
 				if oldGroup != "" && oldGroup != newGroup {
-					removeFromGroup(oldGroup, string(newBlob.UID))
+					removeFromGroup(oldGroup, newBlob.Name)
 				}
 
 				// Add to new group
 				if newGroup != "" {
-					groupEvent := createGroupEvent(newGroup, string(newBlob.UID), e)
+					groupEvent := createGroupEvent(newGroup, newBlob.Name, e)
 					if needBuffer {
 						bufferUpdates <- groupEvent
 					} else {
@@ -222,12 +222,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				}
 
 				e := blobToEntry(blob)
-				event := createEvent("DELETE", string(blob.UID), e)
+				event := createEvent("DELETE", blob.Name, e)
 				bufferUpdates <- event
 
 				// Remove from group
 				if group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
-					groupEvent := removeFromGroup(group, string(blob.UID))
+					groupEvent := removeFromGroup(group, blob.Name)
 					bufferUpdates <- groupEvent
 				}
 			},
@@ -256,12 +256,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				}
 
 				e := chunkToEntry(chunk)
-				event := createEvent("ADD", string(chunk.UID), e)
+				event := createEvent("ADD", chunk.Name, e)
 				updates <- event
 
 				// Track group membership
 				if group := chunk.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
-					groupEvent := createGroupEvent(group, string(chunk.UID), e)
+					groupEvent := createGroupEvent(group, chunk.Name, e)
 					updates <- groupEvent
 				}
 			},
@@ -289,7 +289,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				}
 
 				e := chunkToEntry(newChunk)
-				event := createEvent("UPDATE", string(newChunk.UID), e)
+				event := createEvent("UPDATE", newChunk.Name, e)
 				needBuffer := oldChunk.Status.Phase == newChunk.Status.Phase && newChunk.Status.Progress != newChunk.Spec.Total
 				if needBuffer {
 					bufferUpdates <- event
@@ -303,7 +303,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				// Remove from old group if changed
 				if oldGroup != "" && oldGroup != newGroup {
-					groupEvent := removeFromGroup(oldGroup, string(newChunk.UID))
+					groupEvent := removeFromGroup(oldGroup, newChunk.Name)
 					if needBuffer {
 						bufferUpdates <- groupEvent
 					} else {
@@ -313,7 +313,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				// Add to new group
 				if newGroup != "" {
-					groupEvent := createGroupEvent(newGroup, string(newChunk.UID), e)
+					groupEvent := createGroupEvent(newGroup, newChunk.Name, e)
 					if needBuffer {
 						bufferUpdates <- groupEvent
 					} else {
@@ -337,12 +337,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				}
 
 				e := chunkToEntry(chunk)
-				event := createEvent("DELETE", string(chunk.UID), e)
+				event := createEvent("DELETE", chunk.Name, e)
 				updates <- event
 
 				// Remove from group
 				if group := chunk.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
-					groupEvent := removeFromGroup(group, string(chunk.UID))
+					groupEvent := removeFromGroup(group, chunk.Name)
 					bufferUpdates <- groupEvent
 				}
 			},
@@ -407,7 +407,7 @@ func createEvent(eventType string, id string, e *entry) Event {
 
 // entryMemberInfo holds information about a member (blob or chunk) in a group
 type entryMemberInfo struct {
-	UID   string `json:"uid"`
+	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Phase string `json:"phase"`
 }
@@ -568,7 +568,7 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 	for uid, e := range entries {
 		// Add member info to the list
 		aggregate.Members = append(aggregate.Members, entryMemberInfo{
-			UID:   uid,
+			ID:    uid,
 			Name:  e.Name,
 			Phase: e.Phase,
 		})
