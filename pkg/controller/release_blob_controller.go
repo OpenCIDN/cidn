@@ -148,7 +148,7 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 
 	switch blob.Status.Phase {
 	case v1alpha1.BlobPhaseRunning:
-		dur := 120 * time.Second
+		dur := 1 * time.Hour
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil
