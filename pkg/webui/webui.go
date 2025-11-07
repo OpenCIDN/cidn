@@ -487,12 +487,16 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 		e.Total = e.Progress
 	}
 
-	if e.Phase == string(v1alpha1.BlobPhaseRunning) &&
-		e.Progress == 0 &&
+	if e.Progress == 0 &&
 		e.RunningChunks == 0 &&
 		e.FailedChunks == 0 &&
 		e.SucceededChunks == 0 {
-		e.Phase = string(v1alpha1.BlobPhasePending)
+		if e.Phase == string(v1alpha1.BlobPhaseRunning) {
+			e.Phase = string(v1alpha1.BlobPhasePending)
+		}
+		if e.Phase == string(v1alpha1.BearerPhaseFailed) {
+			e.ChunksNumber = 0
+		}
 	}
 
 	if len(blob.Status.Conditions) > 0 {
