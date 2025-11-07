@@ -51,6 +51,11 @@ import (
 
 var (
 	ErrBearerNotReady = errors.New("bearer is not ready")
+	ErrAuthentication = errors.New("authentication error")
+)
+
+const (
+	ConditionTypeProcess = "Process"
 )
 
 // ChunkRunner executes Chunk tasks
@@ -235,6 +240,14 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 		return err
 	}
 	if bearer != nil {
+		if bearer.Status.Phase == v1alpha1.BearerPhaseFailed {
+			for _, condition := range bearer.Status.Conditions {
+				if condition.Type == ConditionTypeProcess {
+					return fmt.Errorf("%w: bearer failed: %s", ErrAuthentication, condition.Message)
+				}
+			}
+			return fmt.Errorf("%w: bearer %s is in phase %s", ErrAuthentication, bearer.Name, bearer.Status.Phase)
+		}
 		if bearer.Status.TokenInfo == nil {
 			if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
 				return fmt.Errorf("bearer %s is in succeeded phase but has no token info", bearer.Name)
@@ -298,8 +311,11 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 				return ss, nil
 			})
 			return nil, 0
+		} else if errors.Is(err, ErrAuthentication) {
+			s.handleProcessError("", err)
+		} else {
+			s.handleProcessErrorAndRetryable("", err)
 		}
-		s.handleProcessErrorAndRetryable("", err)
 		return nil, 0
 	}
 
@@ -795,28 +811,30 @@ func (r *ChunkRunner) getPending(ctx context.Context) (*v1alpha1.Chunk, error) {
 		if chunk.Spec.BearerName != "" {
 			bearer, err := r.bearerInformer.Lister().Get(chunk.Spec.BearerName)
 			if err == nil {
-				if bearer.Status.TokenInfo == nil {
-					continue
-				}
-
-				expiresIn := bearer.Status.TokenInfo.ExpiresIn
-				issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
-				if expiresIn > 0 && !issuedAt.IsZero() {
-					since := time.Since(issuedAt)
-					expires := time.Duration(expiresIn) * time.Second
-
-					if since >= expires {
-						if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
-							_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
-								b.Status.HandlerName = ""
-								b.Status.Phase = v1alpha1.BearerPhasePending
-								return b
-							})
-							if err != nil {
-								klog.Warningf("Failed to update bearer %s status: %v", bearer.Name, err)
-							}
-						}
+				if bearer.Status.Phase != v1alpha1.BearerPhaseFailed {
+					if bearer.Status.TokenInfo == nil {
 						continue
+					}
+
+					expiresIn := bearer.Status.TokenInfo.ExpiresIn
+					issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
+					if expiresIn > 0 && !issuedAt.IsZero() {
+						since := time.Since(issuedAt)
+						expires := time.Duration(expiresIn) * time.Second
+
+						if since >= expires {
+							if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
+								_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+									b.Status.HandlerName = ""
+									b.Status.Phase = v1alpha1.BearerPhasePending
+									return b
+								})
+								if err != nil {
+									klog.Warningf("Failed to update bearer %s status: %v", bearer.Name, err)
+								}
+							}
+							continue
+						}
 					}
 				}
 			}
@@ -870,6 +888,10 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 			return a.Spec.Priority > b.Spec.Priority
 		}
 
+		if a.Status.Retry != b.Status.Retry {
+			return a.Status.Retry < b.Status.Retry
+		}
+
 		return a.CreationTimestamp.Before(&b.CreationTimestamp)
 	})
 
@@ -911,7 +933,7 @@ func (s *state) Update(fun func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error)) {
 
 func handleProcessError(chunk *v1alpha1.Chunk, typ string, err error) {
 	if typ == "" {
-		typ = "Process"
+		typ = ConditionTypeProcess
 	}
 	utils.SetChunkTerminalPhase(chunk, v1alpha1.ChunkPhaseFailed)
 	chunk.Status.Conditions = v1alpha1.AppendConditions(chunk.Status.Conditions, v1alpha1.Condition{
