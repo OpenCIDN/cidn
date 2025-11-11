@@ -28,6 +28,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/klog/v2"
 )
 
@@ -56,8 +57,8 @@ func NewWebUICommand(ctx context.Context) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("error getting config: %v", err)
 			}
-
 			config.TLSClientConfig.Insecure = flags.InsecureSkipTLSVerify
+			config.RateLimiter = flowcontrol.NewFakeAlwaysRateLimiter()
 
 			clientset, err := versioned.NewForConfig(config)
 			if err != nil {

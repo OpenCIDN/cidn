@@ -27,6 +27,7 @@ import (
 	"github.com/wzshiming/sss"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/klog/v2"
 )
 
@@ -35,8 +36,6 @@ type flagpole struct {
 	Master                string
 	InsecureSkipTLSVerify bool
 	StorageURL            []string
-	QPS                   float32
-	Burst                 int
 	Users                 utils.UsersValue
 }
 
@@ -56,10 +55,8 @@ func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("error getting config: %v", err)
 			}
-
 			config.TLSClientConfig.Insecure = flags.InsecureSkipTLSVerify
-			config.QPS = flags.QPS
-			config.Burst = flags.Burst
+			config.RateLimiter = flowcontrol.NewFakeAlwaysRateLimiter()
 
 			clientset, err := versioned.NewForConfig(config)
 			if err != nil {
@@ -104,8 +101,6 @@ func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVar(&flags.Master, "master", flags.Master, "The address of the Kubernetes API server")
 	cmd.Flags().BoolVar(&flags.InsecureSkipTLSVerify, "insecure-skip-tls-verify", false, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 	cmd.Flags().StringArrayVar(&flags.StorageURL, "storage-url", flags.StorageURL, "The storage URL")
-	cmd.Flags().Float32Var(&flags.QPS, "qps", 100, "Maximum QPS to the master from this client")
-	cmd.Flags().IntVar(&flags.Burst, "burst", 200, "Maximum burst for throttle")
 	cmd.Flags().Var(&flags.Users, "user", "List of users to domain")
 	return cmd
 }
