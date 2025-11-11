@@ -37,6 +37,7 @@ type flagpole struct {
 	InsecureSkipTLSVerify bool
 	Duration              time.Duration
 	UpdateDuration        time.Duration
+	handlerName           string
 }
 
 func NewRunnerCommand(ctx context.Context) *cobra.Command {
@@ -47,12 +48,15 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 		Use:   "runner",
 		Short: "Run the chunk runner",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ident, err := utils.Identity()
-			if err != nil {
-				return fmt.Errorf("error getting identity: %v", err)
+			if flags.handlerName == "" {
+				ident, err := utils.Identity()
+				if err != nil {
+					return fmt.Errorf("error getting identity: %v", err)
+				}
+				flags.handlerName = ident
 			}
 			var config *rest.Config
-
+			var err error
 			if flags.Kubeconfig != "" || flags.Master != "" {
 				config, err = clientcmd.BuildConfigFromFlags(flags.Master, flags.Kubeconfig)
 			} else {
@@ -68,7 +72,7 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 				return fmt.Errorf("error creating clientset: %v", err)
 			}
 
-			ident = "runner-" + ident
+			ident := "runner-" + flags.handlerName
 			klog.Infof("Starting runner with identity: %s for duration: %v", ident, flags.Duration)
 
 			runner := runner.NewRunner(ident, clientset, flags.UpdateDuration)
@@ -95,5 +99,6 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().BoolVar(&flags.InsecureSkipTLSVerify, "insecure-skip-tls-verify", false, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 	cmd.Flags().DurationVar(&flags.Duration, "duration", 0, "Duration for which the runner should run (e.g., 5m, 1h). If 0, runs indefinitely until context cancellation")
 	cmd.Flags().DurationVar(&flags.UpdateDuration, "update-duration", flags.UpdateDuration, "Duration between updating chunk statuses")
+	cmd.Flags().StringVar(&flags.handlerName, "handler-name", flags.handlerName, "Name of the chunk handler to use")
 	return cmd
 }
