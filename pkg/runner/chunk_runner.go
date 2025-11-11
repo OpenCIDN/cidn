@@ -67,6 +67,7 @@ type ChunkRunner struct {
 	bearerInformer informers.BearerInformer
 	httpClient     *http.Client
 	signal         chan struct{}
+	updateDuration time.Duration
 }
 
 // NewChunkRunner creates a new Runner instance
@@ -74,6 +75,7 @@ func NewChunkRunner(
 	handlerName string,
 	clientset versioned.Interface,
 	sharedInformerFactory externalversions.SharedInformerFactory,
+	updateDuration time.Duration,
 ) *ChunkRunner {
 	r := &ChunkRunner{
 		handlerName:    handlerName,
@@ -82,6 +84,7 @@ func NewChunkRunner(
 		bearerInformer: sharedInformerFactory.Task().V1alpha1().Bearers(),
 		httpClient:     http.DefaultClient,
 		signal:         make(chan struct{}, 1),
+		updateDuration: updateDuration,
 	}
 
 	r.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -660,7 +663,7 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 		})
 	}
 
-	dur := time.Second
+	dur := r.updateDuration
 	ticker := time.NewTicker(dur)
 	stop := make(chan struct{})
 	go func() {
@@ -669,7 +672,7 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 			select {
 			case <-ticker.C:
 				chunkFunc()
-				dur = time.Second + time.Duration(rand.Intn(100))*time.Millisecond
+				dur = r.updateDuration + time.Duration(rand.Intn(100))*time.Millisecond
 				ticker.Reset(dur)
 			case <-stop:
 				chunkFunc()

@@ -18,6 +18,7 @@ package runner
 
 import (
 	"context"
+	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
@@ -31,10 +32,10 @@ type Runner struct {
 }
 
 // NewChunkRunner creates a new Runner instance
-func NewRunner(handlerName string, client versioned.Interface) *Runner {
+func NewRunner(handlerName string, client versioned.Interface, updateDuration time.Duration) *Runner {
 	sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
 	return &Runner{
-		chunk:                 NewChunkRunner(handlerName, client, sharedInformerFactory),
+		chunk:                 NewChunkRunner(handlerName, client, sharedInformerFactory, updateDuration),
 		sharedInformerFactory: sharedInformerFactory,
 	}
 }

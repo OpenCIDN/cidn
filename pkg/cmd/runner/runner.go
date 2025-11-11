@@ -36,10 +36,13 @@ type flagpole struct {
 	Master                string
 	InsecureSkipTLSVerify bool
 	Duration              time.Duration
+	UpdateDuration        time.Duration
 }
 
 func NewRunnerCommand(ctx context.Context) *cobra.Command {
-	flags := &flagpole{}
+	flags := &flagpole{
+		UpdateDuration: 1 * time.Second,
+	}
 	cmd := &cobra.Command{
 		Use:   "runner",
 		Short: "Run the chunk runner",
@@ -68,7 +71,7 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 			ident = "runner-" + ident
 			klog.Infof("Starting runner with identity: %s for duration: %v", ident, flags.Duration)
 
-			runner := runner.NewRunner(ident, clientset)
+			runner := runner.NewRunner(ident, clientset, flags.UpdateDuration)
 
 			err = runner.Start(ctx)
 			if err != nil {
@@ -91,5 +94,6 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().StringVar(&flags.Master, "master", flags.Master, "The address of the Kubernetes API server")
 	cmd.Flags().BoolVar(&flags.InsecureSkipTLSVerify, "insecure-skip-tls-verify", false, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
 	cmd.Flags().DurationVar(&flags.Duration, "duration", 0, "Duration for which the runner should run (e.g., 5m, 1h). If 0, runs indefinitely until context cancellation")
+	cmd.Flags().DurationVar(&flags.UpdateDuration, "update-duration", flags.UpdateDuration, "Duration between updating chunk statuses")
 	return cmd
 }
