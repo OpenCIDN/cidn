@@ -91,7 +91,11 @@ func NewBlobToChunkController(
 
 	c.multipartInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		DeleteFunc: func(obj interface{}) {
-			multipart := obj.(*v1alpha1.Multipart)
+			multipart, ok := obj.(*v1alpha1.Multipart)
+			if !ok {
+				return
+			}
+
 			key := multipart.Name
 			c.workqueue.Add(key)
 		},

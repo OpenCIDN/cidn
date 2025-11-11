@@ -85,7 +85,10 @@ func NewBlobFromChunkController(
 			c.workqueue.Add(blobName)
 		},
 		DeleteFunc: func(obj interface{}) {
-			chunk := obj.(*v1alpha1.Chunk)
+			chunk, ok := obj.(*v1alpha1.Chunk)
+			if !ok {
+				return
+			}
 
 			blobName := chunk.Annotations[BlobNameAnnotationKey]
 			if blobName == "" {

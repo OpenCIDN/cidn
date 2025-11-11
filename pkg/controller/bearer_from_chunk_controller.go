@@ -67,7 +67,10 @@ func NewBearerFromChunkController(
 			c.workqueue.Add(bearerName)
 		},
 		DeleteFunc: func(obj interface{}) {
-			chunk := obj.(*v1alpha1.Chunk)
+			chunk, ok := obj.(*v1alpha1.Chunk)
+			if !ok {
+				return
+			}
 
 			bearerName := chunk.Annotations[BearerNameAnnotationKey]
 			if bearerName == "" {
