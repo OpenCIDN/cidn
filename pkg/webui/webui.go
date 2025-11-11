@@ -533,19 +533,20 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 	e.Priority = chunk.Spec.Priority
 	e.Total = chunk.Spec.Total
 	e.Progress = chunk.Status.Progress
-	e.Phase = string(chunk.Status.Phase)
-
 	if e.Total <= 0 {
 		e.Total = e.Progress
 	}
-
-	if len(chunk.Status.Conditions) > 0 {
-		e.Errors = make([]string, 0, len(chunk.Status.Conditions))
-		for _, condition := range chunk.Status.Conditions {
-			e.Errors = append(e.Errors, fmt.Sprintf("%s: %s", condition.Type, condition.Message))
+	if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed && chunk.Status.Retryable {
+		e.Phase = string(v1alpha1.ChunkPhaseRunning)
+	} else {
+		e.Phase = string(chunk.Status.Phase)
+		if len(chunk.Status.Conditions) > 0 {
+			e.Errors = make([]string, 0, len(chunk.Status.Conditions))
+			for _, condition := range chunk.Status.Conditions {
+				e.Errors = append(e.Errors, fmt.Sprintf("%s: %s", condition.Type, condition.Message))
+			}
 		}
 	}
-
 	return e
 }
 
