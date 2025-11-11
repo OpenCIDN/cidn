@@ -52,6 +52,7 @@ import (
 var (
 	ErrBearerNotReady = errors.New("bearer is not ready")
 	ErrAuthentication = errors.New("authentication error")
+	ErrNoPendingChunk = fmt.Errorf("no pending chunks available")
 )
 
 const (
@@ -171,7 +172,11 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	}
 	s, err := r.getPending(context.Background())
 	if err != nil {
-		klog.Errorf("failed to get pending chunk: %v", err)
+		if errors.Is(err, ErrNoPendingChunk) {
+			klog.Infof("no pending chunks available")
+		} else {
+			klog.Errorf("failed to get pending chunk: %v", err)
+		}
 
 		select {
 		case <-r.signal:
@@ -862,7 +867,7 @@ func (r *ChunkRunner) getPending(ctx context.Context) (*v1alpha1.Chunk, error) {
 	}
 
 	// No pending chunks available
-	return nil, fmt.Errorf("no pending chunks available")
+	return nil, ErrNoPendingChunk
 }
 
 // getPendingList returns all Chunks in Pending state, sorted by weight and creation time
