@@ -163,25 +163,35 @@ func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) e
 		return nil
 	}
 
-	if blob.Status.Total == 0 {
-		return c.toHeadChunk(ctx, blob)
-	}
-
 	switch blob.Status.Phase {
 	case v1alpha1.BlobPhaseRunning, v1alpha1.BlobPhaseUnknown:
-		if blob.Spec.ChunksNumber != 0 {
-			if blob.Spec.ChunksNumber != 1 && blob.Status.AcceptRanges {
-				err := c.toChunks(ctx, blob)
-				if err != nil {
-					return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
-				}
-
-			} else {
-				err := c.toOneChunk(ctx, blob)
-				if err != nil {
-					return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
-				}
+		if blob.Spec.ChunksNumber == 1 {
+			err := c.toOneChunk(ctx, blob)
+			if err != nil {
+				return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
 			}
+			return nil
+		}
+
+		if blob.Status.Total == 0 {
+			err := c.toHeadChunk(ctx, blob)
+			if err != nil {
+				return fmt.Errorf("failed to create head chunk for blob %s: %v", blob.Name, err)
+			}
+			return nil
+		}
+
+		if blob.Status.AcceptRanges {
+			err := c.toChunks(ctx, blob)
+			if err != nil {
+				return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
+			}
+			return nil
+		}
+
+		err := c.toOneChunk(ctx, blob)
+		if err != nil {
+			return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
 		}
 
 	case v1alpha1.BlobPhaseSucceeded:
@@ -280,8 +290,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 	chunkName := buildFullChunkName(blob.Name)
 	existingChunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err == nil && existingChunk != nil {
-		if existingChunk.Spec.Total == blob.Status.Total &&
-			existingChunk.Spec.Sha256 == blob.Spec.ContentSha256 &&
+		if existingChunk.Spec.Sha256 == blob.Spec.ContentSha256 &&
 			existingChunk.Annotations[BlobNameAnnotationKey] == blob.Name &&
 			existingChunk.Labels[BlobUIDLabelKey] == string(blob.UID) {
 			// Chunk already exists and matches, no need to create a new one
@@ -359,7 +368,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 			return fmt.Errorf("s3 client for destination %q not found", dst.Name)
 		}
 
-		if dst.SkipIfExists {
+		if dst.SkipIfExists && blob.Status.Total > 0 {
 			fi, err := s3.StatHead(ctx, dst.Path)
 			if err == nil && fi.Size() == blob.Status.Total {
 				continue
@@ -546,7 +555,7 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 
 		destinationNames = append(destinationNames, dst.Name)
 
-		if dst.SkipIfExists {
+		if dst.SkipIfExists && blob.Status.Total > 0 {
 			fi, err := s3.StatHead(ctx, dst.Path)
 			if err == nil && fi.Size() == blob.Status.Total {
 				uploadIDs = append(uploadIDs, "")

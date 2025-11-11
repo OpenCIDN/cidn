@@ -143,6 +143,23 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 		return nil
 	}
 
+	if blob.Spec.ChunksNumber == 1 {
+		err = c.fromOneChunk(ctx, blob)
+		if err != nil {
+			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
+		}
+
+		blobStatus := blob.Status.DeepCopy()
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status = *blobStatus
+			return b
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update blob status: %w", err)
+		}
+		return nil
+	}
+
 	if blob.Status.Total == 0 {
 		err = c.fromHeadChunk(ctx, blob)
 		if err != nil {
@@ -157,7 +174,6 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 		if err != nil {
 			return fmt.Errorf("failed to update blob status total: %w", err)
 		}
-
 		return nil
 	}
 
@@ -165,16 +181,26 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 		return nil
 	}
 
-	if blob.Spec.ChunksNumber != 1 && blob.Status.AcceptRanges {
+	if blob.Status.AcceptRanges {
 		err = c.fromChunks(ctx, blob)
 		if err != nil {
 			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
 		}
-	} else {
-		err = c.fromOneChunk(ctx, blob)
+
+		blobStatus := blob.Status.DeepCopy()
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
+			b.Status = *blobStatus
+			return b
+		})
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
+			return fmt.Errorf("failed to update blob status: %w", err)
 		}
+		return nil
+	}
+
+	err = c.fromOneChunk(ctx, blob)
+	if err != nil {
+		return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
 	}
 
 	blobStatus := blob.Status.DeepCopy()
@@ -283,6 +309,19 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 		blob.Status.FailedChunks = 0
 		blob.Status.Phase = v1alpha1.BlobPhaseRunning
 		blob.Status.Progress = chunk.Status.Progress
+	}
+
+	if blob.Status.Total <= 0 {
+		resp := chunk.Status.SourceResponse
+		if resp != nil && resp.Headers != nil {
+			cl := resp.Headers["content-length"]
+			if cl != "" {
+				total, _ := strconv.ParseInt(cl, 10, 64)
+				if total > 0 {
+					blob.Status.Total = total
+				}
+			}
+		}
 	}
 	return nil
 }
