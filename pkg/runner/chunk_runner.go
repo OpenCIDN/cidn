@@ -612,6 +612,11 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 
 			newChunk, err := r.updateChunk(ctx, ss)
 			if err != nil {
+				if apierrors.IsNotFound(err) {
+					cancel()
+					klog.Warningf("Chunk %s not found, may have been deleted", ss.Name)
+					return ss, nil
+				}
 				if !apierrors.IsConflict(err) {
 					klog.Warningf("Failed to update chunk %s: %v", ss.Name, err)
 					return ss, nil
