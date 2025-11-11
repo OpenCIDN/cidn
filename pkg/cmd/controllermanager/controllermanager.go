@@ -27,6 +27,7 @@ import (
 	"github.com/wzshiming/sss"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/klog/v2"
 )
 
@@ -60,6 +61,7 @@ func NewControllerManagerCommand(ctx context.Context) *cobra.Command {
 			config.TLSClientConfig.Insecure = flags.InsecureSkipTLSVerify
 			config.QPS = flags.QPS
 			config.Burst = flags.Burst
+			config.RateLimiter = flowcontrol.NewFakeAlwaysRateLimiter()
 
 			clientset, err := versioned.NewForConfig(config)
 			if err != nil {
