@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -87,12 +88,15 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 		// Track group for aggregation
 		groups := map[string]map[string]*entry{}
+		groupMutex := &sync.RWMutex{}
 		ticker := time.NewTicker(updateInterval)
 		defer ticker.Stop()
 
 		// Helper function to delete a group aggregate
 
 		createGroupEvent := func(group string, name string, e *entry) Event {
+			groupMutex.Lock()
+			defer groupMutex.Unlock()
 			if groups[group] == nil {
 				groups[group] = make(map[string]*entry)
 			}
@@ -113,7 +117,8 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 		// Helper function to remove blob from group and update or delete group aggregate
 		removeFromGroup := func(group string, name string) Event {
-			// Check if group exists before attempting to modify
+			groupMutex.Lock()
+			defer groupMutex.Unlock()
 			if _, exists := groups[group]; !exists {
 				event := Event{Type: "DELETE", ID: "group:" + group}
 				return event
@@ -124,7 +129,15 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				event := Event{Type: "DELETE", ID: "group:" + group}
 				return event
 			}
-			return createGroupEvent(group, name, nil)
+
+			aggregate := aggregateEntries(group, groups[group])
+			event := Event{
+				Type: "UPDATE",
+				ID:   "group:" + group,
+			}
+			data, _ := json.Marshal(aggregate)
+			event.Data = data
+			return event
 		}
 
 		resourceEventHandlerRegistration, err := blobInformerInstance.AddEventHandler(&cache.ResourceEventHandlerFuncs{
