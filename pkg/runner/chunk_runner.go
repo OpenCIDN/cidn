@@ -902,7 +902,16 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 			return a.Status.Retry < b.Status.Retry
 		}
 
-		return a.CreationTimestamp.Before(&b.CreationTimestamp)
+		atime := a.CreationTimestamp.Time
+		if a.Status.CompletionTime != nil {
+			atime = a.Status.CompletionTime.Time
+		}
+		btime := b.CreationTimestamp.Time
+		if b.Status.CompletionTime != nil {
+			btime = b.Status.CompletionTime.Time
+		}
+
+		return atime.Before(btime)
 	})
 
 	return pendingChunks, nil

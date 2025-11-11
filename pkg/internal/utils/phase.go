@@ -26,10 +26,8 @@ import (
 // This prevents the completion time from being updated if a blob transitions between terminal states.
 func SetBlobTerminalPhase(blob *v1alpha1.Blob, phase v1alpha1.BlobPhase) {
 	blob.Status.Phase = phase
-	if blob.Status.CompletionTime == nil {
-		now := metav1.Now()
-		blob.Status.CompletionTime = &now
-	}
+	now := metav1.Now()
+	blob.Status.CompletionTime = &now
 }
 
 // SetChunkTerminalPhase sets the chunk phase to a terminal state (Succeeded or Failed) and records the completion time.
@@ -37,8 +35,6 @@ func SetBlobTerminalPhase(blob *v1alpha1.Blob, phase v1alpha1.BlobPhase) {
 // This prevents the completion time from being updated if a chunk transitions between terminal states.
 func SetChunkTerminalPhase(chunk *v1alpha1.Chunk, phase v1alpha1.ChunkPhase) {
 	chunk.Status.Phase = phase
-	if chunk.Status.CompletionTime == nil {
-		now := metav1.Now()
-		chunk.Status.CompletionTime = &now
-	}
+	now := metav1.Now()
+	chunk.Status.CompletionTime = &now
 }
