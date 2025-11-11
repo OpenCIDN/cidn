@@ -202,10 +202,6 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (r *ChunkRunner) updateChunk(ctx context.Context, chunk *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
-	return r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
-}
-
 // buildRequest constructs an HTTP request from ChunkHTTP configuration
 func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.ChunkHTTP, body io.Reader, contentLength int64) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, chunkHTTP.Request.Method, chunkHTTP.Request.URL, body)
@@ -527,17 +523,23 @@ func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, contin
 	}
 
 	if len(chunk.Spec.Destination) == 0 {
-		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
-			if chunk.Spec.InlineResponseBody {
-				body, err := io.ReadAll(body)
-				if err != nil {
-					return nil, err
-				}
-				ss.Status.ResponseBody = body
+		if chunk.Spec.InlineResponseBody {
+			body, err := io.ReadAll(body)
+			if err != nil {
+				s.handleProcessError("", err)
+				return
 			}
-			utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
-			return ss, nil
-		})
+			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+				ss.Status.ResponseBody = body
+				utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
+				return ss, nil
+			})
+		} else {
+			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+				utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
+				return ss, nil
+			})
+		}
 		return
 	}
 
@@ -625,41 +627,13 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 				updateProgress(&ss.Status, &ss.Spec, *gsr, *gdrs)
 			}
 
-			newChunk, err := r.updateChunk(ctx, ss)
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					cancel()
-					klog.Warningf("Chunk %s not found, may have been deleted", ss.Name)
-					return ss, nil
-				}
-				if !apierrors.IsConflict(err) {
-					klog.Warningf("Failed to update chunk %s: %v", ss.Name, err)
-					return ss, nil
-				}
-				newChunk, err = r.getChunk(ss.Name)
-				if err != nil {
-					if apierrors.IsNotFound(err) {
-						cancel()
-						klog.Warningf("Chunk %s not found, may have been deleted", ss.Name)
-						return ss, nil
-					}
-					klog.Warningf("Failed to get chunk %s: %v", ss.Name, err)
-					return ss, nil
-				}
+			s := ss.Status.DeepCopy()
+			chunk, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Chunks(), ss, func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
+				ss.Status = *s
+				return ss
+			})
 
-				if newChunk.Status.HandlerName != r.handlerName {
-					cancel()
-					klog.Warningf("Chunk %s has been acquired by another handler %s", ss.Name, newChunk.Status.HandlerName)
-					return ss, nil
-				}
-				newChunk.Status = ss.Status
-				newChunk, err = r.updateChunk(ctx, newChunk)
-				if err != nil {
-					klog.Warningf("Failed to update chunk %s after retry: %v", ss.Name, err)
-					return ss, nil
-				}
-			}
-			return newChunk, nil
+			return chunk, err
 		})
 	}
 
@@ -862,8 +836,7 @@ func (r *ChunkRunner) getPending(ctx context.Context) (*v1alpha1.Chunk, error) {
 
 		chunk.Status.HandlerName = r.handlerName
 		chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
-
-		chunk, err := r.updateChunk(ctx, chunk)
+		chunk, err := r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
 		if err != nil {
 			if apierrors.IsConflict(err) {
 				// Someone else got the chunk first, try next one
