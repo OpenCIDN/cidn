@@ -213,7 +213,9 @@ func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.Chun
 	// Set default headers
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("User-Agent", versions.DefaultUserAgent())
-	req.ContentLength = contentLength
+	if contentLength > 0 {
+		req.ContentLength = contentLength
+	}
 
 	// Add custom headers from configuration
 	for k, v := range chunkHTTP.Request.Headers {
@@ -457,8 +459,13 @@ func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.Chu
 
 	if dest.Response.StatusCode != 0 {
 		if destResp.StatusCode != dest.Response.StatusCode {
-			return "", fmt.Errorf("unexpected status code from destination: got %d, want %d",
-				destResp.StatusCode, dest.Response.StatusCode)
+			body, err := io.ReadAll(destResp.Body)
+			if err != nil {
+				return "", fmt.Errorf("unexpected status code from destination: got %d, want %d (failed to read response body: %v)",
+					destResp.StatusCode, dest.Response.StatusCode, err)
+			}
+			return "", fmt.Errorf("unexpected status code from destination: got %d, want %d, body: %s",
+				destResp.StatusCode, dest.Response.StatusCode, string(body))
 		}
 	} else {
 		if destResp.StatusCode >= http.StatusMultipleChoices {
