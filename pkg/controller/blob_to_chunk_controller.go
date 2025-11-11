@@ -164,6 +164,10 @@ func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) e
 	}
 
 	if blob.Status.Total == 0 {
+		// Optimization: If ChunksNumber is 1, skip HEAD request and directly GET/PUT
+		if blob.Spec.ChunksNumber == 1 {
+			return c.toOneChunk(ctx, blob)
+		}
 		return c.toHeadChunk(ctx, blob)
 	}
 
@@ -359,7 +363,8 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 			return fmt.Errorf("s3 client for destination %q not found", dst.Name)
 		}
 
-		if dst.SkipIfExists {
+		// Only check SkipIfExists when Total is known
+		if dst.SkipIfExists && blob.Status.Total > 0 {
 			fi, err := s3.StatHead(ctx, dst.Path)
 			if err == nil && fi.Size() == blob.Status.Total {
 				continue
