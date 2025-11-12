@@ -920,6 +920,13 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 		return atime.Before(btime)
 	})
 
+	if len(pendingChunks) > 10 {
+		pendingChunks = pendingChunks[:len(pendingChunks)/2]
+		// Shuffle the order
+		rand.Shuffle(len(pendingChunks), func(i, j int) {
+			pendingChunks[i], pendingChunks[j] = pendingChunks[j], pendingChunks[i]
+		})
+	}
 	return pendingChunks, nil
 }
 
