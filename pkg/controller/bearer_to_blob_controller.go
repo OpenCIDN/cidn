@@ -39,6 +39,7 @@ type BearerToBlobController struct {
 	chunkInformer  informers.ChunkInformer
 	bearerInformer informers.BearerInformer
 	workqueue      workqueue.TypedDelayingInterface[string]
+	concurrency    int
 }
 
 func NewBearerToBlobController(
@@ -53,6 +54,7 @@ func NewBearerToBlobController(
 		bearerInformer: sharedInformerFactory.Task().V1alpha1().Bearers(),
 		client:         client,
 		workqueue:      workqueue.NewTypedDelayingQueue[string](),
+		concurrency:    5,
 	}
 
 	c.bearerInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -82,8 +84,9 @@ func NewBearerToBlobController(
 }
 
 func (c *BearerToBlobController) Start(ctx context.Context) error {
-
-	go c.runWorker(ctx)
+	for i := 0; i < c.concurrency; i++ {
+		go c.runWorker(ctx)
+	}
 	return nil
 }
 

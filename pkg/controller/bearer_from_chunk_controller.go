@@ -41,6 +41,7 @@ type BearerFromChunkController struct {
 	bearerInformer informers.BearerInformer
 	chunkInformer  informers.ChunkInformer
 	workqueue      workqueue.TypedDelayingInterface[string]
+	concurrency    int
 }
 
 func NewBearerFromChunkController(
@@ -54,6 +55,7 @@ func NewBearerFromChunkController(
 		chunkInformer:  sharedInformerFactory.Task().V1alpha1().Chunks(),
 		client:         client,
 		workqueue:      workqueue.NewTypedDelayingQueue[string](),
+		concurrency:    5,
 	}
 
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -96,8 +98,9 @@ func NewBearerFromChunkController(
 }
 
 func (c *BearerFromChunkController) Start(ctx context.Context) error {
-
-	go c.runWorker(ctx)
+	for i := 0; i < c.concurrency; i++ {
+		go c.runWorker(ctx)
+	}
 	return nil
 }
 

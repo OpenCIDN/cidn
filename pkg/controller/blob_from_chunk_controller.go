@@ -50,6 +50,7 @@ type BlobFromChunkController struct {
 	chunkInformer     informers.ChunkInformer
 	multipartInformer informers.MultipartInformer
 	workqueue         workqueue.TypedDelayingInterface[string]
+	concurrency       int
 }
 
 func NewBlobFromChunkController(
@@ -66,6 +67,7 @@ func NewBlobFromChunkController(
 		multipartInformer: sharedInformerFactory.Task().V1alpha1().Multiparts(),
 		client:            client,
 		workqueue:         workqueue.NewTypedDelayingQueue[string](),
+		concurrency:       5,
 	}
 
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -108,8 +110,9 @@ func NewBlobFromChunkController(
 }
 
 func (c *BlobFromChunkController) Start(ctx context.Context) error {
-
-	go c.runWorker(ctx)
+	for i := 0; i < c.concurrency; i++ {
+		go c.runWorker(ctx)
+	}
 	return nil
 }
 

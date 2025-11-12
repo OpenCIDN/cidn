@@ -44,6 +44,7 @@ type BearerToChunkController struct {
 	authorizationInformer informers.BearerInformer
 	chunkInformer         informers.ChunkInformer
 	workqueue             workqueue.TypedDelayingInterface[string]
+	concurrency           int
 }
 
 func NewBearerToChunkController(
@@ -59,6 +60,7 @@ func NewBearerToChunkController(
 		client:                client,
 		workqueue:             workqueue.NewTypedDelayingQueue[string](),
 		users:                 map[string]*url.Userinfo{},
+		concurrency:           5,
 	}
 
 	for _, u := range users {
@@ -96,8 +98,9 @@ func NewBearerToChunkController(
 }
 
 func (c *BearerToChunkController) Start(ctx context.Context) error {
-
-	go c.runWorker(ctx)
+	for i := 0; i < c.concurrency; i++ {
+		go c.runWorker(ctx)
+	}
 	return nil
 }
 
