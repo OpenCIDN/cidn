@@ -639,10 +639,10 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 		aggregate.Phase = "Failed"
 	case completed:
 		aggregate.Phase = "Succeeded"
-	case hasRunning || hasPending:
-		aggregate.Phase = "Running"
-	default:
+	case !hasRunning && hasPending:
 		aggregate.Phase = "Pending"
+	default:
+		aggregate.Phase = "Running"
 	}
 
 	return aggregate
