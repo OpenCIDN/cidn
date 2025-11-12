@@ -838,8 +838,7 @@ func (r *ChunkRunner) getPending(ctx context.Context) (*v1alpha1.Chunk, error) {
 		chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
 		chunk, err := r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
 		if err != nil {
-			if apierrors.IsConflict(err) {
-				// Someone else got the chunk first, try next one
+			if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
 				continue
 			}
 			return nil, err
