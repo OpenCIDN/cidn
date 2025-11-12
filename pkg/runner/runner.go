@@ -32,10 +32,10 @@ type Runner struct {
 }
 
 // NewChunkRunner creates a new Runner instance
-func NewRunner(handlerName string, client versioned.Interface, updateDuration time.Duration) *Runner {
+func NewRunner(handlerName string, client versioned.Interface, updateDuration time.Duration, concurrency int) *Runner {
 	sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
 	return &Runner{
-		chunk:                 NewChunkRunner(handlerName, client, sharedInformerFactory, updateDuration),
+		chunk:                 NewChunkRunner(handlerName, client, sharedInformerFactory, updateDuration, concurrency),
 		sharedInformerFactory: sharedInformerFactory,
 	}
 }
