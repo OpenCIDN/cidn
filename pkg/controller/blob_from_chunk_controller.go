@@ -231,9 +231,6 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 	chunkName := buildHeadChunkName(blob.Name, 0)
 	chunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
 		return fmt.Errorf("failed to get chunk: %w", err)
 	}
 
@@ -271,9 +268,6 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 	chunkName := buildFullChunkName(blob.Name)
 	chunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
 		return fmt.Errorf("failed to get chunk: %w", err)
 	}
 
