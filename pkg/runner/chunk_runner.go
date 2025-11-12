@@ -920,7 +920,32 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 		return atime.Before(btime)
 	})
 
-	return pendingChunks, nil
+	return shuffleChunks(pendingChunks), nil
+}
+
+// shuffleChunks shuffles the chunks to a certain degree to reduce conflicts
+func shuffleChunks(chunks []*v1alpha1.Chunk) []*v1alpha1.Chunk {
+	n := len(chunks)
+	if n <= 1 {
+		return chunks
+	}
+
+	// Define a shuffle range (e.g., 25% of the list size)
+	shuffleRange := n / 4
+	if shuffleRange < 1 {
+		shuffleRange = 1
+	}
+
+	// Shuffle within the defined range
+	for i := 0; i < n; i++ {
+		j := i + rand.Intn(shuffleRange)
+		if j >= n {
+			j = n - 1
+		}
+		chunks[i], chunks[j] = chunks[j], chunks[i]
+	}
+
+	return chunks
 }
 
 type hashEncoding interface {
