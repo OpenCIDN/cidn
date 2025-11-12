@@ -32,7 +32,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-type BearerToBlobController struct {
+type ChunkFromBearerController struct {
 	handlerName    string
 	client         versioned.Interface
 	blobInformer   informers.BlobInformer
@@ -42,12 +42,12 @@ type BearerToBlobController struct {
 	concurrency    int
 }
 
-func NewBearerToBlobController(
+func NewChunkFromBearerController(
 	handlerName string,
 	client versioned.Interface,
 	sharedInformerFactory externalversions.SharedInformerFactory,
-) *BearerToBlobController {
-	c := &BearerToBlobController{
+) *ChunkFromBearerController {
+	c := &ChunkFromBearerController{
 		handlerName:    handlerName,
 		blobInformer:   sharedInformerFactory.Task().V1alpha1().Blobs(),
 		chunkInformer:  sharedInformerFactory.Task().V1alpha1().Chunks(),
@@ -83,19 +83,19 @@ func NewBearerToBlobController(
 	return c
 }
 
-func (c *BearerToBlobController) Start(ctx context.Context) error {
+func (c *ChunkFromBearerController) Start(ctx context.Context) error {
 	for i := 0; i < c.concurrency; i++ {
 		go c.runWorker(ctx)
 	}
 	return nil
 }
 
-func (c *BearerToBlobController) runWorker(ctx context.Context) {
+func (c *ChunkFromBearerController) runWorker(ctx context.Context) {
 	for c.processNextItem(ctx) {
 	}
 }
 
-func (c *BearerToBlobController) processNextItem(ctx context.Context) bool {
+func (c *ChunkFromBearerController) processNextItem(ctx context.Context) bool {
 	key, quit := c.workqueue.Get()
 	if quit {
 		return false
@@ -112,35 +112,27 @@ func (c *BearerToBlobController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) error {
+func (c *ChunkFromBearerController) blobHandler(ctx context.Context, name string) error {
 	chunkList, err := c.client.TaskV1alpha1().Chunks().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
 
-	blobList := map[string]struct{}{}
-
 	for _, chunk := range chunkList.Items {
 		if chunk.Spec.BearerName != name {
 			continue
 		}
-		if chunk.Status.Phase != v1alpha1.ChunkPhaseFailed && chunk.Status.Phase != v1alpha1.ChunkPhasePending {
+		if chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
 			continue
 		}
 
-		if chunk.Annotations == nil {
+		if !chunk.Status.Retryable {
 			continue
-		}
-
-		blobName := chunk.Annotations[BlobNameAnnotationKey]
-		if blobName != "" {
-			blobList[blobName] = struct{}{}
 		}
 
 		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Chunks(), &chunk, func(ch *v1alpha1.Chunk) *v1alpha1.Chunk {
 			ch.Status.HandlerName = ""
 			ch.Status.Phase = v1alpha1.ChunkPhasePending
-			ch.Status.Retry = 0
 			ch.Status.Progress = 0
 			ch.Status.Conditions = nil
 			return ch
@@ -150,21 +142,5 @@ func (c *BearerToBlobController) blobHandler(ctx context.Context, name string) e
 		}
 	}
 
-	for blobName := range blobList {
-		blob, err := c.blobInformer.Lister().Get(blobName)
-		if err != nil {
-			continue
-		}
-
-		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
-			b.Status.HandlerName = ""
-			b.Status.Phase = v1alpha1.BlobPhasePending
-			b.Status.Conditions = nil
-			return b
-		})
-		if err != nil {
-			return err
-		}
-	}
 	return nil
 }

@@ -35,7 +35,7 @@ type BearerController struct {
 	bearerToChunkController   *BearerToChunkController
 	bearerFromChunkController *BearerFromChunkController
 	chunkToBearerController   *ChunkToBearerController
-	bearerToBlobController    *BearerToBlobController
+	chunkFromBearerController *ChunkFromBearerController
 }
 
 func NewBearerController(
@@ -66,7 +66,7 @@ func NewBearerController(
 			client,
 			sharedInformerFactory,
 		),
-		bearerToBlobController: NewBearerToBlobController(
+		chunkFromBearerController: NewChunkFromBearerController(
 			handlerName,
 			client,
 			sharedInformerFactory,
@@ -103,7 +103,7 @@ func (c *BearerController) Start(ctx context.Context) error {
 		return err
 	}
 
-	err = c.bearerToBlobController.Start(ctx)
+	err = c.chunkFromBearerController.Start(ctx)
 	if err != nil {
 		return err
 	}
