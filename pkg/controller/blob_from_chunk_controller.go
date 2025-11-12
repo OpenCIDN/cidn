@@ -151,7 +151,7 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 		return nil
 	}
 
-	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded {
+	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded || blob.Status.Phase == v1alpha1.BlobPhaseFailed {
 		return nil
 	}
 
