@@ -38,23 +38,25 @@ type flagpole struct {
 	InsecureSkipTLSVerify bool
 	Duration              time.Duration
 	UpdateDuration        time.Duration
-	handlerName           string
+	HandlerName           string
+	Concurrency           int
 }
 
 func NewRunnerCommand(ctx context.Context) *cobra.Command {
 	flags := &flagpole{
 		UpdateDuration: 1 * time.Second,
+		Concurrency:    3,
 	}
 	cmd := &cobra.Command{
 		Use:   "runner",
 		Short: "Run the chunk runner",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if flags.handlerName == "" {
+			if flags.HandlerName == "" {
 				ident, err := utils.Identity()
 				if err != nil {
 					return fmt.Errorf("error getting identity: %v", err)
 				}
-				flags.handlerName = ident
+				flags.HandlerName = ident
 			}
 			var config *rest.Config
 			var err error
@@ -74,10 +76,10 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 				return fmt.Errorf("error creating clientset: %v", err)
 			}
 
-			ident := "runner-" + flags.handlerName
+			ident := "runner-" + flags.HandlerName
 			klog.Infof("Starting runner with identity: %s for duration: %v", ident, flags.Duration)
 
-			runner := runner.NewRunner(ident, clientset, flags.UpdateDuration)
+			runner := runner.NewRunner(ident, clientset, flags.UpdateDuration, flags.Concurrency)
 
 			err = runner.Start(ctx)
 			if err != nil {
@@ -98,9 +100,10 @@ func NewRunnerCommand(ctx context.Context) *cobra.Command {
 
 	cmd.Flags().StringVar(&flags.Kubeconfig, "kubeconfig", flags.Kubeconfig, "Path to the kubeconfig file to use")
 	cmd.Flags().StringVar(&flags.Master, "master", flags.Master, "The address of the Kubernetes API server")
-	cmd.Flags().BoolVar(&flags.InsecureSkipTLSVerify, "insecure-skip-tls-verify", false, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
-	cmd.Flags().DurationVar(&flags.Duration, "duration", 0, "Duration for which the runner should run (e.g., 5m, 1h). If 0, runs indefinitely until context cancellation")
+	cmd.Flags().BoolVar(&flags.InsecureSkipTLSVerify, "insecure-skip-tls-verify", flags.InsecureSkipTLSVerify, "If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure")
+	cmd.Flags().DurationVar(&flags.Duration, "duration", flags.Duration, "Duration for which the runner should run (e.g., 5m, 1h). If 0, runs indefinitely until context cancellation")
 	cmd.Flags().DurationVar(&flags.UpdateDuration, "update-duration", flags.UpdateDuration, "Duration between updating chunk statuses")
-	cmd.Flags().StringVar(&flags.handlerName, "handler-name", flags.handlerName, "Name of the chunk handler to use")
+	cmd.Flags().StringVar(&flags.HandlerName, "handler-name", flags.HandlerName, "Name of the chunk handler to use")
+	cmd.Flags().IntVar(&flags.Concurrency, "concurrency", flags.Concurrency, "Number of concurrent chunk processors")
 	return cmd
 }

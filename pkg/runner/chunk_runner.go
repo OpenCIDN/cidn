@@ -68,6 +68,7 @@ type ChunkRunner struct {
 	httpClient     *http.Client
 	signal         chan struct{}
 	updateDuration time.Duration
+	concurrency    int
 }
 
 // NewChunkRunner creates a new Runner instance
@@ -76,6 +77,7 @@ func NewChunkRunner(
 	clientset versioned.Interface,
 	sharedInformerFactory externalversions.SharedInformerFactory,
 	updateDuration time.Duration,
+	concurrency int,
 ) *ChunkRunner {
 	r := &ChunkRunner{
 		handlerName:    handlerName,
@@ -85,6 +87,7 @@ func NewChunkRunner(
 		httpClient:     http.DefaultClient,
 		signal:         make(chan struct{}, 1),
 		updateDuration: updateDuration,
+		concurrency:    concurrency,
 	}
 
 	r.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -173,7 +176,30 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	if ctx.Err() != nil {
 		return false
 	}
-	s, err := r.getPending(context.Background())
+	chunks, err := r.getPendingList()
+	if err != nil {
+		klog.Errorf("failed to list pending chunks: %v", err)
+		select {
+		case <-r.signal:
+		case <-ctx.Done():
+			return false
+		}
+		return true
+	}
+
+	wg := sync.WaitGroup{}
+
+	err = r.handlePending(context.Background(), chunks, func(c *v1alpha1.Chunk) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			continues := make(chan struct{})
+			go r.process(continues, c.DeepCopy())
+			continues <- struct{}{}
+			close(continues)
+		}()
+
+	})
 	if err != nil {
 		if errors.Is(err, ErrNoPendingChunk) {
 			klog.Infof("no pending chunks available")
@@ -189,15 +215,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 		return true
 	}
 
-	if s.Status.HandlerName != r.handlerName {
-		return true
-	}
-
-	continues := make(chan struct{})
-
-	go r.process(context.Background(), s.DeepCopy(), continues)
-	continues <- struct{}{}
-	close(continues)
+	wg.Wait()
 
 	return true
 }
@@ -488,21 +506,22 @@ func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.Chu
 	return etag, nil
 }
 
-func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, continues <-chan struct{}) {
+func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) {
 	klog.Infof("Processing chunk %s (handler: %s)", chunk.Name, chunk.Status.HandlerName)
 	defer klog.Infof("Finish processing chunk %s", chunk.Name)
-	defer func() { <-continues }()
+	defer func() {
+		<-continues
+	}()
 
 	s := newState(chunk)
 
 	var gsr *ReadCount
 	var gdrs []*ReadCount
-	ctx, cancel := context.WithCancel(ctx)
-	stopProgress := r.startProgressUpdater(ctx, func() {
-		cancel()
-		<-continues
-	}, s, &gsr, &gdrs)
+
+	stopProgress := r.startProgressUpdater(context.Background(), s, &gsr, &gdrs)
 	defer stopProgress()
+
+	g, ctx := errgroup.WithContext(context.Background())
 
 	body, contentLength := r.sourceRequest(ctx, chunk, s)
 	if body == nil {
@@ -552,8 +571,6 @@ func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, contin
 	}
 
 	swmr := ioswmr.NewSWMR(f)
-
-	g, _ := errgroup.WithContext(ctx)
 
 	sr := NewReadCount(ctx, body)
 	g.Go(func() error {
@@ -616,10 +633,10 @@ func (r *ChunkRunner) process(ctx context.Context, chunk *v1alpha1.Chunk, contin
 		return
 	}
 
-	r.handleSha256AndFinalize(ctx, chunk, s, swmr, etags, continues)
+	r.handleSha256AndFinalize(continues, chunk, s, swmr, etags)
 }
 
-func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s *state, gsr **ReadCount, gdrs *[]*ReadCount) func() {
+func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **ReadCount, gdrs *[]*ReadCount) func() {
 	chunkFunc := func() {
 		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 
@@ -659,7 +676,7 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 	return func() { close(stop) }
 }
 
-func (r *ChunkRunner) handleSha256AndFinalize(ctx context.Context, chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string, continues <-chan struct{}) {
+func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string) {
 	if chunk.Spec.Sha256PartialPreviousName == "" {
 		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 			ss.Status.Etags = etags
@@ -669,64 +686,41 @@ func (r *ChunkRunner) handleSha256AndFinalize(ctx context.Context, chunk *v1alph
 		return
 	}
 	if chunk.Spec.Sha256PartialPreviousName == "-" {
+		sha256, sha256Partial, err := updateSha256(chunk.Spec.Sha256, nil, swmr.NewReader())
+		if err != nil {
+			s.handleProcessError("", err)
+			return
+		}
+
 		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
-			var err error
-			ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, nil, swmr.NewReader())
-			if err != nil {
-				return nil, err
-			}
+			ss.Status.Sha256 = sha256
+			ss.Status.Sha256Partial = sha256Partial
 			ss.Status.Etags = etags
 			utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
 			return ss, nil
 		})
 		return
 	}
-	pchunk, err := r.getChunk(chunk.Spec.Sha256PartialPreviousName)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			s.handleProcessError("", err)
-			return
-		}
-	} else {
-		if pchunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
-			if len(pchunk.Status.Sha256Partial) == 0 {
-				err := fmt.Errorf("partial chunk %q has no sha256 partial data", chunk.Spec.Sha256PartialPreviousName)
-				s.handleProcessError("MissingSha256PartialData", err)
-				return
-			}
-			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
-				var err error
-				ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, pchunk.Status.Sha256Partial, swmr.NewReader())
-				if err != nil {
-					return nil, err
-				}
-				ss.Status.Etags = etags
-				utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
-				return ss, nil
-			})
-			return
-		}
-	}
 
 	<-continues
-	r.waitForPartialChunk(ctx, chunk, s, swmr, etags)
+	r.waitForPartialChunk(chunk, s, swmr, etags)
 }
 
-func (r *ChunkRunner) waitForPartialChunk(ctx context.Context, chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string) {
+func (r *ChunkRunner) waitForPartialChunk(chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string) {
 	for {
-		if ctx.Err() != nil {
-			return
-		}
-		time.Sleep(time.Second)
 		pchunk, err := r.getChunk(chunk.Spec.Sha256PartialPreviousName)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				s.handleProcessError("", err)
 				return
 			}
+			time.Sleep(time.Second)
 			continue
 		}
+
 		if pchunk.Status.Phase != v1alpha1.ChunkPhaseSucceeded {
+			klog.Infof("Waiting for partial chunk %s to succeed for chunk %s", pchunk.Name, chunk.Name)
+			time.Sleep(time.Second)
 			continue
 		}
 		if len(pchunk.Status.Sha256Partial) == 0 {
@@ -734,16 +728,22 @@ func (r *ChunkRunner) waitForPartialChunk(ctx context.Context, chunk *v1alpha1.C
 			s.handleProcessError("MissingSha256PartialData", err)
 			return
 		}
+
+		sha256, sha256Partial, err := updateSha256(chunk.Spec.Sha256, pchunk.Status.Sha256Partial, swmr.NewReader())
+		if err != nil {
+			s.handleProcessError("", err)
+			return
+		}
+
 		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
-			var err error
-			ss.Status.Sha256, ss.Status.Sha256Partial, err = updateSha256(ss.Spec.Sha256, pchunk.Status.Sha256Partial, swmr.NewReader())
-			if err != nil {
-				return nil, err
-			}
+			ss.Status.Sha256 = sha256
+			ss.Status.Sha256Partial = sha256Partial
 			ss.Status.Etags = etags
 			utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
 			return ss, nil
 		})
+
+		klog.Infof("Chunk %s succeeded after waiting for partial chunk %s", chunk.Name, pchunk.Name)
 		return
 	}
 }
@@ -795,12 +795,8 @@ func updateSha256(sha256 string, sha256Partial []byte, reader io.Reader) (string
 	return sha256, nil, nil
 }
 
-func (r *ChunkRunner) getPending(ctx context.Context) (*v1alpha1.Chunk, error) {
-	chunks, err := r.getPendingList()
-	if err != nil {
-		return nil, err
-	}
-
+func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chunk, cb func(*v1alpha1.Chunk)) error {
+	size := 0
 	for _, chunk := range chunks {
 		if chunk.Spec.BearerName != "" {
 			bearer, err := r.bearerInformer.Lister().Get(chunk.Spec.BearerName)
@@ -833,6 +829,19 @@ func (r *ChunkRunner) getPending(ctx context.Context) (*v1alpha1.Chunk, error) {
 				}
 			}
 		}
+		if chunk.Spec.Sha256PartialPreviousName != "" && chunk.Spec.Sha256PartialPreviousName != "-" {
+			pchunk, err := r.getChunk(chunk.Spec.Sha256PartialPreviousName)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					klog.Warningf("Failed to get partial chunk %s: %v", chunk.Spec.Sha256PartialPreviousName, err)
+					continue
+				}
+				continue
+			}
+			if pchunk.Status.Phase != v1alpha1.ChunkPhaseSucceeded && pchunk.Status.Phase != v1alpha1.ChunkPhaseRunning {
+				continue
+			}
+		}
 
 		chunk.Status.HandlerName = r.handlerName
 		chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
@@ -841,15 +850,28 @@ func (r *ChunkRunner) getPending(ctx context.Context) (*v1alpha1.Chunk, error) {
 			if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
 				continue
 			}
-			return nil, err
+			klog.Warningf("Failed to acquire chunk %s: %v", chunk.Name, err)
+			continue
 		}
 
-		// Successfully acquired the chunk
-		return chunk, nil
+		if chunk.Status.HandlerName != r.handlerName {
+			klog.Infof("Chunk %s was acquired by another handler", chunk.Name)
+			continue
+		}
+
+		cb(chunk)
+		size++
+
+		if size >= r.concurrency {
+			break
+		}
 	}
 
-	// No pending chunks available
-	return nil, ErrNoPendingChunk
+	if size == 0 {
+		return ErrNoPendingChunk
+	}
+
+	return nil
 }
 
 // getPendingList returns all Chunks in Pending state, sorted by weight and creation time
