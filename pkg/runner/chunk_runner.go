@@ -265,58 +265,57 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 		}
 		return err
 	}
-	if bearer != nil {
-		if bearer.Status.Phase == v1alpha1.BearerPhaseFailed {
-			for _, condition := range bearer.Status.Conditions {
-				if condition.Type == ConditionTypeProcess {
-					return fmt.Errorf("%w: bearer failed: %s", ErrAuthentication, condition.Message)
-				}
+	if bearer == nil {
+		return nil
+	}
+	if bearer.Status.Phase == v1alpha1.BearerPhaseFailed {
+		for _, condition := range bearer.Status.Conditions {
+			if condition.Type == ConditionTypeProcess {
+				return fmt.Errorf("%w: bearer failed: %s", ErrAuthentication, condition.Message)
 			}
-			return fmt.Errorf("%w: bearer %s is in phase %s", ErrAuthentication, bearer.Name, bearer.Status.Phase)
 		}
-		if bearer.Status.TokenInfo == nil {
-			if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
-				return fmt.Errorf("bearer %s is in succeeded phase but has no token info", bearer.Name)
+		return fmt.Errorf("%w: bearer %s is in phase %s", ErrAuthentication, bearer.Name, bearer.Status.Phase)
+	}
+	if bearer.Status.TokenInfo == nil || bearer.Status.TokenInfo.Token == "" {
+		if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
+			return fmt.Errorf("bearer %s is in succeeded phase but has no token info", bearer.Name)
+		}
+		return fmt.Errorf("%w: bearer %s is not in succeeded phase (current: %s)", ErrBearerNotReady, bearer.Name, bearer.Status.Phase)
+	}
+
+	if chunk.Spec.Source.Request.Headers == nil {
+		chunk.Spec.Source.Request.Headers = make(map[string]string)
+	}
+	chunk.Spec.Source.Request.Headers["Authorization"] = "Bearer " + bearer.Status.TokenInfo.Token
+
+	issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
+	expiresIn := bearer.Status.TokenInfo.ExpiresIn
+
+	if expiresIn > 0 && !issuedAt.IsZero() {
+		since := time.Since(issuedAt)
+		expires := time.Duration(expiresIn) * time.Second
+
+		if since >= expires {
+			_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+				b.Status.HandlerName = ""
+				b.Status.Phase = v1alpha1.BearerPhasePending
+				return b
+			})
+			if err != nil {
+				return err
 			}
-			return fmt.Errorf("%w: bearer %s is not in succeeded phase (current: %s)", ErrBearerNotReady, bearer.Name, bearer.Status.Phase)
+
+			return fmt.Errorf("%w: bearer %s token has expired", ErrBearerNotReady, bearer.Name)
 		}
 
-		if bearer.Status.TokenInfo.Token != "" {
-			if chunk.Spec.Source.Request.Headers == nil {
-				chunk.Spec.Source.Request.Headers = make(map[string]string)
-			}
-			chunk.Spec.Source.Request.Headers["Authorization"] = "Bearer " + bearer.Status.TokenInfo.Token
-
-			issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
-			expiresIn := bearer.Status.TokenInfo.ExpiresIn
-
-			if expiresIn > 0 && !issuedAt.IsZero() {
-				since := time.Since(issuedAt)
-				expires := time.Duration(expiresIn) * time.Second
-
-				if since >= expires {
-					_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
-						b.Status.HandlerName = ""
-						b.Status.Phase = v1alpha1.BearerPhasePending
-						return b
-					})
-					if err != nil {
-						return err
-					}
-
-					return fmt.Errorf("%w: bearer %s token has expired", ErrBearerNotReady, bearer.Name)
-				}
-
-				if since >= expires*3/4 {
-					_, err := utils.UpdateResourceStatusWithRetry(context.Background(), r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
-						b.Status.HandlerName = ""
-						b.Status.Phase = v1alpha1.BearerPhasePending
-						return b
-					})
-					if err != nil {
-						klog.Errorf("Failed to update bearer %s status: %v", bearer.Name, err)
-					}
-				}
+		if since >= expires*3/4 {
+			_, err := utils.UpdateResourceStatusWithRetry(context.Background(), r.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+				b.Status.HandlerName = ""
+				b.Status.Phase = v1alpha1.BearerPhasePending
+				return b
+			})
+			if err != nil {
+				klog.Errorf("Failed to update bearer %s status: %v", bearer.Name, err)
 			}
 		}
 	}
