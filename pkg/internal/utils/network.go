@@ -24,8 +24,8 @@ import (
 	"net/http"
 )
 
-// IsNetWorkError checks if the request error indicates a failure and returns an error with context
-func IsNetWorkError(err error) (bool, error) {
+// IsNetworkError checks if the request error indicates a failure and returns an error with context
+func IsNetworkError(err error) (bool, error) {
 	if err == nil {
 		return false, nil
 	}
@@ -47,7 +47,7 @@ func IsNetWorkError(err error) (bool, error) {
 // IsHTTPResponseError checks if the response/error indicates a failure and returns an error with context
 func IsHTTPResponseError(resp *http.Response, err error) (bool, error) {
 	if err != nil {
-		return IsNetWorkError(err)
+		return IsNetworkError(err)
 	}
 
 	if resp == nil {

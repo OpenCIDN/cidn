@@ -327,7 +327,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 
 	srcReq, err := r.buildRequest(ctx, &chunk.Spec.Source, nil, 0)
 	if err != nil {
-		retry, err := utils.IsNetWorkError(err)
+		retry, err := utils.IsNetworkError(err)
 		if retry {
 			s.handleProcessErrorAndRetryable("", err)
 		} else {
@@ -433,7 +433,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr io.Reader, contentLength int64) (string, error) {
 	destReq, err := r.buildRequest(ctx, dest, dr, contentLength)
 	if err != nil {
-		if retry, err := utils.IsNetWorkError(err); !retry {
+		if retry, err := utils.IsNetworkError(err); !retry {
 			return "", err
 		}
 
