@@ -181,6 +181,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 		klog.Errorf("failed to list pending chunks: %v", err)
 		select {
 		case <-r.signal:
+		case <-time.After(5 * time.Second):
 		case <-ctx.Done():
 			return false
 		}
@@ -209,6 +210,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 
 		select {
 		case <-r.signal:
+		case <-time.After(5 * time.Second):
 		case <-ctx.Done():
 			return false
 		}
