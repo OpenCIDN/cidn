@@ -847,6 +847,19 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 				}
 			}
 		}
+		if chunk.Spec.Sha256PartialPreviousName != "" && chunk.Spec.Sha256PartialPreviousName != "-" {
+			pchunk, err := r.getChunk(chunk.Spec.Sha256PartialPreviousName)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					klog.Warningf("Failed to get partial chunk %s: %v", chunk.Spec.Sha256PartialPreviousName, err)
+					continue
+				}
+				continue
+			}
+			if pchunk.Status.Phase != v1alpha1.ChunkPhaseSucceeded && pchunk.Status.Phase != v1alpha1.ChunkPhaseRunning {
+				continue
+			}
+		}
 
 		chunk.Status.HandlerName = r.handlerName
 		chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
