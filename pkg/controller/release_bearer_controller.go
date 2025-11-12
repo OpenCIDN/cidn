@@ -155,7 +155,7 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 
 	switch bearer.Status.Phase {
 	case v1alpha1.BearerPhaseRunning:
-		dur := 30 * time.Minute
+		dur := 3 * time.Minute
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil

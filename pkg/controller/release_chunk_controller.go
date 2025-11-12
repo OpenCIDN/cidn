@@ -155,7 +155,7 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 	}
 	switch chunk.Status.Phase {
 	case v1alpha1.ChunkPhaseRunning:
-		dur := 30 * time.Minute
+		dur := 5 * time.Minute
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			return dur - sub, nil
