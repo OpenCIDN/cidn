@@ -967,6 +967,7 @@ func handleProcessError(chunk *v1alpha1.Chunk, typ string, err error) {
 	if typ == "" {
 		typ = ConditionTypeProcess
 	}
+	chunk.Status.Retryable = false
 	utils.SetChunkTerminalPhase(chunk, v1alpha1.ChunkPhaseFailed)
 	chunk.Status.Conditions = v1alpha1.AppendConditions(chunk.Status.Conditions, v1alpha1.Condition{
 		Type:    typ,
@@ -977,7 +978,6 @@ func handleProcessError(chunk *v1alpha1.Chunk, typ string, err error) {
 func (s *state) handleProcessError(typ string, err error) {
 	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 		handleProcessError(ss, typ, err)
-		ss.Status.Retryable = false
 		return ss, nil
 	})
 }
@@ -987,8 +987,6 @@ func (s *state) handleProcessErrorAndRetryable(typ string, err error) {
 		handleProcessError(ss, typ, err)
 		if ss.Status.Retry < ss.Spec.MaximumRetry {
 			ss.Status.Retryable = true
-		} else {
-			ss.Status.Retryable = false
 		}
 		return ss, nil
 	})
