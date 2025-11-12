@@ -319,7 +319,7 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 
 	if blob.Status.Total <= 0 {
 		resp := chunk.Status.SourceResponse
-		if resp != nil && resp.Headers != nil {
+		if resp != nil && resp.StatusCode == 200 && resp.Headers != nil {
 			cl := resp.Headers["content-length"]
 			if cl != "" {
 				total, _ := strconv.ParseInt(cl, 10, 64)
