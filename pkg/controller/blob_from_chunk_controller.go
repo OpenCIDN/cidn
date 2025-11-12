@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"reflect"
 	"strconv"
 	"time"
 
@@ -70,13 +69,20 @@ func NewBlobFromChunkController(
 	}
 
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		UpdateFunc: func(oldObj, newObj interface{}) {
-			newChunk := newObj.(*v1alpha1.Chunk)
-			oldChunk := oldObj.(*v1alpha1.Chunk)
-
-			if reflect.DeepEqual(newChunk.Status, oldChunk.Status) {
+		AddFunc: func(obj interface{}) {
+			chunk, ok := obj.(*v1alpha1.Chunk)
+			if !ok {
 				return
 			}
+
+			blobName := chunk.Annotations[BlobNameAnnotationKey]
+			if blobName == "" {
+				return
+			}
+			c.workqueue.Add(blobName)
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			newChunk := newObj.(*v1alpha1.Chunk)
 
 			blobName := newChunk.Annotations[BlobNameAnnotationKey]
 			if blobName == "" {

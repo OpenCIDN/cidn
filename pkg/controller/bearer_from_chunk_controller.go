@@ -57,6 +57,18 @@ func NewBearerFromChunkController(
 	}
 
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			chunk, ok := obj.(*v1alpha1.Chunk)
+			if !ok {
+				return
+			}
+
+			bearerName := chunk.Annotations[BearerNameAnnotationKey]
+			if bearerName == "" {
+				return
+			}
+			c.workqueue.Add(bearerName)
+		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			newChunk := newObj.(*v1alpha1.Chunk)
 
