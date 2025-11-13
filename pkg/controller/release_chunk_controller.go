@@ -94,17 +94,11 @@ func (c *ReleaseChunkController) enqueueChunk(obj interface{}) {
 		return
 	}
 
-	if chunk.Status.Phase != v1alpha1.ChunkPhaseRunning &&
-		chunk.Status.Phase != v1alpha1.ChunkPhaseUnknown &&
-		chunk.Status.Phase != v1alpha1.ChunkPhaseFailed &&
-		chunk.Status.Phase != v1alpha1.ChunkPhaseSucceeded {
-		return
-	}
-
 	key := chunk.Name
 
+	now := time.Now()
 	c.lastSeenMut.Lock()
-	c.lastSeen[key] = time.Now()
+	c.lastSeen[key] = now
 	c.lastSeenMut.Unlock()
 	c.workqueue.Add(key)
 }
@@ -149,7 +143,6 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 	c.lastSeenMut.RLock()
 	lastSeenTime, ok := c.lastSeen[name]
 	c.lastSeenMut.RUnlock()
-
 	if !ok {
 		return 0, nil
 	}
