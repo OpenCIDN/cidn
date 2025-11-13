@@ -446,6 +446,9 @@ type entry struct {
 
 	Errors []string `json:"errors,omitempty"`
 
+	CreationTime   string `json:"creationTime,omitempty"`
+	CompletionTime string `json:"completionTime,omitempty"`
+
 	groupIgnoreSize bool `json:"-"`
 }
 
@@ -519,6 +522,14 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 		}
 	}
 
+	// Set timestamps
+	if !blob.CreationTimestamp.IsZero() {
+		e.CreationTime = blob.CreationTimestamp.Format(time.RFC3339)
+	}
+	if blob.Status.CompletionTime != nil && !blob.Status.CompletionTime.IsZero() {
+		e.CompletionTime = blob.Status.CompletionTime.Format(time.RFC3339)
+	}
+
 	return e
 }
 
@@ -560,6 +571,15 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 			}
 		}
 	}
+
+	// Set timestamps
+	if !chunk.CreationTimestamp.IsZero() {
+		e.CreationTime = chunk.CreationTimestamp.Format(time.RFC3339)
+	}
+	if chunk.Status.CompletionTime != nil && !chunk.Status.CompletionTime.IsZero() {
+		e.CompletionTime = chunk.Status.CompletionTime.Format(time.RFC3339)
+	}
+
 	return e
 }
 
@@ -582,6 +602,8 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 	var hasFailed bool
 	var hasRunning bool
 	var hasPending bool
+	var earliestCreation time.Time
+	var latestCompletion time.Time
 
 	for uid, e := range entries {
 		// Add member info to the list
@@ -602,6 +624,24 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 
 		if e.Priority > maxPriority {
 			maxPriority = e.Priority
+		}
+
+		// Track earliest creation time
+		if e.CreationTime != "" {
+			if t, err := time.Parse(time.RFC3339, e.CreationTime); err == nil {
+				if earliestCreation.IsZero() || t.Before(earliestCreation) {
+					earliestCreation = t
+				}
+			}
+		}
+
+		// Track latest completion time
+		if e.CompletionTime != "" {
+			if t, err := time.Parse(time.RFC3339, e.CompletionTime); err == nil {
+				if latestCompletion.IsZero() || t.After(latestCompletion) {
+					latestCompletion = t
+				}
+			}
 		}
 
 		if e.groupIgnoreSize {
@@ -631,6 +671,14 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 	aggregate.SucceededChunks = succeededChunks
 	aggregate.FailedChunks = failedChunks
 	aggregate.Priority = maxPriority
+
+	// Set timestamps
+	if !earliestCreation.IsZero() {
+		aggregate.CreationTime = earliestCreation.Format(time.RFC3339)
+	}
+	if !latestCompletion.IsZero() {
+		aggregate.CompletionTime = latestCompletion.Format(time.RFC3339)
+	}
 
 	completed := pendingChunks == 0 && runningChunks == 0 && idleChunks == 0 && !hasRunning && !hasPending
 
