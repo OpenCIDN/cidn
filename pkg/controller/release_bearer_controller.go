@@ -102,8 +102,12 @@ func (c *ReleaseBearerController) enqueueBearer(obj interface{}) {
 
 	key := bearer.Name
 
+	now := time.Now()
 	c.lastSeenMut.Lock()
-	c.lastSeen[key] = time.Now()
+	if bearer.CreationTimestamp.Time.Before(now) {
+		now = bearer.CreationTimestamp.Time
+	}
+	c.lastSeen[key] = now
 	c.lastSeenMut.Unlock()
 	c.workqueue.Add(key)
 }
@@ -148,7 +152,6 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 	c.lastSeenMut.RLock()
 	lastSeenTime, ok := c.lastSeen[name]
 	c.lastSeenMut.RUnlock()
-
 	if !ok {
 		return 0, nil
 	}
@@ -198,41 +201,37 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
 		}
 	case v1alpha1.BearerPhaseSucceeded:
-		ttl, ok := getTTLDuration(bearer.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
-
 		expiresIn := bearer.Status.TokenInfo.ExpiresIn
 		issuedAt := bearer.Status.TokenInfo.IssuedAt.Time
 		if expiresIn != 0 && !issuedAt.IsZero() {
 			expires := time.Duration(expiresIn) * time.Second
-			since := time.Since(issuedAt)
 
-			if ok {
-				ttl = min(ttl, expires-since)
-			} else {
-				ttl = expires - since
-			}
-
-			sub := time.Since(lastSeenTime)
-			if sub < ttl {
-				return ttl - sub, nil
+			expirationTime := issuedAt.Add(expires)
+			if !expirationTime.After(time.Now()) {
+				klog.Infof("Deleting succeeded bearer %s after token expiration", name)
+				err = c.client.TaskV1alpha1().Bearers().Delete(ctx, bearer.Name, metav1.DeleteOptions{})
+				if err != nil && !apierrors.IsNotFound(err) {
+					return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
+				}
+				return 0, nil
 			}
 
-			klog.Infof("Deleting succeeded bearer %s after token expiration", name)
-			err = c.client.TaskV1alpha1().Bearers().Delete(ctx, bearer.Name, metav1.DeleteOptions{})
-			if err != nil && !apierrors.IsNotFound(err) {
-				return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
-			}
-		} else if ok {
-			sub := time.Since(lastSeenTime)
-			if sub < ttl {
-				return ttl - sub, nil
-			}
+			return time.Until(expirationTime) + 10*time.Second, nil
+		}
 
-			klog.Infof("Deleting succeeded bearer %s after %v", name, ttl)
-			err = c.client.TaskV1alpha1().Bearers().Delete(ctx, name, metav1.DeleteOptions{})
-			if err != nil && !apierrors.IsNotFound(err) {
-				return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
-			}
+		ttl, ok := getTTLDuration(bearer.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
+		if !ok {
+			return 0, nil
+		}
+		sub := time.Since(lastSeenTime)
+		if sub < ttl {
+			return ttl - sub, nil
+		}
+
+		klog.Infof("Deleting succeeded bearer %s after %v", name, ttl)
+		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
 		}
 	}
 	return 0, nil

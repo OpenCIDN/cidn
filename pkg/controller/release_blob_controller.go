@@ -95,8 +95,12 @@ func (c *ReleaseBlobController) enqueueBlob(obj interface{}) {
 
 	key := blob.Name
 
+	now := time.Now()
 	c.lastSeenMut.Lock()
-	c.lastSeen[key] = time.Now()
+	if blob.CreationTimestamp.Time.Before(now) {
+		now = blob.CreationTimestamp.Time
+	}
+	c.lastSeen[key] = now
 	c.lastSeenMut.Unlock()
 	c.workqueue.Add(key)
 }
@@ -141,7 +145,6 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 	c.lastSeenMut.RLock()
 	lastSeenTime, ok := c.lastSeen[name]
 	c.lastSeenMut.RUnlock()
-
 	if !ok {
 		return 0, nil
 	}
