@@ -443,28 +443,32 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 	return srcResp.Body, srcResp.ContentLength
 }
 
-func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr io.Reader, contentLength int64) (string, error) {
-	destReq, err := r.buildRequest(ctx, dest, dr, contentLength)
+func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr *swmrCount, contentLength int64) (string, error) {
+	destReq, err := r.buildRequest(ctx, dest, dr.NewReader(), contentLength)
 	if err != nil {
 		if retry, err := utils.IsNetworkError(err); !retry {
-			return "", err
+			return "", fmt.Errorf("failed to build destination request: %w", err)
 		}
 
-		destReq, err = r.buildRequest(ctx, dest, dr, contentLength)
+		destReq, err = r.buildRequest(ctx, dest, dr.NewReader(), contentLength)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("retry: failed to build destination request: %w", err)
 		}
 	}
 
 	destResp, err := r.httpClient.Do(destReq)
 	if err != nil {
 		if retry, err := utils.IsHTTPResponseError(destResp, err); !retry {
-			return "", err
+			return "", fmt.Errorf("failed to perform destination request: %w", err)
 		}
 
+		destReq, err = r.buildRequest(ctx, dest, dr.NewReader(), contentLength)
+		if err != nil {
+			return "", fmt.Errorf("retry prepare: failed to build destination request: %w", err)
+		}
 		destResp, err = r.httpClient.Do(destReq)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("retry: failed to perform destination request: %w", err)
 		}
 	}
 	defer destResp.Body.Close()
@@ -510,8 +514,8 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	s := newState(chunk)
 
-	var gsr *ReadCount
-	var gdrs []*ReadCount
+	var gsr *readCount
+	var gdrs []*swmrCount
 
 	stopProgress := r.startProgressUpdater(context.Background(), s, &gsr, &gdrs)
 	defer stopProgress()
@@ -567,7 +571,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	swmr := ioswmr.NewSWMR(f)
 
-	sr := NewReadCount(ctx, body)
+	sr := newReadCount(ctx, body)
 	g.Go(func() error {
 		_, err := io.Copy(swmr, sr)
 		if err != nil {
@@ -577,14 +581,14 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	})
 
 	etags := make([]string, len(chunk.Spec.Destination))
-	drs := make([]*ReadCount, 0, len(chunk.Spec.Destination))
+	drs := make([]*swmrCount, 0, len(chunk.Spec.Destination))
 
 	for _, dest := range chunk.Spec.Destination {
 		dest := dest
 		if dest.Request.Method == "" {
 			continue
 		}
-		dr := NewReadCount(ctx, swmr.NewReader())
+		dr := newSWMRCount(ctx, swmr)
 		drs = append(drs, dr)
 	}
 
@@ -631,7 +635,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	r.handleSha256AndFinalize(continues, chunk, s, swmr, etags)
 }
 
-func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **ReadCount, gdrs *[]*ReadCount) func() {
+func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **readCount, gdrs *[]*swmrCount) func() {
 	chunkFunc := func() {
 		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
 
@@ -744,7 +748,7 @@ func (r *ChunkRunner) waitForPartialChunk(chunk *v1alpha1.Chunk, s *state, swmr 
 	}
 }
 
-func updateProgress(status *v1alpha1.ChunkStatus, spec *v1alpha1.ChunkSpec, sr *ReadCount, drs []*ReadCount) {
+func updateProgress(status *v1alpha1.ChunkStatus, spec *v1alpha1.ChunkSpec, sr *readCount, drs []*swmrCount) {
 	var progress int64
 	sourceProgress := sr.Count()
 

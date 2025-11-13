@@ -20,23 +20,25 @@ import (
 	"context"
 	"io"
 	"sync"
+
+	"github.com/wzshiming/ioswmr"
 )
 
-// ReadCount tracks the number of bytes read through an io.Reader
-type ReadCount struct {
+// readCount tracks the number of bytes read through an io.Reader
+type readCount struct {
 	ctx    context.Context
 	reader io.Reader
 	count  int64
 	mut    sync.RWMutex
 }
 
-// NewReadCount returns a new ReadCount that wraps the given reader
-func NewReadCount(ctx context.Context, r io.Reader) *ReadCount {
-	return &ReadCount{ctx: ctx, reader: r}
+// newReadCount returns a new readCount that wraps the given reader
+func newReadCount(ctx context.Context, r io.Reader) *readCount {
+	return &readCount{ctx: ctx, reader: r}
 }
 
 // Read implements io.Reader and tracks bytes read
-func (r *ReadCount) Read(p []byte) (int, error) {
+func (r *readCount) Read(p []byte) (int, error) {
 	if err := r.ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -50,8 +52,38 @@ func (r *ReadCount) Read(p []byte) (int, error) {
 }
 
 // Count returns the total number of bytes read
-func (r *ReadCount) Count() int64 {
+func (r *readCount) Count() int64 {
 	r.mut.RLock()
 	defer r.mut.RUnlock()
 	return r.count
+}
+
+// swmrCount wraps an ioswmr.SWMR and tracks the number of bytes read
+type swmrCount struct {
+	swmr ioswmr.SWMR
+	ctx  context.Context
+	rc   *readCount
+	mut  sync.RWMutex
+}
+
+// newReadCount returns a new ReadCount that wraps the given reader
+func newSWMRCount(ctx context.Context, swmr ioswmr.SWMR) *swmrCount {
+	return &swmrCount{ctx: ctx, swmr: swmr}
+}
+
+// Count returns the total number of bytes read
+func (r *swmrCount) Count() int64 {
+	r.mut.RLock()
+	defer r.mut.RUnlock()
+	if r.rc == nil {
+		return 0
+	}
+	return r.rc.Count()
+}
+
+func (r *swmrCount) NewReader() io.Reader {
+	r.mut.RLock()
+	defer r.mut.RUnlock()
+	r.rc = newReadCount(r.ctx, r.swmr.NewReader())
+	return r.rc
 }
