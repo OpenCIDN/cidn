@@ -56,10 +56,6 @@ var (
 	ErrNoPendingChunk = fmt.Errorf("no pending chunks available")
 )
 
-const (
-	ConditionTypeProcess = "Process"
-)
-
 // ChunkRunner executes Chunk tasks
 type ChunkRunner struct {
 	handlerName    string
@@ -264,12 +260,7 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 		return nil
 	}
 	if bearer.Status.Phase == v1alpha1.BearerPhaseFailed {
-		for _, condition := range bearer.Status.Conditions {
-			if condition.Type == ConditionTypeProcess {
-				return fmt.Errorf("%w: bearer failed: %s", ErrAuthentication, condition.Message)
-			}
-		}
-		return fmt.Errorf("%w: bearer %s is in phase %s", ErrAuthentication, bearer.Name, bearer.Status.Phase)
+		return fmt.Errorf("%w: bearer %s is in failed phase", ErrAuthentication, bearer.Name)
 	}
 	if bearer.Status.TokenInfo == nil || bearer.Status.TokenInfo.Token == "" {
 		if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
@@ -323,12 +314,12 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 	if err != nil {
 		if errors.Is(err, ErrBearerNotReady) {
 			// Release the chunk back to Pending state to wait for bearer to be ready
-			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+			s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 				klog.Infof("Releasing chunk %s because bearer is not ready", ss.Name)
 				ss.Status.HandlerName = ""
 				ss.Status.Phase = v1alpha1.ChunkPhasePending
 				ss.Status.Conditions = nil
-				return ss, nil
+				return ss
 			})
 			return nil, 0
 		} else if errors.Is(err, ErrAuthentication) {
@@ -369,13 +360,12 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		headers[strings.ToLower(k)] = srcResp.Header.Get(k)
 	}
 
-	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+	s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 		ss.Status.SourceResponse = &v1alpha1.ChunkHTTPResponse{
 			StatusCode: srcResp.StatusCode,
 			Headers:    headers,
 		}
-
-		return ss, nil
+		return ss
 	})
 
 	if chunk.Spec.Source.Response.StatusCode != 0 {
@@ -547,15 +537,15 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 				s.handleProcessError("ReadSourceBodyError", err)
 				return
 			}
-			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+			s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 				ss.Status.ResponseBody = body
 				utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
-				return ss, nil
+				return ss
 			})
 		} else {
-			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+			s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 				utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
-				return ss, nil
+				return ss
 			})
 		}
 		return
@@ -592,11 +582,10 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 		drs = append(drs, dr)
 	}
 
-	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+	s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 		gsr = sr
 		gdrs = drs
-
-		return ss, nil
+		return ss
 	})
 
 	if contentLength <= 0 {
@@ -637,8 +626,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **readCount, gdrs *[]*swmrCount) func() {
 	chunkFunc := func() {
-		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
-
+		s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 			if *gsr != nil {
 				updateProgress(&ss.Status, &ss.Spec, *gsr, *gdrs)
 			}
@@ -649,7 +637,12 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **
 				return ss
 			})
 
-			return chunk, err
+			if err != nil {
+				handleProcessError(ss, "ProgressUpdateError", err)
+				return ss
+			}
+
+			return chunk
 		})
 	}
 
@@ -677,10 +670,10 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **
 
 func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string) {
 	if chunk.Spec.Sha256PartialPreviousName == "" {
-		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+		s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 			ss.Status.Etags = etags
 			utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
-			return ss, nil
+			return ss
 		})
 		return
 	}
@@ -691,12 +684,12 @@ func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *
 			return
 		}
 
-		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+		s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 			ss.Status.Sha256 = sha256
 			ss.Status.Sha256Partial = sha256Partial
 			ss.Status.Etags = etags
 			utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
-			return ss, nil
+			return ss
 		})
 		return
 	}
@@ -735,12 +728,12 @@ func (r *ChunkRunner) waitForPartialChunk(chunk *v1alpha1.Chunk, s *state, swmr 
 			return
 		}
 
-		s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+		s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 			ss.Status.Sha256 = sha256
 			ss.Status.Sha256Partial = sha256Partial
 			ss.Status.Etags = etags
 			utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
-			return ss, nil
+			return ss
 		})
 
 		klog.Infof("Chunk %s succeeded after waiting for partial chunk %s", chunk.Name, pchunk.Name)
@@ -969,21 +962,17 @@ func newState(s *v1alpha1.Chunk) *state {
 	}
 }
 
-func (s *state) Update(fun func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error)) {
+func (s *state) Update(fun func(ss *v1alpha1.Chunk) *v1alpha1.Chunk) {
 	s.mut.Lock()
 	defer s.mut.Unlock()
 
-	status, err := fun(s.ss.DeepCopy())
-	if err != nil {
-		handleProcessError(s.ss, "UpdateError", err)
-	} else {
-		s.ss = status.DeepCopy()
-	}
+	status := fun(s.ss.DeepCopy())
+	s.ss = status.DeepCopy()
 }
 
 func handleProcessError(chunk *v1alpha1.Chunk, typ string, err error) {
 	if typ == "" {
-		typ = ConditionTypeProcess
+		typ = "UnknownError"
 	}
 	chunk.Status.Retryable = false
 	utils.SetChunkTerminalPhase(chunk, v1alpha1.ChunkPhaseFailed)
@@ -994,18 +983,18 @@ func handleProcessError(chunk *v1alpha1.Chunk, typ string, err error) {
 }
 
 func (s *state) handleProcessError(typ string, err error) {
-	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+	s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 		handleProcessError(ss, typ, err)
-		return ss, nil
+		return ss
 	})
 }
 
 func (s *state) handleProcessErrorAndRetryable(typ string, err error) {
-	s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
+	s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 		handleProcessError(ss, typ, err)
 		if ss.Status.Retry < ss.Spec.MaximumRetry {
 			ss.Status.Retryable = true
 		}
-		return ss, nil
+		return ss
 	})
 }
