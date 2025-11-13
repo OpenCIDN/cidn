@@ -201,7 +201,7 @@ func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) e
 			return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
 		}
 
-	case v1alpha1.BlobPhaseSucceeded:
+	case v1alpha1.BlobPhaseSucceeded, v1alpha1.BlobPhaseFailed:
 		c.cleanupBlob(blob)
 	}
 
