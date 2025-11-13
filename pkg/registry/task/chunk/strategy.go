@@ -62,7 +62,10 @@ func MatchChunk(label labels.Selector, field fields.Selector) storage.SelectionP
 
 // SelectableFields returns a field set that represents the object.
 func SelectableFields(obj *v1alpha1.Chunk) fields.Set {
-	return generic.ObjectMetaFieldsSet(&obj.ObjectMeta, false)
+	set := generic.ObjectMetaFieldsSet(&obj.ObjectMeta, false)
+	set["status.handlerName"] = obj.Status.HandlerName
+	set["status.phase"] = string(obj.Status.Phase)
+	return set
 }
 
 type chunkStrategy struct {
@@ -169,6 +172,9 @@ func (*chunkStrategy) ConvertToTable(ctx context.Context, object runtime.Object,
 			faileds := []string{}
 			for _, condition := range chunk.Status.Conditions {
 				faileds = append(faileds, condition.Type)
+			}
+			if chunk.Status.Retryable {
+				faileds = append(faileds, "Retryable")
 			}
 			if len(faileds) > 0 {
 				phase += "(" + strings.Join(faileds, ",") + ")"

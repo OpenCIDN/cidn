@@ -38,6 +38,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
+	taskv1alpha1 "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	"github.com/OpenCIDN/cidn/pkg/versions"
 	"github.com/wzshiming/ioswmr"
@@ -79,10 +80,13 @@ func NewChunkRunner(
 	updateDuration time.Duration,
 	concurrency int,
 ) *ChunkRunner {
+	chunkInformer := taskv1alpha1.New(sharedInformerFactory, "", func(opt *metav1.ListOptions) {
+		opt.FieldSelector = "status.handlerName=,status.phase=Pending"
+	}).Chunks()
 	r := &ChunkRunner{
 		handlerName:    handlerName,
 		client:         clientset,
-		chunkInformer:  sharedInformerFactory.Task().V1alpha1().Chunks(),
+		chunkInformer:  chunkInformer,
 		bearerInformer: sharedInformerFactory.Task().V1alpha1().Bearers(),
 		httpClient:     http.DefaultClient,
 		signal:         make(chan struct{}, 1),
@@ -244,15 +248,6 @@ func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.Chun
 	return req, nil
 }
 
-func (r *ChunkRunner) getChunk(name string) (*v1alpha1.Chunk, error) {
-	chunk, err := r.chunkInformer.Lister().Get(name)
-	if err != nil {
-		return nil, err
-	}
-
-	return chunk.DeepCopy(), nil
-}
-
 // tryAddBearer fetches the bearer token and adds the Authorization header to the chunk
 func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) error {
 	if chunk.Spec.BearerName == "" {
@@ -337,9 +332,9 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			})
 			return nil, 0
 		} else if errors.Is(err, ErrAuthentication) {
-			s.handleProcessError("", err)
+			s.handleProcessError("AuthenticationError", err)
 		} else {
-			s.handleProcessErrorAndRetryable("", err)
+			s.handleProcessErrorAndRetryable("WaitingForBearer", err)
 		}
 		return nil, 0
 	}
@@ -348,9 +343,9 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 	if err != nil {
 		retry, err := utils.IsNetworkError(err)
 		if retry {
-			s.handleProcessErrorAndRetryable("", err)
+			s.handleProcessErrorAndRetryable("BuildRequestNetworkError", err)
 		} else {
-			s.handleProcessError("", err)
+			s.handleProcessError("BuildRequestError", err)
 		}
 		return nil, 0
 	}
@@ -362,9 +357,9 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			srcResp.Body.Close()
 		}
 		if retry {
-			s.handleProcessErrorAndRetryable("", err)
+			s.handleProcessErrorAndRetryable("SourceRequestNetworkError", err)
 		} else {
-			s.handleProcessError("", err)
+			s.handleProcessError("SourceRequestError", err)
 		}
 		return nil, 0
 	}
@@ -394,8 +389,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			} else {
 				err := fmt.Errorf("unexpected status code: got %d, want %d",
 					srcResp.StatusCode, chunk.Spec.Source.Response.StatusCode)
-
-				s.handleProcessError("", err)
+				s.handleProcessError("UnexpectedStatusCode", err)
 			}
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
@@ -411,7 +405,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 				s.handleProcessErrorAndRetryable("Unauthorized", err)
 			} else {
 				err := fmt.Errorf("source returned error status code: %d", srcResp.StatusCode)
-				s.handleProcessError("", err)
+				s.handleProcessError("ErrorStatusCode", err)
 			}
 
 			if srcResp.Body != nil {
@@ -546,7 +540,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 		if chunk.Spec.InlineResponseBody {
 			body, err := io.ReadAll(body)
 			if err != nil {
-				s.handleProcessError("", err)
+				s.handleProcessError("ReadSourceBodyError", err)
 				return
 			}
 			s.Update(func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error) {
@@ -604,7 +598,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	if contentLength <= 0 {
 		err = g.Wait()
 		if err != nil {
-			s.handleProcessError("", err)
+			s.handleProcessError("ReadSourceError", err)
 			return
 		}
 
@@ -630,7 +624,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	err = g.Wait()
 	if err != nil {
-		s.handleProcessError("", err)
+		s.handleProcessError("DestinationRequestError", err)
 		return
 	}
 
@@ -689,7 +683,7 @@ func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *
 	if chunk.Spec.Sha256PartialPreviousName == "-" {
 		sha256, sha256Partial, err := updateSha256(chunk.Spec.Sha256, nil, swmr.NewReader())
 		if err != nil {
-			s.handleProcessError("", err)
+			s.handleProcessError("Sha256UpdateError", err)
 			return
 		}
 
@@ -708,11 +702,12 @@ func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *
 }
 
 func (r *ChunkRunner) waitForPartialChunk(chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string) {
+	chunks := r.client.TaskV1alpha1().Chunks()
 	for {
-		pchunk, err := r.getChunk(chunk.Spec.Sha256PartialPreviousName)
+		pchunk, err := chunks.Get(context.Background(), chunk.Spec.Sha256PartialPreviousName, metav1.GetOptions{})
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
-				s.handleProcessError("", err)
+				s.handleProcessError("GetPartialChunkError", err)
 				return
 			}
 			time.Sleep(time.Second)
@@ -732,7 +727,7 @@ func (r *ChunkRunner) waitForPartialChunk(chunk *v1alpha1.Chunk, s *state, swmr 
 
 		sha256, sha256Partial, err := updateSha256(chunk.Spec.Sha256, pchunk.Status.Sha256Partial, swmr.NewReader())
 		if err != nil {
-			s.handleProcessError("", err)
+			s.handleProcessError("Sha256UpdateError", err)
 			return
 		}
 
@@ -804,6 +799,7 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 			if err == nil {
 				if bearer.Status.Phase != v1alpha1.BearerPhaseFailed {
 					if bearer.Status.TokenInfo == nil {
+						klog.Infof("Bearer %s has no token info, skipping chunk %s", bearer.Name, chunk.Name)
 						continue
 					}
 
@@ -824,6 +820,7 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 									klog.Warningf("Failed to update bearer %s status: %v", bearer.Name, err)
 								}
 							}
+							klog.Infof("Bearer %s token has expired, skipping chunk %s", bearer.Name, chunk.Name)
 							continue
 						}
 					}
@@ -831,15 +828,15 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 			}
 		}
 		if chunk.Spec.Sha256PartialPreviousName != "" && chunk.Spec.Sha256PartialPreviousName != "-" {
-			pchunk, err := r.getChunk(chunk.Spec.Sha256PartialPreviousName)
+			pchunk, err := r.chunkInformer.Lister().Get(chunk.Spec.Sha256PartialPreviousName)
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
 					klog.Warningf("Failed to get partial chunk %s: %v", chunk.Spec.Sha256PartialPreviousName, err)
 					continue
 				}
-				continue
-			}
-			if pchunk.Status.Phase != v1alpha1.ChunkPhaseSucceeded && pchunk.Status.Phase != v1alpha1.ChunkPhaseRunning {
+
+			} else if pchunk.Status.Phase == v1alpha1.ChunkPhasePending {
+				klog.Infof("Partial chunk %s is still pending, skipping chunk %s", chunk.Spec.Sha256PartialPreviousName, chunk.Name)
 				continue
 			}
 		}
@@ -974,7 +971,7 @@ func (s *state) Update(fun func(ss *v1alpha1.Chunk) (*v1alpha1.Chunk, error)) {
 
 	status, err := fun(s.ss.DeepCopy())
 	if err != nil {
-		handleProcessError(s.ss, "", err)
+		handleProcessError(s.ss, "UpdateError", err)
 	} else {
 		s.ss = status.DeepCopy()
 	}

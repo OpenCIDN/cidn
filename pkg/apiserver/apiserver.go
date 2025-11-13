@@ -68,6 +68,21 @@ func addInternalTypes(scheme *runtime.Scheme) error {
 		&v1alpha1.MultipartList{},
 	)
 
+	scheme.AddFieldLabelConversionFunc(v1alpha1.SchemeGroupVersion.WithKind(v1alpha1.ChunkKind), func(label, value string) (string, string, error) {
+		switch label {
+		case "metadata.name":
+			return label, value, nil
+		case "metadata.namespace":
+			return label, value, nil
+		case "status.handlerName":
+			return label, value, nil
+		case "status.phase":
+			return label, value, nil
+		default:
+			return "", "", fmt.Errorf("unsupported label %q for Chunk", label)
+		}
+	})
+
 	v1alpha1.RegisterDefaults(Scheme)
 
 	return nil
