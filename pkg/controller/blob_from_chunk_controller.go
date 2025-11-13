@@ -70,6 +70,14 @@ func NewBlobFromChunkController(
 		concurrency:       5,
 	}
 
+	c.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			blob := newObj.(*v1alpha1.Blob)
+			key := blob.Name
+			c.workqueue.Add(key)
+		},
+	})
+
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			chunk, ok := obj.(*v1alpha1.Chunk)
@@ -252,7 +260,7 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 				blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
 			}
 		}
-
+		blob.Status.Phase = v1alpha1.BlobPhaseRunning
 	case v1alpha1.ChunkPhaseFailed:
 		blob.Status.Retry = chunk.Status.Retry
 		if chunk.Status.Retryable {
