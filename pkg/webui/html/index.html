@@ -534,6 +534,62 @@
             </span>`;
         }
 
+        const formatTimestamp = (timestamp) => {
+            if (!timestamp) return '';
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffSec = Math.floor(diffMs / 1000);
+            const diffMin = Math.floor(diffSec / 60);
+            const diffHr = Math.floor(diffMin / 60);
+            const diffDay = Math.floor(diffHr / 24);
+
+            if (diffSec < 60) {
+                return `${diffSec}s ago`;
+            } else if (diffMin < 60) {
+                return `${diffMin}m ago`;
+            } else if (diffHr < 24) {
+                return `${diffHr}h ago`;
+            } else if (diffDay < 7) {
+                return `${diffDay}d ago`;
+            } else {
+                return date.toLocaleString();
+            }
+        };
+
+        const formatDuration = (startTime, endTime) => {
+            if (!startTime || !endTime) return '';
+            const start = new Date(startTime);
+            const end = new Date(endTime);
+            const diffMs = end - start;
+            const diffSec = Math.floor(diffMs / 1000);
+            const diffMin = Math.floor(diffSec / 60);
+            const diffHr = Math.floor(diffMin / 60);
+            
+            if (diffSec < 60) {
+                return `${diffSec}s`;
+            } else if (diffMin < 60) {
+                const sec = diffSec % 60;
+                return `${diffMin}m ${sec}s`;
+            } else {
+                const min = diffMin % 60;
+                return `${diffHr}h ${min}m`;
+            }
+        };
+
+        const highlightTime = (creationTime, completionTime, phase) => {
+            if (!creationTime) return '';
+            
+            const created = `<span class="time-text" title="${creationTime}">Created: ${formatTimestamp(creationTime)}</span>`;
+            
+            if (completionTime && (phase === 'Succeeded' || phase === 'Failed')) {
+                const duration = formatDuration(creationTime, completionTime);
+                return `<span title="Creation time, Completion time, Duration">${created} | Completed: ${formatTimestamp(completionTime)} | Duration: ${duration}</span>`;
+            }
+            
+            return created;
+        };
+
         const progressData = {};
         const statusMap = {
             'Pending': 'pending',
@@ -673,7 +729,10 @@
                         ${highlightSpeed(speed, remainingTime)} 
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>
-                    <div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>`;
+                    <div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>
+                    <div class="progress-text">
+                        ${highlightTime(data.creationTime, data.completionTime, data.phase)}
+                    </div>`;
                 }
                 case 'Failed':
                     return `${header}
@@ -681,6 +740,9 @@
                     <div class="progress-text">
                         ${size ? highlightProgress(progress, size) : `<span></span>`}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                    </div>
+                    <div class="progress-text">
+                        ${highlightTime(data.creationTime, data.completionTime, data.phase)}
                     </div>`;
                 case 'Pending':
                 case 'Unknown':
@@ -688,12 +750,18 @@
                     <div class="progress-text">
                         ${size ? highlightProgress(progress, size) : `<span></span>`}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                    </div>
+                    <div class="progress-text">
+                        ${highlightTime(data.creationTime, data.completionTime, data.phase)}
                     </div>`;
                 case 'Succeeded':
                     return `${header}
                     <div class="progress-text">
                         ${size ? highlightBytes(size) : `<span></span>`}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                    </div>
+                    <div class="progress-text">
+                        ${highlightTime(data.creationTime, data.completionTime, data.phase)}
                     </div>`;
             }
         };
