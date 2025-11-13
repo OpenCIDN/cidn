@@ -355,7 +355,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	}
 
 	var updateEtag bool
-	var succeededCount, failedCount, pendingCount, runningCount, retryCount int64
+	var succeededCount, failedCount, pendingCount, runningCount int64
 	var progress int64
 	for _, chunk := range chunks {
 		switch chunk.Status.Phase {
@@ -380,7 +380,6 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 			runningCount++
 		}
 
-		retryCount += chunk.Status.Retry
 		progress += chunk.Status.Progress
 	}
 
@@ -407,8 +406,14 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	blob.Status.FailedChunks = failedCount
 
 	if failedCount != 0 {
-		if retryCount >= blob.Spec.MaximumRetry {
-			blob.Status.Retry = blob.Spec.MaximumRetry
+		for _, chunk := range chunks {
+			if chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
+				continue
+			}
+			if chunk.Status.Retryable {
+				continue
+			}
+			blob.Status.Retry = chunk.Status.Retry
 			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 			for _, chunk := range chunks {
 				if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
@@ -419,24 +424,6 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 			blob.Status.PendingChunks = 0
 			c.deleteChunksInNonFinalStates(ctx, blob)
 			return nil
-		} else {
-			for _, chunk := range chunks {
-				if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
-					if !chunk.Status.Retryable {
-						blob.Status.Retry = chunk.Status.Retry
-						utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
-						for _, chunk := range chunks {
-							if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
-								blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
-							}
-						}
-						blob.Status.RunningChunks = 0
-						blob.Status.PendingChunks = 0
-						c.deleteChunksInNonFinalStates(ctx, blob)
-						return nil
-					}
-				}
-			}
 		}
 		return nil
 	}
