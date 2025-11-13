@@ -252,6 +252,7 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 				blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
 			}
 		}
+
 	case v1alpha1.ChunkPhaseFailed:
 		blob.Status.Retry = chunk.Status.Retry
 		if chunk.Status.Retryable {
@@ -406,35 +407,33 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 					blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
 				}
 			}
+			blob.Status.RunningChunks = 0
+			blob.Status.PendingChunks = 0
 			c.deleteChunksInNonFinalStates(ctx, blob)
+			return nil
 		} else {
-			hasNonRetryableFailure := false
 			for _, chunk := range chunks {
 				if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
 					if !chunk.Status.Retryable {
-						hasNonRetryableFailure = true
-						break
+						blob.Status.Retry = chunk.Status.Retry
+						utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+						for _, chunk := range chunks {
+							if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
+								blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
+							}
+						}
+						blob.Status.RunningChunks = 0
+						blob.Status.PendingChunks = 0
+						c.deleteChunksInNonFinalStates(ctx, blob)
+						return nil
 					}
 				}
-			}
-			if hasNonRetryableFailure {
-				blob.Status.Retry = blob.Spec.MaximumRetry
-				utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
-				for _, chunk := range chunks {
-					if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
-						blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
-					}
-				}
-				c.deleteChunksInNonFinalStates(ctx, blob)
-			} else {
-				blob.Status.Phase = v1alpha1.BlobPhaseRunning
 			}
 		}
 		return nil
 	}
 
 	if blob.Spec.ChunksNumber != succeededCount {
-		blob.Status.Phase = v1alpha1.BlobPhaseRunning
 		return nil
 	}
 
@@ -452,6 +451,8 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				Type:    "SizeMismatch",
 				Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, blob.Status.Total),
 			})
+			blob.Status.RunningChunks = 0
+			blob.Status.PendingChunks = 0
 			c.deleteChunksInNonFinalStates(ctx, blob)
 			return nil
 		}
@@ -493,6 +494,8 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				Type:    "MultipartCommit",
 				Message: err.Error(),
 			})
+			blob.Status.RunningChunks = 0
+			blob.Status.PendingChunks = 0
 			c.deleteChunksInNonFinalStates(ctx, blob)
 			return nil
 		}
@@ -504,6 +507,8 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				Type:    "Sha256Verification",
 				Message: err.Error(),
 			})
+			blob.Status.RunningChunks = 0
+			blob.Status.PendingChunks = 0
 			c.deleteChunksInNonFinalStates(ctx, blob)
 		} else {
 			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseSucceeded)
