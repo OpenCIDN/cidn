@@ -383,13 +383,11 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		progress += chunk.Status.Progress
 	}
 
-	if updateEtag {
-		go func() {
-			_, err = c.client.TaskV1alpha1().Multiparts().Update(ctx, mp, metav1.UpdateOptions{})
-			if err != nil {
-				klog.Errorf("Failed to update multipart %s: %v", mp.Name, err)
-			}
-		}()
+	updateEtagFunc := func() {
+		_, err = c.client.TaskV1alpha1().Multiparts().Update(ctx, mp, metav1.UpdateOptions{})
+		if err != nil {
+			klog.Errorf("Failed to update multipart %s: %v", mp.Name, err)
+		}
 	}
 
 	for _, e := range mp.UploadEtags {
@@ -425,96 +423,122 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 			c.deleteChunksInNonFinalStates(ctx, blob)
 			return nil
 		}
+		blob.Status.Phase = v1alpha1.BlobPhaseRunning
+		if updateEtag {
+			go updateEtagFunc()
+		}
 		return nil
 	}
 
 	if blob.Spec.ChunksNumber != succeededCount {
+		blob.Status.Phase = v1alpha1.BlobPhaseRunning
+		if updateEtag {
+			go updateEtagFunc()
+		}
 		return nil
 	}
 
-	if len(mp.UploadIDs) != 0 &&
-		blob.Status.Phase == v1alpha1.BlobPhaseRunning &&
-		blob.Status.Progress == blob.Status.Total {
-
-		var totalSize int64
-		for _, etag := range mp.UploadEtags {
-			totalSize += etag.Size
-		}
-		if totalSize != blob.Status.Total {
-			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
-			blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
-				Type:    "SizeMismatch",
-				Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, blob.Status.Total),
-			})
-			blob.Status.RunningChunks = 0
-			blob.Status.PendingChunks = 0
-			c.deleteChunksInNonFinalStates(ctx, blob)
-			return nil
-		}
-
-		g, _ := errgroup.WithContext(ctx)
-
-		for i, dst := range blob.Spec.Destination {
-			uploadID := mp.UploadIDs[i]
-			if uploadID == "" {
-				continue
-			}
-			dst := dst
-			parts := make([]*s3.Part, 0, len(mp.UploadEtags))
-			for j, s := range mp.UploadEtags {
-				partNumber := int64(j + 1)
-				parts = append(parts, &s3.Part{
-					ETag:       &s.Etags[i],
-					PartNumber: &partNumber,
-					Size:       &s.Size,
-				})
-			}
-
-			s3 := c.s3[dst.Name]
-			if s3 == nil {
-				return fmt.Errorf("s3 client for destination %q not found", dst.Name)
-			}
-
-			mp := s3.GetMultipartWithUploadID(dst.Path, uploadID)
-			mp.SetParts(parts)
-
-			g.Go(func() error {
-				return mp.Commit(ctx)
-			})
-		}
-		err = g.Wait()
-		if err != nil {
-			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
-			blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
-				Type:    "MultipartCommit",
-				Message: err.Error(),
-			})
-			blob.Status.RunningChunks = 0
-			blob.Status.PendingChunks = 0
-			c.deleteChunksInNonFinalStates(ctx, blob)
-			return nil
-		}
-
-		err := c.verifySha256(ctx, blob)
-		if err != nil {
-			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
-			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
-				Type:    "Sha256Verification",
-				Message: err.Error(),
-			})
-			blob.Status.RunningChunks = 0
-			blob.Status.PendingChunks = 0
-			c.deleteChunksInNonFinalStates(ctx, blob)
-		} else {
-			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseSucceeded)
-
-			err = c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
-			if err != nil {
-				klog.Errorf("failed to delete multipart %s: %v", blob.Name, err)
-				return nil
-			}
-		}
+	if len(mp.UploadIDs) == 0 {
+		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+		blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
+			Type:    "MultipartIncomplete",
+			Message: "all chunks succeeded but multipart upload IDs are missing",
+		})
+		blob.Status.RunningChunks = 0
+		blob.Status.PendingChunks = 0
+		return nil
 	}
+
+	if blob.Status.Progress != blob.Status.Total {
+		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+		blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
+			Type:    "BlobSizeMismatch",
+			Message: fmt.Sprintf("total size of all chunks (%d) does not match expected total (%d)", blob.Status.Progress, blob.Status.Total),
+		})
+		blob.Status.RunningChunks = 0
+		blob.Status.PendingChunks = 0
+		return nil
+	}
+
+	var totalSize int64
+	for _, etag := range mp.UploadEtags {
+		totalSize += etag.Size
+	}
+	if totalSize != blob.Status.Total {
+		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+		blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
+			Type:    "UploadSizeMismatch",
+			Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, blob.Status.Total),
+		})
+		blob.Status.RunningChunks = 0
+		blob.Status.PendingChunks = 0
+		c.deleteChunksInNonFinalStates(ctx, blob)
+		return nil
+	}
+
+	g, _ := errgroup.WithContext(ctx)
+	for i, dst := range blob.Spec.Destination {
+		uploadID := mp.UploadIDs[i]
+		if uploadID == "" {
+			continue
+		}
+		dst := dst
+		parts := make([]*s3.Part, 0, len(mp.UploadEtags))
+		for j, s := range mp.UploadEtags {
+			partNumber := int64(j + 1)
+			parts = append(parts, &s3.Part{
+				ETag:       &s.Etags[i],
+				PartNumber: &partNumber,
+				Size:       &s.Size,
+			})
+		}
+
+		s3 := c.s3[dst.Name]
+		if s3 == nil {
+			return fmt.Errorf("s3 client for destination %q not found", dst.Name)
+		}
+
+		mp := s3.GetMultipartWithUploadID(dst.Path, uploadID)
+		mp.SetParts(parts)
+
+		g.Go(func() error {
+			return mp.Commit(ctx)
+		})
+	}
+	err = g.Wait()
+
+	if err != nil {
+		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+		blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
+			Type:    "MultipartCommit",
+			Message: err.Error(),
+		})
+		blob.Status.RunningChunks = 0
+		blob.Status.PendingChunks = 0
+		c.deleteChunksInNonFinalStates(ctx, blob)
+		return nil
+	}
+
+	err = c.verifySha256(ctx, blob)
+	if err != nil {
+		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+		blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
+			Type:    "Sha256Verification",
+			Message: err.Error(),
+		})
+		blob.Status.RunningChunks = 0
+		blob.Status.PendingChunks = 0
+		c.deleteChunksInNonFinalStates(ctx, blob)
+		return nil
+	}
+
+	utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseSucceeded)
+	err = c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
+	if err != nil {
+		klog.Errorf("failed to delete multipart %s: %v", blob.Name, err)
+		return nil
+	}
+
 	return nil
 }
 
