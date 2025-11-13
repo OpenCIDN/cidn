@@ -74,6 +74,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 	go chunkInformerInstance.RunWithContext(context.Background())
 
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		// Set headers for Server-Sent Events
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -93,6 +94,19 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 		defer ticker.Stop()
 
 		// Helper function to delete a group aggregate
+
+		addToUpdates := func(e Event) {
+			select {
+			case updates <- e:
+			case <-ctx.Done():
+			}
+		}
+		addToBufferUpdates := func(e Event) {
+			select {
+			case bufferUpdates <- e:
+			case <-ctx.Done():
+			}
+		}
 
 		createGroupEvent := func(group string, name string, e *entry) Event {
 			groupMutex.Lock()
@@ -142,6 +156,9 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 		resourceEventHandlerRegistration, err := blobInformerInstance.AddEventHandler(&cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
+				if ctx.Err() != nil {
+					return
+				}
 				blob, ok := obj.(*v1alpha1.Blob)
 				if !ok {
 					return
@@ -158,15 +175,18 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				e := blobToEntry(blob)
 				event := createEvent("ADD", blob.Name, e)
-				updates <- event
+				addToUpdates(event)
 
 				// Track group membership
 				if group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
 					groupEvent := createGroupEvent(group, blob.Name, e)
-					updates <- groupEvent
+					addToUpdates(groupEvent)
 				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
+				if ctx.Err() != nil {
+					return
+				}
 				oldBlob, ok := oldObj.(*v1alpha1.Blob)
 				if !ok {
 					return
@@ -194,9 +214,9 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				needBuffer := oldBlob.Status.Phase == newBlob.Status.Phase && newBlob.Status.Progress != newBlob.Status.Total
 				if needBuffer {
-					bufferUpdates <- event
+					addToBufferUpdates(event)
 				} else {
-					updates <- event
+					addToUpdates(event)
 				}
 
 				// Update group membership
@@ -212,14 +232,17 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				if newGroup != "" {
 					groupEvent := createGroupEvent(newGroup, newBlob.Name, e)
 					if needBuffer {
-						bufferUpdates <- groupEvent
+						addToBufferUpdates(groupEvent)
 					} else {
-						updates <- groupEvent
+						addToUpdates(groupEvent)
 					}
 
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
+				if ctx.Err() != nil {
+					return
+				}
 				blob, ok := obj.(*v1alpha1.Blob)
 				if !ok {
 					return
@@ -236,12 +259,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				e := blobToEntry(blob)
 				event := createEvent("DELETE", blob.Name, e)
-				bufferUpdates <- event
+				addToBufferUpdates(event)
 
 				// Remove from group
 				if group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
 					groupEvent := removeFromGroup(group, blob.Name)
-					bufferUpdates <- groupEvent
+					addToBufferUpdates(groupEvent)
 				}
 			},
 		})
@@ -254,6 +277,9 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 		// Add Chunk event handlers
 		chunkEventHandlerRegistration, err := chunkInformerInstance.AddEventHandler(&cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
+				if ctx.Err() != nil {
+					return
+				}
 				chunk, ok := obj.(*v1alpha1.Chunk)
 				if !ok {
 					return
@@ -270,15 +296,18 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				e := chunkToEntry(chunk)
 				event := createEvent("ADD", chunk.Name, e)
-				updates <- event
+				addToUpdates(event)
 
 				// Track group membership
 				if group := chunk.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
 					groupEvent := createGroupEvent(group, chunk.Name, e)
-					updates <- groupEvent
+					addToUpdates(groupEvent)
 				}
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
+				if ctx.Err() != nil {
+					return
+				}
 				oldChunk, ok := oldObj.(*v1alpha1.Chunk)
 				if !ok {
 					return
@@ -305,9 +334,9 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				event := createEvent("UPDATE", newChunk.Name, e)
 				needBuffer := oldChunk.Status.Phase == newChunk.Status.Phase && newChunk.Status.Progress != newChunk.Spec.Total
 				if needBuffer {
-					bufferUpdates <- event
+					addToBufferUpdates(event)
 				} else {
-					updates <- event
+					addToUpdates(event)
 				}
 
 				// Update group membership
@@ -318,9 +347,9 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				if oldGroup != "" && oldGroup != newGroup {
 					groupEvent := removeFromGroup(oldGroup, newChunk.Name)
 					if needBuffer {
-						bufferUpdates <- groupEvent
+						addToBufferUpdates(groupEvent)
 					} else {
-						updates <- groupEvent
+						addToUpdates(groupEvent)
 					}
 				}
 
@@ -328,13 +357,16 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 				if newGroup != "" {
 					groupEvent := createGroupEvent(newGroup, newChunk.Name, e)
 					if needBuffer {
-						bufferUpdates <- groupEvent
+						addToBufferUpdates(groupEvent)
 					} else {
-						updates <- groupEvent
+						addToUpdates(groupEvent)
 					}
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
+				if ctx.Err() != nil {
+					return
+				}
 				chunk, ok := obj.(*v1alpha1.Chunk)
 				if !ok {
 					return
@@ -351,12 +383,12 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 				e := chunkToEntry(chunk)
 				event := createEvent("DELETE", chunk.Name, e)
-				updates <- event
+				addToUpdates(event)
 
 				// Remove from group
 				if group := chunk.Annotations[v1alpha1.WebuiGroupAnnotation]; group != "" {
 					groupEvent := removeFromGroup(group, chunk.Name)
-					bufferUpdates <- groupEvent
+					addToBufferUpdates(groupEvent)
 				}
 			},
 		})
@@ -396,7 +428,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 					return
 				}
 				flusher.Flush()
-			case <-r.Context().Done():
+			case <-ctx.Done():
 				return // Client disconnected
 			}
 		}
