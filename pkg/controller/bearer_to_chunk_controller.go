@@ -38,13 +38,13 @@ import (
 )
 
 type BearerToChunkController struct {
-	handlerName           string
-	users                 map[string]*url.Userinfo
-	client                versioned.Interface
-	authorizationInformer informers.BearerInformer
-	chunkInformer         informers.ChunkInformer
-	workqueue             workqueue.TypedDelayingInterface[string]
-	concurrency           int
+	handlerName    string
+	users          map[string]*url.Userinfo
+	client         versioned.Interface
+	bearerInformer informers.BearerInformer
+	chunkInformer  informers.ChunkInformer
+	workqueue      workqueue.TypedDelayingInterface[string]
+	concurrency    int
 }
 
 func NewBearerToChunkController(
@@ -54,13 +54,13 @@ func NewBearerToChunkController(
 	users []utils.UserValue,
 ) *BearerToChunkController {
 	c := &BearerToChunkController{
-		handlerName:           handlerName,
-		authorizationInformer: sharedInformerFactory.Task().V1alpha1().Bearers(),
-		chunkInformer:         sharedInformerFactory.Task().V1alpha1().Chunks(),
-		client:                client,
-		workqueue:             workqueue.NewTypedDelayingQueue[string](),
-		users:                 map[string]*url.Userinfo{},
-		concurrency:           5,
+		handlerName:    handlerName,
+		bearerInformer: sharedInformerFactory.Task().V1alpha1().Bearers(),
+		chunkInformer:  sharedInformerFactory.Task().V1alpha1().Chunks(),
+		client:         client,
+		workqueue:      workqueue.NewTypedDelayingQueue[string](),
+		users:          map[string]*url.Userinfo{},
+		concurrency:    5,
 	}
 
 	for _, u := range users {
@@ -73,24 +73,24 @@ func NewBearerToChunkController(
 		}
 	}
 
-	c.authorizationInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+	c.bearerInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			authorization := obj.(*v1alpha1.Bearer)
-			key := authorization.Name
+			bearer := obj.(*v1alpha1.Bearer)
+			key := bearer.Name
 			c.workqueue.Add(key)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			authorization := newObj.(*v1alpha1.Bearer)
-			key := authorization.Name
+			bearer := newObj.(*v1alpha1.Bearer)
+			key := bearer.Name
 			c.workqueue.Add(key)
 		},
 		DeleteFunc: func(obj interface{}) {
-			authorization, ok := obj.(*v1alpha1.Bearer)
+			bearer, ok := obj.(*v1alpha1.Bearer)
 			if !ok {
 				return
 			}
 
-			c.cleanupBearer(authorization)
+			c.cleanupBearer(bearer)
 		},
 	})
 
@@ -109,14 +109,14 @@ func (c *BearerToChunkController) runWorker(ctx context.Context) {
 	}
 }
 
-func (c *BearerToChunkController) cleanupBearer(authorization *v1alpha1.Bearer) {
+func (c *BearerToChunkController) cleanupBearer(bearer *v1alpha1.Bearer) {
 	err := c.client.TaskV1alpha1().Chunks().DeleteCollection(context.Background(), metav1.DeleteOptions{}, metav1.ListOptions{
 		LabelSelector: labels.Set{
-			BearerUIDLabelKey: string(authorization.UID),
+			BearerUIDLabelKey: string(bearer.UID),
 		}.String(),
 	})
 	if err != nil {
-		klog.Errorf("failed to delete chunks for authorization %s: %v", authorization.Name, err)
+		klog.Errorf("failed to delete chunks for bearer %s: %v", bearer.Name, err)
 	}
 }
 
@@ -130,7 +130,7 @@ func (c *BearerToChunkController) processNextItem(ctx context.Context) bool {
 	err := c.chunkHandler(ctx, key)
 	if err != nil {
 		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error authorization chunking '%s': %v, requeuing", key, err)
+		klog.Errorf("error bearer chunking '%s': %v, requeuing", key, err)
 		return true
 	}
 
@@ -138,7 +138,7 @@ func (c *BearerToChunkController) processNextItem(ctx context.Context) bool {
 }
 
 func (c *BearerToChunkController) chunkHandler(ctx context.Context, name string) error {
-	authorization, err := c.authorizationInformer.Lister().Get(name)
+	bearer, err := c.bearerInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
@@ -146,26 +146,26 @@ func (c *BearerToChunkController) chunkHandler(ctx context.Context, name string)
 		return err
 	}
 
-	if authorization.Status.HandlerName != c.handlerName {
+	if bearer.Status.HandlerName != c.handlerName {
 		return nil
 	}
 
-	switch authorization.Status.Phase {
+	switch bearer.Status.Phase {
 	case v1alpha1.BearerPhaseRunning, v1alpha1.BearerPhaseUnknown:
-		err := c.toGetChunk(ctx, authorization)
+		err := c.toGetChunk(ctx, bearer)
 		if err != nil {
-			return fmt.Errorf("failed to create chunk for authorization %s: %v", authorization.Name, err)
+			return fmt.Errorf("failed to create chunk for bearer %s: %v", bearer.Name, err)
 		}
 
 	case v1alpha1.BearerPhaseSucceeded:
-		c.cleanupBearer(authorization)
+		c.cleanupBearer(bearer)
 	}
 
 	return nil
 }
 
-func buildBearerChunkName(authorizationName string) string {
-	return fmt.Sprintf("bearer:%s", authorizationName)
+func buildBearerChunkName(bearerName string) string {
+	return fmt.Sprintf("bearer:%s", bearerName)
 }
 
 func (c *BearerToChunkController) toGetChunk(ctx context.Context, bearer *v1alpha1.Bearer) error {
