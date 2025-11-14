@@ -44,6 +44,9 @@
             --color-time-s: #78909C;
             --color-time-m: #546E7A;
             --color-time-h: #37474F;
+
+            --color-group-border: #555;
+            --color-link: #666;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -86,6 +89,9 @@
                 --color-time-s: #90A4AE;
                 --color-time-m: #78909C;
                 --color-time-h: #607D8B;
+
+                --color-group-border: #aaa;
+                --color-link: #999;
             }
         }
 
@@ -339,19 +345,8 @@
         }
 
         .data-item-group {
-            border-left: 4px solid var(--color-status-progress);
+            border-left: 4px solid var(--color-group-border);
             font-weight: 600;
-        }
-
-        .group-badge {
-            display: inline-block;
-            padding: 0.125rem 0.5rem;
-            background: var(--color-status-progress);
-            color: white;
-            border-radius: 0.25rem;
-            font-size: 0.75em;
-            font-weight: 600;
-            margin-left: 0.5rem;
         }
 
         .tag-badge {
@@ -364,14 +359,9 @@
             margin-left: 0.25rem;
         }
 
-        .link-info {
-            font-size: 0.875em;
-            color: var(--color-text-secondary);
-            margin-top: 0.25rem;
-        }
 
         .link-info a {
-            color: var(--color-status-progress);
+            color: var(--color-link);
             text-decoration: none;
             margin: 0 0.25rem;
             white-space: nowrap;
@@ -437,20 +427,20 @@
     <div id="error" style="display: none;"></div>
     <div class="status-group">
         <div class="status-block">
-            <h2 class="status-title processing" onclick="toggleContainer('processing-container')">
+            <h2 class="status-title processing collapsed" onclick="toggleContainer('processing-container')">
                 <svg width="24" height="24">
                     <use xlink:href="#icon-running"></use>
                 </svg>
-                Processing <span class="status-item-count">[0]</span>
+                Processing <span class="status-item-count">[*]</span>
             </h2>
-            <div id="processing-container" class="status-container"></div>
+            <div id="processing-container" class="status-container" style="display: none;"></div>
         </div>
         <div class="status-block">
             <h2 class="status-title pending collapsed" onclick="toggleContainer('pending-container')">
                 <svg width="24" height="24">
                     <use xlink:href="#icon-pending"></use>
                 </svg>
-                Pending <span class="status-item-count">[0]</span>
+                Pending <span class="status-item-count">[*]</span>
             </h2>
             <div id="pending-container" class="status-container" style="display: none;"></div>
         </div>
@@ -459,7 +449,7 @@
                 <svg width="24" height="24">
                     <use xlink:href="#icon-failed"></use>
                 </svg>
-                Failed <span class="status-item-count">[0]</span>
+                Failed <span class="status-item-count">[*]</span>
             </h2>
             <div id="failed-container" class="status-container" style="display: none;"></div>
         </div>
@@ -468,7 +458,7 @@
                 <svg width="24" height="24">
                     <use xlink:href="#icon-succeeded"></use>
                 </svg>
-                Completed <span class="status-item-count">[0]</span>
+                Completed <span class="status-item-count">[*]</span>
             </h2>
             <div id="completed-container" class="status-container" style="display: none;"></div>
         </div>
@@ -496,7 +486,11 @@
             error ? `<span class="error-text">${error}</span>` : '';
 
         const highlightProgress = (progress, total) =>
-            total > 0 ? `<span title="Progress in bytes">${highlightBytes(progress)} / ${highlightBytes(total)}</span>` : `<span title="Progress in bytes">${highlightBytes(progress)}</span>`;
+            total > 0
+                ? `<span title="Progress in bytes">${highlightBytes(progress)} / ${highlightBytes(total)}</span>`
+                : progress > 0
+                    ? `<span title="Progress in bytes">${highlightBytes(progress)}</span>`
+                    : '<span></span>';
 
         const highlightSpeed = (speed, remainingTime) =>
             speed ? `<span title="Estimated remaining time, Download speed">
@@ -530,8 +524,11 @@
                 : icons.map(i => svgIcon(i.type).repeat(i.count)).join('');
 
             return `<span title="Chunks status: idle, pending, failed, running, succeeded / total">
-            ${iconHTML} <span>/ ${chunksNumber}</span>
-            </span>`;
+                ${iconHTML} 
+                ${chunksNumber > MAX_INDIVIDUAL_ICONS
+                    ? ` <span>/ ${chunksNumber}</span>`
+                    : ''}
+                </span>`;
         }
 
         const progressData = {};
@@ -671,29 +668,43 @@
                     <div class="progress-text">
                         ${highlightProgress(progress, total)}
                         ${highlightSpeed(speed, remainingTime)} 
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                        ${hasChunks
+                            ? highlightChunksInfo(data)
+                            : `<span></span>`}
                     </div>
-                ${total > 0 ? `<div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>` : ''}`;
+                        ${total > 0
+                            ? `<div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>`
+                            : ''}`;
                 }
                 case 'Failed':
                     return `${header}
                     ${highlightError(escapeErrors(errors))}
                     <div class="progress-text">
                         ${highlightProgress(progress, total)}
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                        ${hasChunks
+                            ? highlightChunksInfo(data)
+                            : `<span></span>`}
                     </div>`;
                 case 'Pending':
                 case 'Unknown':
                     return `${header}
                     <div class="progress-text">
                         ${highlightProgress(progress, total)}
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                         ${hasChunks
+                            ? highlightChunksInfo(data)
+                            : `<span></span>`}
                     </div>`;
                 case 'Succeeded':
                     return `${header}
                     <div class="progress-text">
-                        ${total ? highlightBytes(total) : highlightBytes(progress)}
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                        ${total > 0
+                            ? highlightBytes(total)
+                            : progress > 0
+                                ? highlightBytes(progress)
+                                : '<span></span>'}
+                        ${hasChunks
+                            ? highlightChunksInfo(data)
+                            : `<span></span>`}
                     </div>`;
             }
         };
