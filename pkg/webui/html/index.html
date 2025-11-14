@@ -44,6 +44,10 @@
             --color-time-s: #78909C;
             --color-time-m: #546E7A;
             --color-time-h: #37474F;
+
+            --color-group-border: #555;
+            --color-link: #666;
+            --color-data-item-highlighted: #000;
         }
 
         @media (prefers-color-scheme: dark) {
@@ -86,6 +90,10 @@
                 --color-time-s: #90A4AE;
                 --color-time-m: #78909C;
                 --color-time-h: #607D8B;
+
+                --color-group-border: #aaa;
+                --color-link: #999;
+                --color-data-item-highlighted: #fff;
             }
         }
 
@@ -334,24 +342,13 @@
         }
 
         .data-item-highlighted {
-            outline: 2px solid var(--color-text-secondary);
+            outline: 2px solid var(--color-data-item-highlighted);
             outline-offset: 2px;
         }
 
         .data-item-group {
-            border-left: 4px solid var(--color-status-progress);
+            border-left: 4px solid var(--color-group-border);
             font-weight: 600;
-        }
-
-        .group-badge {
-            display: inline-block;
-            padding: 0.125rem 0.5rem;
-            background: var(--color-status-progress);
-            color: white;
-            border-radius: 0.25rem;
-            font-size: 0.75em;
-            font-weight: 600;
-            margin-left: 0.5rem;
         }
 
         .tag-badge {
@@ -364,14 +361,9 @@
             margin-left: 0.25rem;
         }
 
-        .link-info {
-            font-size: 0.875em;
-            color: var(--color-text-secondary);
-            margin-top: 0.25rem;
-        }
 
         .link-info a {
-            color: var(--color-status-progress);
+            color: var(--color-link);
             text-decoration: none;
             margin: 0 0.25rem;
             white-space: nowrap;
@@ -437,20 +429,20 @@
     <div id="error" style="display: none;"></div>
     <div class="status-group">
         <div class="status-block">
-            <h2 class="status-title processing" onclick="toggleContainer('processing-container')">
+            <h2 class="status-title processing collapsed" onclick="toggleContainer('processing-container')">
                 <svg width="24" height="24">
                     <use xlink:href="#icon-running"></use>
                 </svg>
-                Processing <span class="status-item-count">[0]</span>
+                Processing <span class="status-item-count">[*]</span>
             </h2>
-            <div id="processing-container" class="status-container"></div>
+            <div id="processing-container" class="status-container" style="display: none;"></div>
         </div>
         <div class="status-block">
             <h2 class="status-title pending collapsed" onclick="toggleContainer('pending-container')">
                 <svg width="24" height="24">
                     <use xlink:href="#icon-pending"></use>
                 </svg>
-                Pending <span class="status-item-count">[0]</span>
+                Pending <span class="status-item-count">[*]</span>
             </h2>
             <div id="pending-container" class="status-container" style="display: none;"></div>
         </div>
@@ -459,7 +451,7 @@
                 <svg width="24" height="24">
                     <use xlink:href="#icon-failed"></use>
                 </svg>
-                Failed <span class="status-item-count">[0]</span>
+                Failed <span class="status-item-count">[*]</span>
             </h2>
             <div id="failed-container" class="status-container" style="display: none;"></div>
         </div>
@@ -468,7 +460,7 @@
                 <svg width="24" height="24">
                     <use xlink:href="#icon-succeeded"></use>
                 </svg>
-                Completed <span class="status-item-count">[0]</span>
+                Completed <span class="status-item-count">[*]</span>
             </h2>
             <div id="completed-container" class="status-container" style="display: none;"></div>
         </div>
@@ -496,7 +488,11 @@
             error ? `<span class="error-text">${error}</span>` : '';
 
         const highlightProgress = (progress, total) =>
-            total > 0 ? `<span title="Progress in bytes">${highlightBytes(progress)} / ${highlightBytes(total)}</span>` : `<span title="Progress in bytes">${highlightBytes(progress)}</span>`;
+            total > 0
+                ? `<span title="Progress in bytes">${highlightBytes(progress)} / ${highlightBytes(total)}</span>`
+                : progress > 0
+                    ? `<span title="Progress in bytes">${highlightBytes(progress)}</span>`
+                    : '<span></span>';
 
         const highlightSpeed = (speed, remainingTime) =>
             speed ? `<span title="Estimated remaining time, Download speed">
@@ -530,8 +526,11 @@
                 : icons.map(i => svgIcon(i.type).repeat(i.count)).join('');
 
             return `<span title="Chunks status: idle, pending, failed, running, succeeded / total">
-            ${iconHTML} <span>/ ${chunksNumber}</span>
-            </span>`;
+                ${iconHTML} 
+                ${chunksNumber > MAX_INDIVIDUAL_ICONS
+                    ? ` <span>/ ${chunksNumber}</span>`
+                    : ''}
+                </span>`;
         }
 
         const progressData = {};
@@ -545,6 +544,7 @@
 
         const clearDataItem = (event) => {
             document.getElementById(event.lastEventId)?.remove();
+            scrollToAnchor();
         };
 
         const getTagColor = (tag) => {
@@ -671,29 +671,43 @@
                     <div class="progress-text">
                         ${highlightProgress(progress, total)}
                         ${highlightSpeed(speed, remainingTime)} 
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                        ${hasChunks
+                            ? highlightChunksInfo(data)
+                            : `<span></span>`}
                     </div>
-                ${total > 0 ? `<div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>` : ''}`;
+                        ${total > 0
+                            ? `<div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>`
+                            : ''}`;
                 }
                 case 'Failed':
                     return `${header}
                     ${highlightError(escapeErrors(errors))}
                     <div class="progress-text">
                         ${highlightProgress(progress, total)}
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                        ${hasChunks
+                            ? highlightChunksInfo(data)
+                            : `<span></span>`}
                     </div>`;
                 case 'Pending':
                 case 'Unknown':
                     return `${header}
                     <div class="progress-text">
                         ${highlightProgress(progress, total)}
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                         ${hasChunks
+                            ? highlightChunksInfo(data)
+                            : `<span></span>`}
                     </div>`;
                 case 'Succeeded':
                     return `${header}
                     <div class="progress-text">
-                        ${total ? highlightBytes(total) : highlightBytes(progress)}
-                        ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
+                        ${total > 0
+                            ? highlightBytes(total)
+                            : progress > 0
+                                ? highlightBytes(progress)
+                                : '<span></span>'}
+                        ${hasChunks
+                            ? highlightChunksInfo(data)
+                            : `<span></span>`}
                     </div>`;
             }
         };
@@ -721,19 +735,14 @@
             title.classList.toggle('collapsed');
         };
 
-        const checkAndExpandTargetContainer = () => {
+        const scrollToAnchor = () => {
             const hash = window.location.hash;
-            if (!hash) return;
-
-            document.querySelectorAll('.data-item-highlighted').forEach(el => {
-                el.classList.remove('data-item-highlighted');
-            });
+            if (!hash) {
+                return;
+            }
 
             const targetElement = document.getElementById(hash.substring(1));
             if (!targetElement) return;
-
-
-            targetElement.classList.add('data-item-highlighted');
 
             const container = targetElement.closest('.status-container');
             if (!container) return;
@@ -742,14 +751,90 @@
                 container.style.display = 'block';
                 const title = container.previousElementSibling;
                 title.classList.remove('collapsed');
+
+                Object.values(containers).forEach(otherContainer => {
+                    if (otherContainer.id !== container.id) {
+                        otherContainer.style.display = 'none';
+                        const otherTitle = otherContainer.previousElementSibling;
+                        if (otherTitle) {
+                            otherTitle.classList.add('collapsed');
+                        }
+                    }
+                });
             }
 
-            setTimeout(() => {
-                targetElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }, 1000);
+            targetElement.classList.add('data-item-highlighted');
+
+            document.querySelectorAll('.data-item-highlighted').forEach(el => {
+                if (el === targetElement) {
+                    return;
+                }
+                el.classList.remove('data-item-highlighted');
+            });
+
+
+            const rect = targetElement.getBoundingClientRect();
+            if (rect.top >= 0 && rect.bottom <= window.innerHeight) {
+                // No scrolling needed
+            } else if (rect.top >= -window.innerHeight * 2 && rect.bottom <= window.innerHeight * 2) {
+                targetElement.scrollIntoView({
+                    behavior: "smooth",
+                    block: "nearest",
+                });
+            } else {
+                const existingButton = document.getElementById('remove-anchor-button');
+                if (existingButton) {
+                    existingButton.animate([
+                        { transform: 'translateY(10px)' },
+                        { transform: 'translateY(0)' },
+                        { transform: 'translateX(-10px)' },
+                        { transform: 'translateX(0)' }
+                    ], {
+                        duration: 100,
+                        iterations: 5,
+                    });
+                }
+
+                targetElement.scrollIntoView({
+                    behavior: "instant",
+                    block: "start",
+                });
+            }
+
+
+            const existingButton = document.getElementById('remove-anchor-button');
+            if (existingButton) {
+                if (existingButton.dataset.anchorTarget === hash) {
+                    return
+                }
+                existingButton.remove();
+            }
+
+            const button = document.createElement('button');
+            button.id = 'remove-anchor-button';
+            button.dataset.anchorTarget = hash;
+            button.textContent = '#';
+            button.style.position = 'fixed';
+            button.style.top = '50px';
+            button.style.right = '50px';
+            button.style.zIndex = '1000';
+            button.style.padding = '10px';
+            button.style.backgroundColor = '#f44336';
+            button.style.color = 'white';
+            button.style.border = 'none';
+            button.style.borderRadius = '5px';
+            button.style.cursor = 'pointer';
+
+            button.addEventListener('click', () => {
+                history.replaceState(null, null, ' ');
+                targetElement.classList.remove('data-item-highlighted');
+                button.remove();
+            });
+
+            document.body.appendChild(button);
         };
 
-        window.addEventListener('hashchange', checkAndExpandTargetContainer);
+        window.addEventListener('hashchange', scrollToAnchor);
 
         const showError = message => {
             const errorDiv = document.getElementById('error');
@@ -802,10 +887,8 @@
                 showError(`Error parsing event data: ${e.message}`);
             }
 
-            const hash = window.location.hash;
-            if (hash && event.lastEventId === hash.substring(1)) {
-                checkAndExpandTargetContainer();
-            }
+
+            scrollToAnchor();
         };
 
         const startStream = async () => {

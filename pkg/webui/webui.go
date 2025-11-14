@@ -465,7 +465,6 @@ type entry struct {
 	Tags    []string          `json:"tags,omitempty"`
 	Members []entryMemberInfo `json:"members,omitempty"` // For group aggregates: list of member info
 
-	Priority     int64 `json:"priority,omitempty"`
 	Total        int64 `json:"total"`
 	ChunksNumber int64 `json:"chunksNumber"`
 
@@ -518,7 +517,6 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 		e.Name = blob.Name
 	}
 
-	e.Priority = blob.Spec.Priority
 	e.Progress = blob.Status.Progress
 	e.ChunksNumber = blob.Spec.ChunksNumber
 	e.Phase = string(blob.Status.Phase)
@@ -574,7 +572,6 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 		e.Name = chunk.Name
 	}
 
-	e.Priority = chunk.Spec.Priority
 	e.Progress = chunk.Status.Progress
 	if chunk.Spec.Total > 0 {
 		e.Total = chunk.Spec.Total
@@ -600,7 +597,6 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 		Members: make([]entryMemberInfo, 0, len(entries)),
 	}
 
-	var totalSize int64
 	var totalProgress int64
 	var totalChunks int64
 	var pendingChunks int64
@@ -608,13 +604,11 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 	var succeededChunks int64
 	var failedChunks int64
 	var idleChunks int64
-	var maxPriority int64
 	var hasFailed bool
 	var hasRunning bool
 	var hasPending bool
 
 	for uid, e := range entries {
-		// Add member info to the list
 		aggregate.Members = append(aggregate.Members, entryMemberInfo{
 			ID:    uid,
 			Name:  e.Name,
@@ -630,17 +624,10 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 			hasPending = true
 		}
 
-		if e.Priority > maxPriority {
-			maxPriority = e.Priority
-		}
-
 		if e.groupIgnoreSize {
 			continue
 		}
 
-		if e.Total > 0 {
-			totalSize += e.Total
-		}
 		totalProgress += e.Progress
 		totalChunks += e.ChunksNumber
 		pendingChunks += e.PendingChunks
@@ -648,21 +635,18 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 		succeededChunks += e.SucceededChunks
 		failedChunks += e.FailedChunks
 		idleChunks += e.ChunksNumber - (e.PendingChunks + e.RunningChunks + e.SucceededChunks + e.FailedChunks)
-
 	}
 
 	sort.Slice(aggregate.Members, func(i, j int) bool {
 		return aggregate.Members[i].Name < aggregate.Members[j].Name
 	})
 
-	aggregate.Total = totalSize
 	aggregate.Progress = totalProgress
 	aggregate.ChunksNumber = totalChunks
 	aggregate.PendingChunks = pendingChunks
 	aggregate.RunningChunks = runningChunks
 	aggregate.SucceededChunks = succeededChunks
 	aggregate.FailedChunks = failedChunks
-	aggregate.Priority = maxPriority
 
 	completed := pendingChunks == 0 && runningChunks == 0 && idleChunks == 0 && !hasRunning && !hasPending
 
