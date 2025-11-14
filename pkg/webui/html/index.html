@@ -606,7 +606,7 @@
 
         const generateItemContent = (data, elementId) => {
             const name = data.name;
-            const size = data.total || 0;
+            const total = data.total || 0;
             const progress = data.progress || 0;
             const errors = data.errors || [];
             const hasChunks = data.chunksNumber && (data.pendingChunks || data.runningChunks || data.succeededChunks || data.failedChunks);
@@ -651,8 +651,8 @@
                         if (timeDiff > 0 && progressDiff > 0) {
                             const currentSpeed = progressDiff / timeDiff;
                             speed = prev.speed ? (currentSpeed * 0.7 + prev.speed * 0.3) : currentSpeed;
-                            if (size > 0) {
-                                remainingTime = (size - progress) / speed;
+                            if (total > 0) {
+                                remainingTime = (total - progress) / speed;
                                 if (prev.remainingTime) {
                                     remainingTime = (remainingTime * 0.7 + prev.remainingTime * 0.3);
                                 }
@@ -662,37 +662,37 @@
                     }
                     progressData[name] = { progress, remainingTime, time: now, speed };
 
-                    let progressPercent = size > 0 ? (progress / size * 100).toFixed(0) : 0;
-                    if (progressPercent > 99 && size != progress) {
+                    let progressPercent = total > 0 ? (progress / total * 100).toFixed(0) : 0;
+                    if (progressPercent > 99 && total != progress) {
                         progressPercent = 99;
                     }
 
                     return `${header}
                     <div class="progress-text">
-                        ${size ? highlightProgress(progress, size) : `<span></span>`}
+                        ${highlightProgress(progress, total)}
                         ${highlightSpeed(speed, remainingTime)} 
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>
-                    <div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>`;
+                ${total > 0 ? `<div class="progress-container"><div class="progress-bar" style="width: ${progressPercent}%"></div></div>` : ''}`;
                 }
                 case 'Failed':
                     return `${header}
                     ${highlightError(escapeErrors(errors))}
                     <div class="progress-text">
-                        ${size ? highlightProgress(progress, size) : `<span></span>`}
+                        ${highlightProgress(progress, total)}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>`;
                 case 'Pending':
                 case 'Unknown':
                     return `${header}
                     <div class="progress-text">
-                        ${size ? highlightProgress(progress, size) : `<span></span>`}
+                        ${highlightProgress(progress, total)}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>`;
                 case 'Succeeded':
                     return `${header}
                     <div class="progress-text">
-                        ${size ? highlightBytes(size) : `<span></span>`}
+                        ${total ? highlightBytes(total) : highlightBytes(progress)}
                         ${hasChunks ? highlightChunksInfo(data) : `<span></span>`}
                     </div>`;
             }

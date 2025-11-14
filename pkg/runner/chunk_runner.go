@@ -510,11 +510,10 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	var gsr *readCount
 	var gdrs []*swmrCount
+	ctx := context.Background()
 
-	stopProgress := r.startProgressUpdater(context.Background(), s, &gsr, &gdrs)
+	stopProgress := r.startProgressUpdater(ctx, s, &gsr, &gdrs)
 	defer stopProgress()
-
-	g, ctx := errgroup.WithContext(context.Background())
 
 	body, contentLength := r.sourceRequest(ctx, chunk, s)
 	if body == nil {
@@ -565,6 +564,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	swmr := ioswmr.NewSWMR(f)
 
+	g, _ := errgroup.WithContext(ctx)
 	sr := newReadCount(ctx, body)
 	g.Go(func() error {
 		_, err := io.Copy(swmr, sr)
@@ -598,7 +598,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 			s.handleProcessError("ReadSourceError", err)
 			return
 		}
-
+		g, _ = errgroup.WithContext(ctx)
 		contentLength = sr.Count()
 	}
 

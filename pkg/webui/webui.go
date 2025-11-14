@@ -519,7 +519,6 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 	}
 
 	e.Priority = blob.Spec.Priority
-	e.Total = blob.Status.Total
 	e.Progress = blob.Status.Progress
 	e.ChunksNumber = blob.Spec.ChunksNumber
 	e.Phase = string(blob.Status.Phase)
@@ -528,8 +527,8 @@ func blobToEntry(blob *v1alpha1.Blob) *entry {
 	e.SucceededChunks = blob.Status.SucceededChunks
 	e.FailedChunks = blob.Status.FailedChunks
 
-	if e.Total <= 0 {
-		e.Total = e.Progress
+	if blob.Status.Total > 0 {
+		e.Total = blob.Status.Total
 	}
 
 	if e.Progress == 0 &&
@@ -576,10 +575,9 @@ func chunkToEntry(chunk *v1alpha1.Chunk) *entry {
 	}
 
 	e.Priority = chunk.Spec.Priority
-	e.Total = chunk.Spec.Total
 	e.Progress = chunk.Status.Progress
-	if e.Total <= 0 {
-		e.Total = e.Progress
+	if chunk.Spec.Total > 0 {
+		e.Total = chunk.Spec.Total
 	}
 	if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed && chunk.Status.Retryable {
 		e.Phase = string(v1alpha1.ChunkPhaseRunning)
@@ -640,7 +638,9 @@ func aggregateEntries(groupName string, entries map[string]*entry) *entry {
 			continue
 		}
 
-		totalSize += e.Total
+		if e.Total > 0 {
+			totalSize += e.Total
+		}
 		totalProgress += e.Progress
 		totalChunks += e.ChunksNumber
 		pendingChunks += e.PendingChunks
