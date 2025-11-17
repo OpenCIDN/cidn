@@ -52,6 +52,21 @@ var (
 	Codecs = serializer.NewCodecFactory(Scheme)
 )
 
+func fieldLabelConversionFunc(label, value string) (string, string, error) {
+	switch label {
+	case "metadata.name":
+		return label, value, nil
+	case "metadata.namespace":
+		return label, value, nil
+	case "status.handlerName":
+		return label, value, nil
+	case "status.phase":
+		return label, value, nil
+	default:
+		return "", "", fmt.Errorf("unsupported field: %s", label)
+	}
+}
+
 // Adds the list of internal types to Scheme.
 func addInternalTypes(scheme *runtime.Scheme) error {
 	// SchemeGroupVersion is group version used to register these objects
@@ -68,20 +83,9 @@ func addInternalTypes(scheme *runtime.Scheme) error {
 		&v1alpha1.MultipartList{},
 	)
 
-	scheme.AddFieldLabelConversionFunc(v1alpha1.SchemeGroupVersion.WithKind(v1alpha1.ChunkKind), func(label, value string) (string, string, error) {
-		switch label {
-		case "metadata.name":
-			return label, value, nil
-		case "metadata.namespace":
-			return label, value, nil
-		case "status.handlerName":
-			return label, value, nil
-		case "status.phase":
-			return label, value, nil
-		default:
-			return "", "", fmt.Errorf("unsupported label %q for Chunk", label)
-		}
-	})
+	scheme.AddFieldLabelConversionFunc(v1alpha1.SchemeGroupVersion.WithKind(v1alpha1.ChunkKind), fieldLabelConversionFunc)
+	scheme.AddFieldLabelConversionFunc(v1alpha1.SchemeGroupVersion.WithKind(v1alpha1.BlobKind), fieldLabelConversionFunc)
+	scheme.AddFieldLabelConversionFunc(v1alpha1.SchemeGroupVersion.WithKind(v1alpha1.BearerKind), fieldLabelConversionFunc)
 
 	v1alpha1.RegisterDefaults(Scheme)
 

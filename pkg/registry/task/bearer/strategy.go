@@ -60,7 +60,10 @@ func MatchBearer(label labels.Selector, field fields.Selector) storage.Selection
 
 // SelectableFields returns a field set that represents the object.
 func SelectableFields(obj *v1alpha1.Bearer) fields.Set {
-	return generic.ObjectMetaFieldsSet(&obj.ObjectMeta, false)
+	set := generic.ObjectMetaFieldsSet(&obj.ObjectMeta, false)
+	set["status.handlerName"] = obj.Status.HandlerName
+	set["status.phase"] = string(obj.Status.Phase)
+	return set
 }
 
 type bearerStrategy struct {
