@@ -65,7 +65,7 @@ type ChunkRunner struct {
 	httpClient     *http.Client
 	signal         chan struct{}
 	updateDuration time.Duration
-	concurrency    int
+	concurrencySem chan struct{}
 }
 
 // NewChunkRunner creates a new Runner instance
@@ -87,7 +87,7 @@ func NewChunkRunner(
 		httpClient:     http.DefaultClient,
 		signal:         make(chan struct{}, 1),
 		updateDuration: updateDuration,
-		concurrency:    concurrency,
+		concurrencySem: make(chan struct{}, concurrency),
 	}
 
 	r.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -176,6 +176,17 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	if ctx.Err() != nil {
 		return false
 	}
+
+	if len(r.concurrencySem) >= cap(r.concurrencySem) {
+		klog.Infof("Maximum concurrency reached, waiting...")
+		select {
+		case <-time.After(1 * time.Second):
+		case <-ctx.Done():
+			return false
+		}
+		return true
+	}
+
 	chunks, err := r.getPendingList()
 	if err != nil {
 		klog.Errorf("failed to list pending chunks: %v", err)
@@ -188,17 +199,12 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 		return true
 	}
 
-	wg := sync.WaitGroup{}
-
 	err = r.handlePending(context.Background(), chunks, func(c *v1alpha1.Chunk) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			continues := make(chan struct{})
-			go r.process(continues, c.DeepCopy())
-			continues <- struct{}{}
-			close(continues)
-		}()
+
+		continues := make(chan struct{})
+		go r.process(continues, c.DeepCopy())
+		continues <- struct{}{}
+		close(continues)
 
 	})
 	if err != nil {
@@ -216,8 +222,6 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 		}
 		return true
 	}
-
-	wg.Wait()
 
 	return true
 }
@@ -795,6 +799,10 @@ func updateSha256(sha256 string, sha256Partial []byte, reader io.Reader) (string
 func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chunk, cb func(*v1alpha1.Chunk)) error {
 	size := 0
 	for _, chunk := range chunks {
+		if len(r.concurrencySem) >= cap(r.concurrencySem) {
+			return nil
+		}
+
 		if chunk.Spec.BearerName != "" {
 			bearer, err := r.bearerInformer.Lister().Get(chunk.Spec.BearerName)
 			if err == nil {
@@ -858,12 +866,15 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 			continue
 		}
 
-		cb(chunk)
-		size++
+		r.concurrencySem <- struct{}{}
+		go func() {
+			defer func() {
+				<-r.concurrencySem
+			}()
+			cb(chunk)
+		}()
 
-		if size >= r.concurrency {
-			break
-		}
+		size++
 	}
 
 	if size == 0 {
