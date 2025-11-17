@@ -434,6 +434,11 @@ func (in *ChunkSpec) DeepCopyInto(out *ChunkSpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.SourceResponseHeadersToDestination != nil {
+		in, out := &in.SourceResponseHeadersToDestination, &out.SourceResponseHeadersToDestination
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 

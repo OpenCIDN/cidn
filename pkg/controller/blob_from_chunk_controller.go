@@ -260,6 +260,10 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 				blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
 			}
 		}
+		// Extract ContentType from source response headers
+		if contentType := chunk.Status.SourceResponse.Headers["content-type"]; contentType != "" {
+			blob.Status.ContentType = contentType
+		}
 		blob.Status.Phase = v1alpha1.BlobPhaseRunning
 	case v1alpha1.ChunkPhaseFailed:
 		blob.Status.Retry = chunk.Status.Retry

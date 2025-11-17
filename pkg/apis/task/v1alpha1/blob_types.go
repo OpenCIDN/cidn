@@ -75,6 +75,10 @@ type BlobStatus struct {
 	// AcceptRanges represents the accept-ranges header of the response.
 	AcceptRanges bool `json:"acceptRanges,omitempty"`
 
+	// ContentType is the content type of the blob from the source response.
+	// +optional
+	ContentType string `json:"contentType,omitempty"`
+
 	// Progress is the progress of the blob.
 	Progress int64 `json:"progress,omitempty"`
 

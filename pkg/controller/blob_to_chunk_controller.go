@@ -369,6 +369,11 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 		},
 	}
 
+	// Set headers to forward from source to destination if ContentType is known
+	if blob.Status.ContentType != "" {
+		chunk.Spec.SourceResponseHeadersToDestination = []string{"Content-Type"}
+	}
+
 	for _, dst := range blob.Spec.Destination {
 		s3 := c.s3[dst.Name]
 		if s3 == nil {
@@ -506,6 +511,11 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 				"Content-Range": fmt.Sprintf("bytes %d-%d/%d", start, end-1, blob.Status.Total),
 			},
 		},
+	}
+
+	// Set headers to forward from source to destination if ContentType is known
+	if blob.Status.ContentType != "" {
+		chunk.Spec.SourceResponseHeadersToDestination = []string{"Content-Type"}
 	}
 
 	for j, dst := range blob.Spec.Destination {
