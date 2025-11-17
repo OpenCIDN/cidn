@@ -679,6 +679,13 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 							Format:      "",
 						},
 					},
+					"contentType": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ContentType is the content type of the blob from the source response.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 					"progress": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Progress is the progress of the blob.",
@@ -1004,6 +1011,21 @@ func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) commo
 									SchemaProps: spec.SchemaProps{
 										Default: map[string]interface{}{},
 										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTP"),
+									},
+								},
+							},
+						},
+					},
+					"sourceResponseHeadersToDestination": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SourceResponseHeadersToDestination specifies which headers from the source response should be forwarded to destination requests (e.g., [\"Content-Type\", \"Content-Encoding\"]).",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
 									},
 								},
 							},
