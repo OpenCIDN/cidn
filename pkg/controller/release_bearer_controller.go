@@ -156,7 +156,6 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 
 		newBearer := bearer.DeepCopy()
 		newBearer.Status.Phase = v1alpha1.BearerPhaseUnknown
-		klog.Infof("Transitioning bearer %s from Running to Unknown phase", name)
 
 		_, err = c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, newBearer, metav1.UpdateOptions{})
 		if err != nil {
@@ -169,7 +168,6 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return dur - sub, nil
 		}
 
-		klog.Infof("Deleting unknown bearer %s after 30 seconds", name)
 		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
@@ -185,7 +183,6 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return ttl - sub, nil
 		}
 
-		klog.Infof("Deleting failed bearer %s after %v", name, ttl)
 		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
@@ -198,7 +195,6 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 
 			expirationTime := issuedAt.Add(expires)
 			if !expirationTime.After(time.Now()) {
-				klog.Infof("Deleting succeeded bearer %s after token expiration", name)
 				err = c.client.TaskV1alpha1().Bearers().Delete(ctx, bearer.Name, metav1.DeleteOptions{})
 				if err != nil && !apierrors.IsNotFound(err) {
 					return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)
@@ -218,7 +214,6 @@ func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string)
 			return ttl - sub, nil
 		}
 
-		klog.Infof("Deleting succeeded bearer %s after %v", name, ttl)
 		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return 10 * time.Second, fmt.Errorf("failed to delete bearer %s: %v", name, err)

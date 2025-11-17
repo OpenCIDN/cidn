@@ -156,7 +156,6 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 
 		newChunk := chunk.DeepCopy()
 		newChunk.Status.Phase = v1alpha1.ChunkPhaseUnknown
-		klog.Infof("Transitioning chunk %s from Running to Unknown phase", name)
 
 		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
 		if err != nil {
@@ -172,7 +171,6 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 		newChunk := chunk.DeepCopy()
 		newChunk.Status.Phase = v1alpha1.ChunkPhasePending
 		newChunk.Status.HandlerName = ""
-		klog.Infof("Transitioning chunk %s from Unknown to Pending phase and clearing handler", name)
 
 		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
 		if err != nil {
@@ -192,7 +190,6 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			newChunk.Status.Retryable = false
 			newChunk.Status.Retry++
 			newChunk.Status.HandlerName = ""
-			klog.Infof("Transitioning chunk %s from Failed to Pending phase and clearing handler", name)
 
 			_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
 			if err != nil {
@@ -217,7 +214,6 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 				return ttl - timeSinceCompletion, nil
 			}
 
-			klog.Infof("Deleting failed chunk %s after %v", name, ttl)
 			err = c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
 			if err != nil && !apierrors.IsNotFound(err) {
 				return 10 * time.Second, fmt.Errorf("failed to delete chunk %s: %v", name, err)
@@ -242,7 +238,6 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			return ttl - timeSinceCompletion, nil
 		}
 
-		klog.Infof("Deleting succeeded chunk %s after %v", name, ttl)
 		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return 10 * time.Second, fmt.Errorf("failed to delete chunk %s: %v", name, err)

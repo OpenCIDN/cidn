@@ -156,7 +156,6 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 
 		newBlob := blob.DeepCopy()
 		newBlob.Status.Phase = v1alpha1.BlobPhaseUnknown
-		klog.Infof("Transitioning blob %s from Running to Unknown phase", name)
 
 		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, newBlob, metav1.UpdateOptions{})
 		if err != nil {
@@ -172,7 +171,6 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 		newBlob := blob.DeepCopy()
 		newBlob.Status.Phase = v1alpha1.BlobPhasePending
 		newBlob.Status.HandlerName = ""
-		klog.Infof("Transitioning blob %s from Unknown to Pending phase and clearing handler", name)
 
 		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, newBlob, metav1.UpdateOptions{})
 		if err != nil {
@@ -196,7 +194,6 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 			return ttl - timeSinceCompletion, nil
 		}
 
-		klog.Infof("Deleting failed blob %s after %v", name, ttl)
 		err = c.client.TaskV1alpha1().Blobs().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
@@ -219,7 +216,6 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 			return ttl - timeSinceCompletion, nil
 		}
 
-		klog.Infof("Deleting succeeded blob %s after %v", name, ttl)
 		err = c.client.TaskV1alpha1().Blobs().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
