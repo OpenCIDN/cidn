@@ -369,6 +369,13 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 		},
 	}
 
+	// Set ContentType from blob spec or status
+	if blob.Spec.ContentType != "" {
+		chunk.Spec.ContentType = blob.Spec.ContentType
+	} else if blob.Status.ContentType != "" {
+		chunk.Spec.ContentType = blob.Status.ContentType
+	}
+
 	for _, dst := range blob.Spec.Destination {
 		s3 := c.s3[dst.Name]
 		if s3 == nil {
@@ -399,6 +406,11 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 		}
 		if blob.Status.Total > 0 {
 			dest.Request.Headers["Content-Length"] = fmt.Sprintf("%d", blob.Status.Total)
+		}
+
+		// Set Content-Type header if ContentType is specified
+		if chunk.Spec.ContentType != "" {
+			dest.Request.Headers["Content-Type"] = chunk.Spec.ContentType
 		}
 
 		chunk.Spec.Destination = append(chunk.Spec.Destination, dest)
@@ -506,6 +518,13 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 				"Content-Range": fmt.Sprintf("bytes %d-%d/%d", start, end-1, blob.Status.Total),
 			},
 		},
+	}
+
+	// Set ContentType from blob spec or status
+	if blob.Spec.ContentType != "" {
+		chunk.Spec.ContentType = blob.Spec.ContentType
+	} else if blob.Status.ContentType != "" {
+		chunk.Spec.ContentType = blob.Status.ContentType
 	}
 
 	for j, dst := range blob.Spec.Destination {

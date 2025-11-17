@@ -98,6 +98,10 @@ type BlobStatus struct {
 	// +optional
 	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 
+	// ContentType is the MIME type of the blob content as detected from the source response.
+	// +optional
+	ContentType string `json:"contentType,omitempty"`
+
 	// Conditions holds conditions for the Blob.
 	// +patchMergeKey=type
 	// +patchStrategy=merge
@@ -149,6 +153,11 @@ type BlobSpec struct {
 	// This is useful for servers that support range requests but don't properly advertise it.
 	// +optional
 	ForceAcceptRanges bool `json:"forceAcceptRanges,omitempty"`
+
+	// ContentType specifies the MIME type of the blob content.
+	// If not specified, it will be detected from the source response headers.
+	// +optional
+	ContentType string `json:"contentType,omitempty"`
 }
 
 // BlobSource defines the source for a blob.

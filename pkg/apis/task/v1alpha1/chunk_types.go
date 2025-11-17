@@ -186,6 +186,11 @@ type ChunkSpec struct {
 
 	// InlineResponseBody indicates whether the response body should be inlined in the status
 	InlineResponseBody bool `json:"inlineResponseBody,omitempty"`
+
+	// ContentType specifies the MIME type of the chunk content.
+	// This will be used to set the Content-Type header on destination upload requests.
+	// +optional
+	ContentType string `json:"contentType,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
