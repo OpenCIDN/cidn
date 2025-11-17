@@ -191,4 +191,9 @@ spec:
   maximumRunning: 3
   maximumPending: 1
   contentSha256: "sha256-hash-here"  # optional verification
+  contentType: "application/octet-stream"  # optional, auto-detected if not specified
 ```
+
+The `contentType` field allows you to specify the MIME type of the content being transferred. 
+If not specified, CIDN will automatically detect it from the source response's `Content-Type` header.
+The content type is then used when uploading to destination storage backends.
