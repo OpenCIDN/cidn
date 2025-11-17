@@ -334,3 +334,102 @@ func TestForceAcceptRanges(t *testing.T) {
 		})
 	}
 }
+
+// TestContentTypeExtraction verifies that ContentType is correctly extracted from source response
+func TestContentTypeExtraction(t *testing.T) {
+	tests := []struct {
+		name                string
+		blob                *v1alpha1.Blob
+		chunk               *v1alpha1.Chunk
+		expectedContentType string
+	}{
+		{
+			name: "ContentType extracted from HEAD response",
+			blob: &v1alpha1.Blob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-blob-with-content-type",
+				},
+				Status: v1alpha1.BlobStatus{
+					Phase: v1alpha1.BlobPhasePending,
+				},
+			},
+			chunk: &v1alpha1.Chunk{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "blob:head:test-blob-with-content-type:0",
+				},
+				Status: v1alpha1.ChunkStatus{
+					Phase: v1alpha1.ChunkPhaseSucceeded,
+					SourceResponse: &v1alpha1.ChunkHTTPResponse{
+						Headers: map[string]string{
+							"content-length": "1024",
+							"content-type":   "application/octet-stream",
+							"accept-ranges":  "bytes",
+						},
+					},
+				},
+			},
+			expectedContentType: "application/octet-stream",
+		},
+		{
+			name: "No ContentType in response",
+			blob: &v1alpha1.Blob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-blob-no-content-type",
+				},
+				Status: v1alpha1.BlobStatus{
+					Phase: v1alpha1.BlobPhasePending,
+				},
+			},
+			chunk: &v1alpha1.Chunk{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "blob:head:test-blob-no-content-type:0",
+				},
+				Status: v1alpha1.ChunkStatus{
+					Phase: v1alpha1.ChunkPhaseSucceeded,
+					SourceResponse: &v1alpha1.ChunkHTTPResponse{
+						Headers: map[string]string{
+							"content-length": "512",
+							"accept-ranges":  "bytes",
+						},
+					},
+				},
+			},
+			expectedContentType: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			// Setup fake client and informers
+			scheme := runtime.NewScheme()
+			_ = v1alpha1.AddToScheme(scheme)
+
+			client := fake.NewSimpleClientset(tt.blob, tt.chunk)
+			informerFactory := externalversions.NewSharedInformerFactory(client, 0)
+
+			controller := NewBlobFromChunkController(
+				"test-handler",
+				map[string]*sss.SSS{},
+				client,
+				informerFactory,
+			)
+
+			// Manually populate the informer cache
+			informerFactory.Task().V1alpha1().Blobs().Informer().GetStore().Add(tt.blob)
+			informerFactory.Task().V1alpha1().Chunks().Informer().GetStore().Add(tt.chunk)
+
+			// Call fromHeadChunk
+			err := controller.fromHeadChunk(ctx, tt.blob)
+			if err != nil {
+				t.Fatalf("fromHeadChunk failed: %v", err)
+			}
+
+			// Verify the ContentType field is set correctly
+			if tt.blob.Status.ContentType != tt.expectedContentType {
+				t.Errorf("Expected ContentType to be %q, got %q", tt.expectedContentType, tt.blob.Status.ContentType)
+			}
+		})
+	}
+}
