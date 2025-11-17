@@ -334,3 +334,156 @@ func TestForceAcceptRanges(t *testing.T) {
 		})
 	}
 }
+
+func TestContentTypeExtraction(t *testing.T) {
+	tests := []struct {
+		name                string
+		blob                *v1alpha1.Blob
+		chunk               *v1alpha1.Chunk
+		expectedContentType string
+	}{
+		{
+			name: "ContentType extracted from source response",
+			blob: &v1alpha1.Blob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-blob-content-type",
+				},
+				Spec: v1alpha1.BlobSpec{},
+				Status: v1alpha1.BlobStatus{
+					Phase: v1alpha1.BlobPhasePending,
+				},
+			},
+			chunk: &v1alpha1.Chunk{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "blob:head:test-blob-content-type:0",
+				},
+				Status: v1alpha1.ChunkStatus{
+					Phase: v1alpha1.ChunkPhaseSucceeded,
+					SourceResponse: &v1alpha1.ChunkHTTPResponse{
+						Headers: map[string]string{
+							"content-length": "1024",
+							"content-type":   "application/octet-stream",
+						},
+					},
+				},
+			},
+			expectedContentType: "application/octet-stream",
+		},
+		{
+			name: "ContentType from spec takes precedence",
+			blob: &v1alpha1.Blob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-blob-spec-content-type",
+				},
+				Spec: v1alpha1.BlobSpec{
+					ContentType: "text/plain",
+				},
+				Status: v1alpha1.BlobStatus{
+					Phase: v1alpha1.BlobPhasePending,
+				},
+			},
+			chunk: &v1alpha1.Chunk{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "blob:head:test-blob-spec-content-type:0",
+				},
+				Status: v1alpha1.ChunkStatus{
+					Phase: v1alpha1.ChunkPhaseSucceeded,
+					SourceResponse: &v1alpha1.ChunkHTTPResponse{
+						Headers: map[string]string{
+							"content-length": "1024",
+							"content-type":   "application/json",
+						},
+					},
+				},
+			},
+			expectedContentType: "",
+		},
+		{
+			name: "ContentType from status takes precedence over response",
+			blob: &v1alpha1.Blob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-blob-status-content-type",
+				},
+				Spec: v1alpha1.BlobSpec{},
+				Status: v1alpha1.BlobStatus{
+					Phase:       v1alpha1.BlobPhasePending,
+					ContentType: "image/png",
+				},
+			},
+			chunk: &v1alpha1.Chunk{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "blob:head:test-blob-status-content-type:0",
+				},
+				Status: v1alpha1.ChunkStatus{
+					Phase: v1alpha1.ChunkPhaseSucceeded,
+					SourceResponse: &v1alpha1.ChunkHTTPResponse{
+						Headers: map[string]string{
+							"content-length": "1024",
+							"content-type":   "application/xml",
+						},
+					},
+				},
+			},
+			expectedContentType: "image/png",
+		},
+		{
+			name: "No ContentType in response",
+			blob: &v1alpha1.Blob{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-blob-no-content-type",
+				},
+				Spec: v1alpha1.BlobSpec{},
+				Status: v1alpha1.BlobStatus{
+					Phase: v1alpha1.BlobPhasePending,
+				},
+			},
+			chunk: &v1alpha1.Chunk{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "blob:head:test-blob-no-content-type:0",
+				},
+				Status: v1alpha1.ChunkStatus{
+					Phase: v1alpha1.ChunkPhaseSucceeded,
+					SourceResponse: &v1alpha1.ChunkHTTPResponse{
+						Headers: map[string]string{
+							"content-length": "1024",
+						},
+					},
+				},
+			},
+			expectedContentType: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			// Create fake client
+			client := fake.NewSimpleClientset(tt.chunk)
+			sharedInformerFactory := externalversions.NewSharedInformerFactory(client, 0)
+
+			// Create controller
+			controller := NewBlobFromChunkController(
+				"test-handler",
+				map[string]*sss.SSS{},
+				client,
+				sharedInformerFactory,
+			)
+
+			// Start informers and wait for cache sync
+			sharedInformerFactory.Start(ctx.Done())
+			sharedInformerFactory.WaitForCacheSync(ctx.Done())
+
+			// Call the function under test
+			err := controller.fromHeadChunk(ctx, tt.blob)
+			if err != nil {
+				t.Fatalf("fromHeadChunk failed: %v", err)
+			}
+
+			// Verify the ContentType field is set correctly
+			if tt.blob.Status.ContentType != tt.expectedContentType {
+				t.Errorf("Expected ContentType to be %q, got %q", tt.expectedContentType, tt.blob.Status.ContentType)
+			}
+		})
+	}
+}
