@@ -33,7 +33,7 @@ type REST struct {
 }
 
 // NewREST returns a RESTStorage object that will work against API services.
-func NewREST(scheme *runtime.Scheme, optsGetter generic.RESTOptionsGetter) (*REST, *StatusREST, error) {
+func NewREST(scheme *runtime.Scheme, optsGetter generic.RESTOptionsGetter) (*REST, *StatusREST, *PendingREST, error) {
 	strategy := NewStrategy(scheme)
 	statusStrategy := NewStatusStrategy(strategy)
 
@@ -52,13 +52,16 @@ func NewREST(scheme *runtime.Scheme, optsGetter generic.RESTOptionsGetter) (*RES
 	}
 	options := &generic.StoreOptions{RESTOptions: optsGetter, AttrFunc: GetAttrs}
 	if err := store.CompleteWithOptions(options); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	statusStore := *store
 	statusStore.UpdateStrategy = statusStrategy
 
-	return &REST{store}, &StatusREST{store: &statusStore}, nil
+	restStore := &REST{store}
+	pendingStore := NewPendingREST(restStore)
+
+	return restStore, &StatusREST{store: &statusStore}, pendingStore, nil
 }
 
 func (r *REST) ShortNames() []string {

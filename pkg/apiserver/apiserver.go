@@ -131,7 +131,7 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(v1alpha1.GroupName, Scheme, metav1.ParameterCodec, Codecs)
 
-	chunkStorage, chunkStatusStorage, err := chunk.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
+	chunkStorage, chunkStatusStorage, chunkPendingStorage, err := chunk.NewREST(Scheme, c.GenericConfig.RESTOptionsGetter)
 	if err != nil {
 		return nil, err
 	}
@@ -154,6 +154,7 @@ func (c CompletedConfig) New() (*genericapiserver.GenericAPIServer, error) {
 	apiGroupInfo.VersionedResourcesStorageMap["v1alpha1"] = map[string]rest.Storage{
 		"chunks":         chunkStorage,
 		"chunks/status":  chunkStatusStorage,
+		"chunks/pending": chunkPendingStorage,
 		"blobs":          blobStorage,
 		"blobs/status":   blobStatusStorage,
 		"bearers":        bearerStorage,

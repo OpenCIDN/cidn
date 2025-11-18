@@ -28,7 +28,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -884,76 +883,30 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 	return nil
 }
 
-// getPendingList returns all Chunks in Pending state, sorted by weight and creation time
+// getPendingList returns all Chunks in Pending state by calling the API server
 func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
-	chunks, err := r.chunkInformer.Lister().List(labels.Everything())
+	// Call the API server's pending endpoint
+	chunkList, err := r.client.TaskV1alpha1().RESTClient().Get().
+		Resource("chunks").
+		SubResource("pending").
+		Do(context.Background()).
+		Get()
+	
 	if err != nil {
 		return nil, err
 	}
 
-	if len(chunks) == 0 {
-		return nil, nil
+	list, ok := chunkList.(*v1alpha1.ChunkList)
+	if !ok {
+		return nil, fmt.Errorf("unexpected type returned from pending endpoint")
 	}
 
 	var pendingChunks []*v1alpha1.Chunk
-
-	// Filter for Pending state
-	for _, chunk := range chunks {
-		if chunk.Status.HandlerName == "" && chunk.Status.Phase == v1alpha1.ChunkPhasePending {
-			pendingChunks = append(pendingChunks, chunk.DeepCopy())
-		}
+	for i := range list.Items {
+		pendingChunks = append(pendingChunks, &list.Items[i])
 	}
 
-	// Sort by weight (descending) and creation time (ascending)
-	sort.Slice(pendingChunks, func(i, j int) bool {
-		a := pendingChunks[i]
-		b := pendingChunks[j]
-		if a.Spec.Priority != b.Spec.Priority {
-			return a.Spec.Priority > b.Spec.Priority
-		}
-
-		if a.Status.Retry != b.Status.Retry {
-			return a.Status.Retry < b.Status.Retry
-		}
-
-		atime := a.CreationTimestamp.Time
-		if a.Status.CompletionTime != nil {
-			atime = a.Status.CompletionTime.Time
-		}
-		btime := b.CreationTimestamp.Time
-		if b.Status.CompletionTime != nil {
-			btime = b.Status.CompletionTime.Time
-		}
-
-		return atime.Before(btime)
-	})
-
-	return shuffleChunks(pendingChunks), nil
-}
-
-// shuffleChunks shuffles the chunks to a certain degree to reduce conflicts
-func shuffleChunks(chunks []*v1alpha1.Chunk) []*v1alpha1.Chunk {
-	n := len(chunks)
-	if n <= 1 {
-		return chunks
-	}
-
-	// Define a shuffle range (e.g., 25% of the list size)
-	shuffleRange := n / 4
-	if shuffleRange < 1 {
-		shuffleRange = 1
-	}
-
-	// Shuffle within the defined range
-	for i := 0; i < n; i++ {
-		j := i + rand.Intn(shuffleRange)
-		if j >= n {
-			j = n - 1
-		}
-		chunks[i], chunks[j] = chunks[j], chunks[i]
-	}
-
-	return chunks
+	return pendingChunks, nil
 }
 
 type hashEncoding interface {

@@ -46,7 +46,7 @@ func (runnerAuthorizer) Authorize(ctx context.Context, a authorizer.Attributes) 
 			if a.IsReadOnly() {
 				return authorizer.DecisionAllow, "", nil
 			}
-		case "status":
+		case "status", "pending":
 			return authorizer.DecisionAllow, "", nil
 		}
 	}
