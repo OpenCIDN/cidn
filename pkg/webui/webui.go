@@ -74,7 +74,7 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 	go chunkInformerInstance.RunWithContext(context.Background())
 
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
+		ctx, cancel := context.WithCancel(r.Context())
 		// Set headers for Server-Sent Events
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -82,10 +82,10 @@ func NewHandler(client versioned.Interface, updateInterval time.Duration) http.H
 
 		// Channel for direct updates
 		updates := make(chan Event, 4)
-		defer close(updates)
 
 		bufferUpdates := make(chan Event, 4)
-		defer close(bufferUpdates)
+
+		defer cancel()
 
 		// Track group for aggregation
 		groups := map[string]map[string]*entry{}
