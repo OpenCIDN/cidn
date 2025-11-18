@@ -66,6 +66,9 @@ type ChunkRunner struct {
 	signal         chan struct{}
 	updateDuration time.Duration
 	concurrencySem chan struct{}
+
+	recordMut sync.Mutex
+	record    map[string]struct{}
 }
 
 // NewChunkRunner creates a new Runner instance
@@ -88,6 +91,7 @@ func NewChunkRunner(
 		signal:         make(chan struct{}, 1),
 		updateDuration: updateDuration,
 		concurrencySem: make(chan struct{}, concurrency),
+		record:         map[string]struct{}{},
 	}
 
 	r.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -95,7 +99,24 @@ func NewChunkRunner(
 			r.enqueueChunk()
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
+			chunk, ok := newObj.(*v1alpha1.Chunk)
+			if ok {
+				if chunk.Status.HandlerName == "" && chunk.Status.Phase == v1alpha1.ChunkPhasePending {
+					r.unmarkRecord(chunk.Name)
+				} else {
+					_ = r.markRecord(chunk.Name)
+				}
+			}
 			r.enqueueChunk()
+		},
+		DeleteFunc: func(obj interface{}) {
+			r.enqueueChunk()
+
+			chunk, ok := obj.(*v1alpha1.Chunk)
+			if !ok {
+				return
+			}
+			r.unmarkRecord(chunk.Name)
 		},
 	})
 	r.bearerInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -108,6 +129,25 @@ func NewChunkRunner(
 	})
 
 	return r
+}
+
+func (r *ChunkRunner) markRecord(name string) bool {
+	r.recordMut.Lock()
+	defer r.recordMut.Unlock()
+
+	if _, exists := r.record[name]; exists {
+		return false
+	}
+
+	r.record[name] = struct{}{}
+	return true
+}
+
+func (r *ChunkRunner) unmarkRecord(name string) {
+	r.recordMut.Lock()
+	defer r.recordMut.Unlock()
+
+	delete(r.record, name)
 }
 
 func (r *ChunkRunner) enqueueChunk() {
@@ -200,7 +240,6 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	}
 
 	err = r.handlePending(context.Background(), chunks, func(c *v1alpha1.Chunk) {
-
 		continues := make(chan struct{})
 		go r.process(continues, c.DeepCopy())
 		continues <- struct{}{}
@@ -329,6 +368,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 				ss.Status.Conditions = nil
 				return ss
 			})
+			r.unmarkRecord(chunk.Name)
 			return nil, 0
 		} else if errors.Is(err, ErrAuthentication) {
 			s.handleProcessError("AuthenticationError", err)
@@ -342,6 +382,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 	if err != nil {
 		retry, err := utils.IsNetworkError(err)
 		if retry {
+			r.unmarkRecord(chunk.Name)
 			s.handleProcessErrorAndRetryable("BuildRequestNetworkError", err)
 		} else {
 			s.handleProcessError("BuildRequestError", err)
@@ -356,6 +397,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			srcResp.Body.Close()
 		}
 		if retry {
+			r.unmarkRecord(chunk.Name)
 			s.handleProcessErrorAndRetryable("SourceRequestNetworkError", err)
 		} else {
 			s.handleProcessError("SourceRequestError", err)
@@ -382,6 +424,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 				srcReq.Header.Get("Authorization") == "" &&
 				chunk.Spec.BearerName != "" {
 				err := fmt.Errorf("unauthorized access to source URL")
+				r.unmarkRecord(chunk.Name)
 				s.handleProcessErrorAndRetryable("Unauthorized", err)
 
 			} else {
@@ -400,6 +443,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 				srcReq.Header.Get("Authorization") == "" &&
 				chunk.Spec.BearerName != "" {
 				err := fmt.Errorf("unauthorized access to source URL")
+				r.unmarkRecord(chunk.Name)
 				s.handleProcessErrorAndRetryable("Unauthorized", err)
 			} else {
 				err := fmt.Errorf("source returned error status code: %d", srcResp.StatusCode)
@@ -803,12 +847,18 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 			return nil
 		}
 
+		if !r.markRecord(chunk.Name) {
+			klog.Infof("Chunk %s is already being processed, skipping", chunk.Name)
+			continue
+		}
+
 		if chunk.Spec.BearerName != "" {
 			bearer, err := r.bearerInformer.Lister().Get(chunk.Spec.BearerName)
 			if err == nil {
 				if bearer.Status.Phase != v1alpha1.BearerPhaseFailed {
 					if bearer.Status.TokenInfo == nil {
 						klog.Infof("Bearer %s has no token info, skipping chunk %s", bearer.Name, chunk.Name)
+						r.unmarkRecord(chunk.Name)
 						continue
 					}
 
@@ -830,6 +880,7 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 								}
 							}
 							klog.Infof("Bearer %s token has expired, skipping chunk %s", bearer.Name, chunk.Name)
+							r.unmarkRecord(chunk.Name)
 							continue
 						}
 					}
@@ -841,11 +892,13 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 			if err != nil {
 				if !apierrors.IsNotFound(err) {
 					klog.Warningf("Failed to get partial chunk %s: %v", chunk.Spec.Sha256PartialPreviousName, err)
+					r.unmarkRecord(chunk.Name)
 					continue
 				}
 
 			} else if pchunk.Status.Phase == v1alpha1.ChunkPhasePending {
 				klog.Infof("Partial chunk %s is still pending, skipping chunk %s", chunk.Spec.Sha256PartialPreviousName, chunk.Name)
+				r.unmarkRecord(chunk.Name)
 				continue
 			}
 		}
@@ -858,11 +911,13 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 				continue
 			}
 			klog.Warningf("Failed to acquire chunk %s: %v", chunk.Name, err)
+			r.unmarkRecord(chunk.Name)
 			continue
 		}
 
 		if chunk.Status.HandlerName != r.handlerName {
 			klog.Infof("Chunk %s was acquired by another handler", chunk.Name)
+			r.unmarkRecord(chunk.Name)
 			continue
 		}
 
