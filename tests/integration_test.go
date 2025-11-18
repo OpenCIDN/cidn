@@ -229,3 +229,61 @@ func TestChunkListing(t *testing.T) {
 
 	t.Logf("Found %d chunks in the system", len(chunkList.Items))
 }
+
+// TestPendingChunksEndpoint tests the new chunks/pending subresource
+func TestPendingChunksEndpoint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	config, err := getClientConfig()
+	if err != nil {
+		t.Fatalf("failed to get client config: %v", err)
+	}
+
+	err = waitForAPIServer(t, config)
+	if err != nil {
+		t.Skipf("API server not available: %v (use docker compose up to start services)", err)
+	}
+
+	client, err := versioned.NewForConfig(config)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Call the pending chunks endpoint
+	result := client.TaskV1alpha1().RESTClient().Get().
+		Resource("chunks").
+		SubResource("pending").
+		Do(ctx)
+
+	if result.Error() != nil {
+		t.Fatalf("failed to get pending chunks: %v", result.Error())
+	}
+
+	obj, err := result.Get()
+	if err != nil {
+		t.Fatalf("failed to retrieve pending chunks result: %v", err)
+	}
+
+	chunkList, ok := obj.(*taskv1alpha1.ChunkList)
+	if !ok {
+		t.Fatalf("expected *taskv1alpha1.ChunkList, got %T", obj)
+	}
+
+	t.Logf("Found %d pending chunks via the pending endpoint", len(chunkList.Items))
+
+	// Verify that all returned chunks are in pending state
+	for _, chunk := range chunkList.Items {
+		if chunk.Status.HandlerName != "" {
+			t.Errorf("chunk %s has non-empty handler name: %s (expected empty for pending)", chunk.Name, chunk.Status.HandlerName)
+		}
+		if chunk.Status.Phase != taskv1alpha1.ChunkPhasePending {
+			t.Errorf("chunk %s has phase %s (expected Pending)", chunk.Name, chunk.Status.Phase)
+		}
+	}
+
+	t.Log("All returned chunks are in correct pending state")
+}
