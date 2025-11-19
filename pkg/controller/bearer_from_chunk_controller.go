@@ -163,9 +163,6 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 	chunkName := buildBearerChunkName(bearer.Name)
 	chunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
 		return fmt.Errorf("failed to get chunk: %w", err)
 	}
 
