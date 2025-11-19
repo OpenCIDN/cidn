@@ -100,23 +100,19 @@ func NewChunkRunner(
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			chunk, ok := newObj.(*v1alpha1.Chunk)
-			if ok {
-				if chunk.Status.HandlerName == "" && chunk.Status.Phase == v1alpha1.ChunkPhasePending {
-					r.unmarkRecord(chunk.Name)
-				} else {
-					_ = r.markRecord(chunk.Name)
-				}
+			if ok &&
+				chunk.Status.HandlerName == "" &&
+				chunk.Status.Phase == v1alpha1.ChunkPhasePending {
+				r.unmarkRecord(chunk.Name)
 			}
 			r.enqueueChunk()
 		},
 		DeleteFunc: func(obj interface{}) {
-			r.enqueueChunk()
-
 			chunk, ok := obj.(*v1alpha1.Chunk)
-			if !ok {
-				return
+			if ok {
+				r.unmarkRecord(chunk.Name)
 			}
-			r.unmarkRecord(chunk.Name)
+			r.enqueueChunk()
 		},
 	})
 	r.bearerInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
