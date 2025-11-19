@@ -28,6 +28,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -544,9 +545,11 @@ func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.Chu
 }
 
 func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) {
-	klog.Infof("Processing chunk %s (handler: %s)", chunk.Name, chunk.Status.HandlerName)
-	defer klog.Infof("Finish processing chunk %s", chunk.Name)
+	startTime := time.Now()
+	klog.Infof("Processing chunk %s", chunk.Name)
 	defer func() {
+		duration := time.Since(startTime)
+		klog.Infof("Finish processing chunk %s, took %s", chunk.Name, duration)
 		<-continues
 	}()
 
@@ -563,12 +566,12 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	if body == nil {
 		return
 	}
+	defer body.Close()
 
 	if contentLength > 0 {
 		if chunk.Spec.Total > 0 && contentLength != chunk.Spec.Total {
 			err := fmt.Errorf("content length mismatch: got %d, want %d", contentLength, chunk.Spec.Total)
 			s.handleProcessError("ContentLengthMismatch", err)
-			body.Close()
 			return
 		}
 	} else {
@@ -673,10 +676,19 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 }
 
 func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **readCount, gdrs *[]*swmrCount) func() {
+	var (
+		prevStatus     *v1alpha1.ChunkStatus
+		lastUpdateTime time.Time
+	)
 	chunkFunc := func() {
 		s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 			if *gsr != nil {
 				updateProgress(&ss.Status, &ss.Spec, *gsr, *gdrs)
+			}
+
+			if prevStatus != nil && reflect.DeepEqual(prevStatus, &ss.Status) {
+				klog.Infof("No changes detected for chunk %s, skipping update. Last update was %s ago", ss.Name, time.Since(lastUpdateTime))
+				return ss
 			}
 
 			s := ss.Status.DeepCopy()
@@ -690,6 +702,8 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **
 				return ss
 			}
 
+			prevStatus = chunk.Status.DeepCopy()
+			lastUpdateTime = time.Now()
 			return chunk
 		})
 	}
