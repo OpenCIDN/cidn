@@ -130,7 +130,7 @@ func (c *BlobHoldController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.chunkHandler(ctx, key)
+	err := c.handler(ctx, key)
 	if err != nil {
 		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
 		klog.Errorf("error blob chunking '%s': %v, requeuing", key, err)
@@ -140,12 +140,9 @@ func (c *BlobHoldController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *BlobHoldController) chunkHandler(ctx context.Context, name string) error {
+func (c *BlobHoldController) handler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
 		return err
 	}
 

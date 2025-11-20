@@ -114,7 +114,7 @@ func (c *ReleaseBearerController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	next, err := c.chunkHandler(ctx, key)
+	next, err := c.handler(ctx, key)
 	if err != nil {
 		klog.Errorf("error release bearer chunking '%s': %v", key, err)
 	}
@@ -126,7 +126,7 @@ func (c *ReleaseBearerController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *ReleaseBearerController) chunkHandler(ctx context.Context, name string) (time.Duration, error) {
+func (c *ReleaseBearerController) handler(ctx context.Context, name string) (time.Duration, error) {
 	bearer, err := c.bearerInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {

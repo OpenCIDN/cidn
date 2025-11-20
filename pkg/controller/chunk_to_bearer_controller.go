@@ -104,7 +104,7 @@ func (c *ChunkToBearerController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.chunkHandler(ctx, key)
+	err := c.handler(ctx, key)
 	if err != nil {
 		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
 		klog.Errorf("error chunk bearing '%s': %v, requeuing", key, err)
@@ -114,7 +114,7 @@ func (c *ChunkToBearerController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *ChunkToBearerController) chunkHandler(ctx context.Context, name string) error {
+func (c *ChunkToBearerController) handler(ctx context.Context, name string) error {
 	chunk, err := c.chunkInformer.Lister().Get(name)
 	if err != nil {
 		return err

@@ -102,7 +102,7 @@ func (c *ChunkFromBearerController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.blobHandler(ctx, key)
+	err := c.handler(ctx, key)
 	if err != nil {
 		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
 		klog.Errorf("error blob chunking '%s': %v, requeuing", key, err)
@@ -112,7 +112,7 @@ func (c *ChunkFromBearerController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *ChunkFromBearerController) blobHandler(ctx context.Context, name string) error {
+func (c *ChunkFromBearerController) handler(ctx context.Context, name string) error {
 	chunkList, err := c.client.TaskV1alpha1().Chunks().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err

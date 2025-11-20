@@ -114,7 +114,7 @@ func (c *ReleaseBlobController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	next, err := c.chunkHandler(ctx, key)
+	next, err := c.handler(ctx, key)
 	if err != nil {
 		klog.Errorf("error release blob chunking '%s': %v", key, err)
 	}
@@ -126,7 +126,7 @@ func (c *ReleaseBlobController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (time.Duration, error) {
+func (c *ReleaseBlobController) handler(ctx context.Context, name string) (time.Duration, error) {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {

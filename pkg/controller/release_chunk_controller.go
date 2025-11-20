@@ -115,7 +115,7 @@ func (c *ReleaseChunkController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	next, err := c.chunkHandler(ctx, key)
+	next, err := c.handler(ctx, key)
 	if err != nil {
 		klog.Errorf("error release chunk chunking '%s': %v", key, err)
 	}
@@ -127,7 +127,7 @@ func (c *ReleaseChunkController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) (time.Duration, error) {
+func (c *ReleaseChunkController) handler(ctx context.Context, name string) (time.Duration, error) {
 	chunk, err := c.chunkInformer.Lister().Get(name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
