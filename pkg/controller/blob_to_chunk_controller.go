@@ -160,9 +160,6 @@ func (c *BlobToChunkController) processNextItem(ctx context.Context) bool {
 func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
 		return err
 	}
 
