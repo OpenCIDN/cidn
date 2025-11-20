@@ -680,6 +680,9 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **
 		prevStatus     *v1alpha1.ChunkStatus
 		lastUpdateTime time.Time
 	)
+
+	ctx, cancel := context.WithCancel(ctx)
+
 	chunkFunc := func() {
 		s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 			if *gsr != nil {
@@ -698,7 +701,11 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **
 			})
 
 			if err != nil {
-				handleProcessError(ss, "ProgressUpdateError", err)
+				if apierrors.IsNotFound(err) {
+					cancel()
+					return ss
+				}
+				klog.Infof("Failed to update chunk status for chunk %s: %v", ss.Name, err)
 				return ss
 			}
 
@@ -765,7 +772,7 @@ func (r *ChunkRunner) waitForPartialChunk(chunk *v1alpha1.Chunk, s *state, swmr 
 	for {
 		pchunk, err := chunks.Get(context.Background(), chunk.Spec.Sha256PartialPreviousName, metav1.GetOptions{})
 		if err != nil {
-			if !apierrors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				s.handleProcessError("GetPartialChunkError", err)
 				return
 			}
