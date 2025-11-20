@@ -64,15 +64,19 @@ func NewBearerFromChunkController(
 			key := bearer.Name
 			c.workqueue.Add(key)
 		},
+		DeleteFunc: func(obj interface{}) {
+			bearer, ok := obj.(*v1alpha1.Bearer)
+			if !ok {
+				return
+			}
+			key := bearer.Name
+			c.workqueue.Done(key)
+		},
 	})
 
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			chunk, ok := obj.(*v1alpha1.Chunk)
-			if !ok {
-				return
-			}
-
+			chunk := obj.(*v1alpha1.Chunk)
 			bearerName := chunk.Annotations[BearerNameAnnotationKey]
 			if bearerName == "" {
 				return
@@ -80,20 +84,7 @@ func NewBearerFromChunkController(
 			c.workqueue.Add(bearerName)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			newChunk := newObj.(*v1alpha1.Chunk)
-
-			bearerName := newChunk.Annotations[BearerNameAnnotationKey]
-			if bearerName == "" {
-				return
-			}
-			c.workqueue.Add(bearerName)
-		},
-		DeleteFunc: func(obj interface{}) {
-			chunk, ok := obj.(*v1alpha1.Chunk)
-			if !ok {
-				return
-			}
-
+			chunk := newObj.(*v1alpha1.Chunk)
 			bearerName := chunk.Annotations[BearerNameAnnotationKey]
 			if bearerName == "" {
 				return

@@ -89,7 +89,8 @@ func NewBearerToChunkController(
 			if !ok {
 				return
 			}
-
+			key := bearer.Name
+			c.workqueue.Done(key)
 			c.cleanupBearer(bearer)
 		},
 	})

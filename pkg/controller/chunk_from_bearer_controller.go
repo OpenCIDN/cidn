@@ -78,6 +78,14 @@ func NewChunkFromBearerController(
 
 			c.workqueue.Add(key)
 		},
+		DeleteFunc: func(obj interface{}) {
+			bearer, ok := obj.(*v1alpha1.Bearer)
+			if !ok {
+				return
+			}
+			key := bearer.Name
+			c.workqueue.Done(key)
+		},
 	})
 
 	return c

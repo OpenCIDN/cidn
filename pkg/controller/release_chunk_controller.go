@@ -82,6 +82,7 @@ func (c *ReleaseChunkController) cleanupChunk(obj interface{}) {
 	}
 
 	key := blob.Name
+	c.workqueue.Done(key)
 
 	c.lastSeenMut.Lock()
 	defer c.lastSeenMut.Unlock()

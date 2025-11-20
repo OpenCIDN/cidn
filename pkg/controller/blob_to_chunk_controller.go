@@ -86,7 +86,8 @@ func NewBlobToChunkController(
 			if !ok {
 				return
 			}
-
+			key := blob.Name
+			c.workqueue.Done(key)
 			c.cleanupBlob(blob)
 		},
 	})

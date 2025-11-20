@@ -81,6 +81,7 @@ func (c *ReleaseBearerController) cleanupBearer(obj interface{}) {
 	}
 
 	key := bearer.Name
+	c.workqueue.Done(key)
 
 	c.lastSeenMut.Lock()
 	defer c.lastSeenMut.Unlock()

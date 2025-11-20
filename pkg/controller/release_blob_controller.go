@@ -81,6 +81,7 @@ func (c *ReleaseBlobController) cleanupBlob(obj interface{}) {
 	}
 
 	key := blob.Name
+	c.workqueue.Done(key)
 
 	c.lastSeenMut.Lock()
 	defer c.lastSeenMut.Unlock()

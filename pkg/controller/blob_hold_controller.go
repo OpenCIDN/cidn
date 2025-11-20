@@ -66,6 +66,14 @@ func NewBlobHoldController(
 			key := blob.Name
 			c.workqueue.Add(key)
 		},
+		DeleteFunc: func(obj interface{}) {
+			blob, ok := obj.(*v1alpha1.Blob)
+			if !ok {
+				return
+			}
+			key := blob.Name
+			c.workqueue.Done(key)
+		},
 	})
 
 	return c

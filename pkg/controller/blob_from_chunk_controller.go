@@ -76,15 +76,19 @@ func NewBlobFromChunkController(
 			key := blob.Name
 			c.workqueue.Add(key)
 		},
+		DeleteFunc: func(obj interface{}) {
+			blob, ok := obj.(*v1alpha1.Blob)
+			if !ok {
+				return
+			}
+			key := blob.Name
+			c.workqueue.Done(key)
+		},
 	})
 
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			chunk, ok := obj.(*v1alpha1.Chunk)
-			if !ok {
-				return
-			}
-
+			chunk := obj.(*v1alpha1.Chunk)
 			blobName := chunk.Annotations[BlobNameAnnotationKey]
 			if blobName == "" {
 				return
@@ -92,9 +96,8 @@ func NewBlobFromChunkController(
 			c.workqueue.Add(blobName)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			newChunk := newObj.(*v1alpha1.Chunk)
-
-			blobName := newChunk.Annotations[BlobNameAnnotationKey]
+			chunk := newObj.(*v1alpha1.Chunk)
+			blobName := chunk.Annotations[BlobNameAnnotationKey]
 			if blobName == "" {
 				return
 			}
@@ -136,7 +139,7 @@ func (c *BlobFromChunkController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.chunkHandler(ctx, key)
+	err := c.handler(ctx, key)
 	if err != nil {
 		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
 		klog.Errorf("error blob chunking '%s': %v, requeuing", key, err)
@@ -146,7 +149,7 @@ func (c *BlobFromChunkController) processNextItem(ctx context.Context) bool {
 	return true
 }
 
-func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string) error {
+func (c *BlobFromChunkController) handler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
 		return err
