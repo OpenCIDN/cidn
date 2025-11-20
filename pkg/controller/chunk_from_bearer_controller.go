@@ -138,7 +138,7 @@ func (c *ChunkFromBearerController) blobHandler(ctx context.Context, name string
 			return ch
 		})
 		if err != nil {
-			return err
+			klog.Errorf("error resetting chunk '%s' status: %v", chunk.Name, err)
 		}
 	}
 
