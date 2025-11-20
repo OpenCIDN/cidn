@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -130,42 +129,47 @@ func (c *BearerHoldController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.chunkHandler(ctx, key)
-	if err != nil {
-		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error bearer chunking '%s': %v, requeuing", key, err)
-		return true
-	}
+	c.handler(ctx, key)
 
 	return true
 }
 
-func (c *BearerHoldController) chunkHandler(ctx context.Context, name string) error {
+func (c *BearerHoldController) handler(ctx context.Context, name string) {
 	bearer, err := c.bearerInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
+		if !apierrors.IsNotFound(err) {
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to get bearer '%s': %v", name, err)
+			return
 		}
-		return err
+		bearer, err = c.client.TaskV1alpha1().Bearers().Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return
+			}
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to get bearer '%s' from API server: %v", name, err)
+			return
+		}
 	}
 
 	if bearer.Status.HandlerName != "" {
-		return nil
+		return
 	}
 
 	if bearer.Status.Phase != v1alpha1.BearerPhasePending {
-		return nil
+		return
 	}
 
 	bearer.Status.HandlerName = c.handlerName
 	bearer.Status.Phase = v1alpha1.BearerPhaseRunning
 	_, err = c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, bearer, metav1.UpdateOptions{})
 	if err != nil {
-		if apierrors.IsConflict(err) {
-			return nil
+		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+			return
 		}
-		return fmt.Errorf("failed to update bearer %s: %v", bearer.Name, err)
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to update bearer %s: %v", bearer.Name, err)
+		return
 	}
-
-	return nil
 }

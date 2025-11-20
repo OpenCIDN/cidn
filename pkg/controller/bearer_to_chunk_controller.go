@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"time"
@@ -127,48 +126,53 @@ func (c *BearerToChunkController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.chunkHandler(ctx, key)
-	if err != nil {
-		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error bearer chunking '%s': %v, requeuing", key, err)
-		return true
-	}
+	c.handler(ctx, key)
 
 	return true
 }
 
-func (c *BearerToChunkController) chunkHandler(ctx context.Context, name string) error {
+func (c *BearerToChunkController) handler(ctx context.Context, name string) {
 	bearer, err := c.bearerInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
+		if !apierrors.IsNotFound(err) {
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to get bearer '%s': %v", name, err)
+			return
 		}
-		return err
+		bearer, err = c.client.TaskV1alpha1().Bearers().Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return
+			}
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to get bearer '%s' from API server: %v", name, err)
+			return
+		}
 	}
 
 	if bearer.Status.HandlerName != c.handlerName {
-		return nil
+		return
 	}
 
 	switch bearer.Status.Phase {
 	case v1alpha1.BearerPhaseRunning, v1alpha1.BearerPhaseUnknown:
-		err := c.toGetChunk(ctx, bearer)
+		err := c.toChunk(ctx, bearer)
 		if err != nil {
-			return fmt.Errorf("failed to create chunk for bearer %s: %v", bearer.Name, err)
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to create chunk for bearer %s: %v", bearer.Name, err)
+			return
 		}
 
 	case v1alpha1.BearerPhaseSucceeded:
 		c.cleanupBearer(bearer)
 	}
-
-	return nil
 }
 
 func buildBearerChunkName(bearerName string) string {
 	return fmt.Sprintf("bearer:%s", bearerName)
 }
 
-func (c *BearerToChunkController) toGetChunk(ctx context.Context, bearer *v1alpha1.Bearer) error {
+func (c *BearerToChunkController) toChunk(ctx context.Context, bearer *v1alpha1.Bearer) error {
 	chunkName := buildBearerChunkName(bearer.Name)
 	existingChunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err == nil && existingChunk != nil {

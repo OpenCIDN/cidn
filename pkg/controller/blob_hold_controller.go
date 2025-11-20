@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -130,42 +129,47 @@ func (c *BlobHoldController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.chunkHandler(ctx, key)
-	if err != nil {
-		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error blob chunking '%s': %v, requeuing", key, err)
-		return true
-	}
+	c.handler(ctx, key)
 
 	return true
 }
 
-func (c *BlobHoldController) chunkHandler(ctx context.Context, name string) error {
+func (c *BlobHoldController) handler(ctx context.Context, name string) {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
+		if !apierrors.IsNotFound(err) {
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to get blob '%s': %v", name, err)
+			return
 		}
-		return err
+		blob, err = c.client.TaskV1alpha1().Blobs().Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return
+			}
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to get blob '%s' from API server: %v", name, err)
+			return
+		}
 	}
 
 	if blob.Status.HandlerName != "" {
-		return nil
+		return
 	}
 
 	if blob.Status.Phase != v1alpha1.BlobPhasePending {
-		return nil
+		return
 	}
 
 	blob.Status.HandlerName = c.handlerName
 	blob.Status.Phase = v1alpha1.BlobPhaseRunning
 	_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
 	if err != nil {
-		if apierrors.IsConflict(err) {
-			return nil
+		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+			return
 		}
-		return fmt.Errorf("failed to update blob %s: %v", blob.Name, err)
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to update blob %s: %v", blob.Name, err)
+		return
 	}
-
-	return nil
 }

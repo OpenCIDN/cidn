@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -115,57 +114,65 @@ func (c *ReleaseChunkController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	next, err := c.chunkHandler(ctx, key)
-	if err != nil {
-		klog.Errorf("error release chunk chunking '%s': %v", key, err)
-	}
-
-	if next != 0 {
-		c.workqueue.AddAfter(key, next)
-	}
+	c.handler(ctx, key)
 
 	return true
 }
 
-func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) (time.Duration, error) {
-	chunk, err := c.chunkInformer.Lister().Get(name)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return 0, nil
-		}
-		return 0, err
-	}
-
-	if chunk.Status.HandlerName == "" {
-		return 0, nil
-	}
-
+func (c *ReleaseChunkController) handler(ctx context.Context, name string) {
 	c.lastSeenMut.RLock()
 	lastSeenTime, ok := c.lastSeen[name]
 	c.lastSeenMut.RUnlock()
 	if !ok {
-		return 0, nil
+		return
 	}
+
+	chunk, err := c.chunkInformer.Lister().Get(name)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to get chunk '%s': %v", name, err)
+			return
+		}
+		chunk, err = c.client.TaskV1alpha1().Chunks().Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return
+			}
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to get chunk '%s' from API server: %v", name, err)
+			return
+		}
+	}
+
+	if chunk.Status.HandlerName == "" {
+		return
+	}
+
 	switch chunk.Status.Phase {
 	case v1alpha1.ChunkPhaseRunning:
 		dur := 5 * time.Minute
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
-			return dur - sub, nil
+			c.workqueue.AddAfter(name, dur-sub)
+			return
 		}
 
 		newChunk := chunk.DeepCopy()
 		newChunk.Status.Phase = v1alpha1.ChunkPhaseUnknown
 
 		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
-		if err != nil {
-			return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
+		if err != nil && !apierrors.IsConflict(err) {
+			c.workqueue.AddAfter(name, 10*time.Second)
+			klog.Errorf("failed to update chunk %s: %v", name, err)
+			return
 		}
 	case v1alpha1.ChunkPhaseUnknown:
 		dur := 30 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
-			return dur - sub, nil
+			c.workqueue.AddAfter(name, dur-sub)
+			return
 		}
 
 		newChunk := chunk.DeepCopy()
@@ -173,15 +180,18 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 		newChunk.Status.HandlerName = ""
 
 		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
-		if err != nil {
-			return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
+		if err != nil && !apierrors.IsConflict(err) {
+			c.workqueue.AddAfter(name, 10*time.Second)
+			klog.Errorf("failed to update chunk %s: %v", name, err)
+			return
 		}
 	case v1alpha1.ChunkPhaseFailed:
 		if chunk.Status.Retryable {
 			dur := time.Duration(math.Pow(2, float64(chunk.Status.Retry))) * time.Second
 			sub := time.Since(lastSeenTime)
 			if sub < dur {
-				return dur - sub, nil
+				c.workqueue.AddAfter(name, dur-sub)
+				return
 			}
 
 			newChunk := chunk.DeepCopy()
@@ -192,14 +202,16 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			newChunk.Status.HandlerName = ""
 
 			_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
-			if err != nil {
-				return 10 * time.Second, fmt.Errorf("failed to update chunk %s: %v", name, err)
+			if err != nil && !apierrors.IsConflict(err) {
+				c.workqueue.AddAfter(name, 10*time.Second)
+				klog.Errorf("failed to update chunk %s: %v", name, err)
+				return
 			}
 		} else {
 			// If the chunk has a TTL annotation and is not retryable, delete it after the TTL
 			ttl, ok := getTTLDuration(chunk.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 			if !ok {
-				return 0, nil
+				return
 			}
 
 			// Use CompletionTime if available, otherwise fall back to lastSeenTime
@@ -211,19 +223,22 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 			}
 
 			if timeSinceCompletion < ttl {
-				return ttl - timeSinceCompletion, nil
+				c.workqueue.AddAfter(name, ttl-timeSinceCompletion)
+				return
 			}
 
 			err = c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
 			if err != nil && !apierrors.IsNotFound(err) {
-				return 10 * time.Second, fmt.Errorf("failed to delete chunk %s: %v", name, err)
+				c.workqueue.AddAfter(name, 10*time.Second)
+				klog.Errorf("failed to delete chunk %s: %v", name, err)
+				return
 			}
 		}
 	case v1alpha1.ChunkPhaseSucceeded:
 		// Only delete succeeded chunks if TTL annotation is set
 		ttl, ok := getTTLDuration(chunk.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 		if !ok {
-			return 0, nil
+			return
 		}
 
 		// Use CompletionTime if available, otherwise fall back to lastSeenTime
@@ -235,13 +250,15 @@ func (c *ReleaseChunkController) chunkHandler(ctx context.Context, name string) 
 		}
 
 		if timeSinceCompletion < ttl {
-			return ttl - timeSinceCompletion, nil
+			c.workqueue.AddAfter(name, ttl-timeSinceCompletion)
+			return
 		}
 
 		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
-			return 10 * time.Second, fmt.Errorf("failed to delete chunk %s: %v", name, err)
+			c.workqueue.AddAfter(name, 10*time.Second)
+			klog.Errorf("failed to delete chunk %s: %v", name, err)
+			return
 		}
 	}
-	return 0, nil
 }
