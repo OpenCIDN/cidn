@@ -22,7 +22,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"math/rand"
 	"strconv"
 	"time"
 
@@ -70,21 +69,9 @@ func NewBlobFromChunkController(
 		concurrency:       5,
 	}
 
-	c.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		UpdateFunc: func(oldObj, newObj interface{}) {
-			blob := newObj.(*v1alpha1.Blob)
-			key := blob.Name
-			c.workqueue.Add(key)
-		},
-	})
-
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			chunk, ok := obj.(*v1alpha1.Chunk)
-			if !ok {
-				return
-			}
-
+			chunk := obj.(*v1alpha1.Chunk)
 			blobName := chunk.Annotations[BlobNameAnnotationKey]
 			if blobName == "" {
 				return
@@ -92,20 +79,7 @@ func NewBlobFromChunkController(
 			c.workqueue.Add(blobName)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			newChunk := newObj.(*v1alpha1.Chunk)
-
-			blobName := newChunk.Annotations[BlobNameAnnotationKey]
-			if blobName == "" {
-				return
-			}
-			c.workqueue.Add(blobName)
-		},
-		DeleteFunc: func(obj interface{}) {
-			chunk, ok := obj.(*v1alpha1.Chunk)
-			if !ok {
-				return
-			}
-
+			chunk := newObj.(*v1alpha1.Chunk)
 			blobName := chunk.Annotations[BlobNameAnnotationKey]
 			if blobName == "" {
 				return
@@ -136,37 +110,36 @@ func (c *BlobFromChunkController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.chunkHandler(ctx, key)
-	if err != nil {
-		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error blob chunking '%s': %v, requeuing", key, err)
-		return true
-	}
+	c.handler(ctx, key)
 
 	return true
 }
 
-func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string) error {
+func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
+		if apierrors.IsNotFound(err) && c.blobInformer.Informer().HasSynced() {
+			return
 		}
-		return err
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to get blob %s: %v", name, err)
+		return
 	}
 
 	if blob.Status.HandlerName != c.handlerName {
-		return nil
+		return
 	}
 
 	if blob.Status.Phase == v1alpha1.BlobPhaseSucceeded || blob.Status.Phase == v1alpha1.BlobPhaseFailed {
-		return nil
+		return
 	}
 
 	if blob.Spec.ChunksNumber == 1 {
 		err = c.fromOneChunk(ctx, blob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+			return
 		}
 
 		blobStatus := blob.Status.DeepCopy()
@@ -175,15 +148,19 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 			return b
 		})
 		if err != nil {
-			return fmt.Errorf("failed to update blob status: %w", err)
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update blob status: %v", err)
+			return
 		}
-		return nil
+		return
 	}
 
 	if blob.Status.Total == 0 {
 		err = c.fromHeadChunk(ctx, blob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+			return
 		}
 
 		blobStatus := blob.Status.DeepCopy()
@@ -192,19 +169,22 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 			return b
 		})
 		if err != nil {
-			return fmt.Errorf("failed to update blob status total: %w", err)
+			c.workqueue.AddAfter(name, 5*time.Second)
+			return
 		}
-		return nil
+		return
 	}
 
 	if blob.Spec.ChunksNumber == 0 {
-		return nil
+		return
 	}
 
 	if blob.Status.AcceptRanges {
 		err = c.fromChunks(ctx, blob)
 		if err != nil {
-			return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+			return
 		}
 
 		blobStatus := blob.Status.DeepCopy()
@@ -213,14 +193,18 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 			return b
 		})
 		if err != nil {
-			return fmt.Errorf("failed to update blob status: %w", err)
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update blob status: %v", err)
+			return
 		}
-		return nil
+		return
 	}
 
 	err = c.fromOneChunk(ctx, blob)
 	if err != nil {
-		return fmt.Errorf("failed to update blob status for blob %s: %w", blob.Name, err)
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+		return
 	}
 
 	blobStatus := blob.Status.DeepCopy()
@@ -229,10 +213,10 @@ func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string)
 		return b
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update blob status: %w", err)
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to update blob status: %v", err)
+		return
 	}
-
-	return nil
 }
 
 func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alpha1.Blob) error {
@@ -342,16 +326,18 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 }
 
 func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1.Blob) error {
+	mp, err := c.multipartInformer.Lister().Get(blob.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get multiparts: %w", err)
+	}
+
+	mp = mp.DeepCopy()
+
 	chunks, err := c.chunkInformer.Lister().List(labels.SelectorFromSet(labels.Set{
 		BlobUIDLabelKey: string(blob.UID),
 	}))
 	if err != nil {
 		return fmt.Errorf("failed to list chunks: %w", err)
-	}
-
-	mp, err := c.multipartInformer.Lister().Get(blob.Name)
-	if err != nil {
-		return fmt.Errorf("failed to list multiparts: %w", err)
 	}
 
 	var updateEtag bool

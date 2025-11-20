@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -104,78 +103,74 @@ func (c *ChunkToBearerController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.chunkHandler(ctx, key)
-	if err != nil {
-		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error chunk bearing '%s': %v, requeuing", key, err)
-		return true
-	}
+	c.handler(ctx, key)
 
 	return true
 }
 
-func (c *ChunkToBearerController) chunkHandler(ctx context.Context, name string) error {
+func (c *ChunkToBearerController) handler(ctx context.Context, name string) {
 	chunk, err := c.chunkInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
+		if apierrors.IsNotFound(err) && c.chunkInformer.Informer().HasSynced() {
+			return
 		}
-		return err
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to get chunk %s: %v", name, err)
+		return
 	}
-	return c.toBearer(ctx, chunk)
-}
 
-func (c *ChunkToBearerController) toBearer(ctx context.Context, chunk *v1alpha1.Chunk) error {
 	if chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
-		return nil
+		return
 	}
 
 	if !chunk.Status.Retryable {
-		return nil
+		return
 	}
 
 	if chunk.Status.SourceResponse == nil {
-		return nil
+		return
 	}
 
 	if chunk.Status.SourceResponse.StatusCode != http.StatusUnauthorized {
-		return nil
+		return
 	}
 	if len(chunk.Status.SourceResponse.Headers) == 0 {
-		return nil
+		return
 	}
 
 	wwwAuthenticate := chunk.Status.SourceResponse.Headers["www-authenticate"]
 	if wwwAuthenticate == "" {
-		return nil
+		return
 	}
 
 	if chunk.Spec.BearerName == "" {
-		return nil
+		return
 	}
 
-	_, err := c.bearerInformer.Lister().Get(chunk.Spec.BearerName)
+	_, err = c.bearerInformer.Lister().Get(chunk.Spec.BearerName)
 	if err == nil {
-		return nil
+		return
 	}
 	if !apierrors.IsNotFound(err) {
-		return err
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to get bearer %s: %v", chunk.Spec.BearerName, err)
+		return
 	}
 
 	scheme, params := parseWWWAuthenticate(wwwAuthenticate)
 	if scheme != "Bearer" {
-		return nil
+		return
 	}
 
 	realm := params["realm"]
 	if realm == "" {
-		return nil
+		return
 	}
 
 	realmURL, err := url.Parse(realm)
 	if err != nil {
 		klog.Errorf("failed to parse realm URL %q: %v", realm, err)
-		return nil
+		return
 	}
 
 	query := realmURL.Query()
@@ -217,12 +212,12 @@ func (c *ChunkToBearerController) toBearer(ctx context.Context, chunk *v1alpha1.
 	_, err = c.client.TaskV1alpha1().Bearers().Create(ctx, bearer, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			return nil
+			return
 		}
-		return err
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to create bearer %s: %v", bearer.Name, err)
+		return
 	}
-
-	return nil
 }
 
 func parseWWWAuthenticate(header string) (string, map[string]string) {

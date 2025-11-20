@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"net/textproto"
 	"slices"
@@ -127,15 +126,17 @@ func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
 		klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
 	}
 
-	_, err = c.multipartInformer.Lister().Get(blob.Name)
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			klog.Errorf("failed to get multipart for blob %s: %v", blob.Name, err)
-		}
-	} else {
-		err = c.client.TaskV1alpha1().Multiparts().Delete(context.Background(), blob.Name, metav1.DeleteOptions{})
+	if blob.Spec.ChunksNumber > 1 {
+		_, err = c.multipartInformer.Lister().Get(blob.Name)
 		if err != nil {
-			klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
+			if !apierrors.IsNotFound(err) {
+				klog.Errorf("failed to get multipart for blob %s: %v", blob.Name, err)
+			}
+		} else {
+			err = c.client.TaskV1alpha1().Multiparts().Delete(context.Background(), blob.Name, metav1.DeleteOptions{})
+			if err != nil && !apierrors.IsNotFound(err) {
+				klog.Errorf("failed to delete multipart for blob %s: %v", blob.Name, err)
+			}
 		}
 	}
 }
@@ -147,27 +148,24 @@ func (c *BlobToChunkController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.chunkHandler(ctx, key)
-	if err != nil {
-		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error blob chunking '%s': %v, requeuing", key, err)
-		return true
-	}
+	c.handler(ctx, key)
 
 	return true
 }
 
-func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) error {
+func (c *BlobToChunkController) handler(ctx context.Context, name string) {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
+		if apierrors.IsNotFound(err) && c.blobInformer.Informer().HasSynced() {
+			return
 		}
-		return err
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to get blob %s: %v", name, err)
+		return
 	}
 
 	if blob.Status.HandlerName != c.handlerName {
-		return nil
+		return
 	}
 
 	switch blob.Status.Phase {
@@ -175,37 +173,43 @@ func (c *BlobToChunkController) chunkHandler(ctx context.Context, name string) e
 		if blob.Spec.ChunksNumber == 1 {
 			err := c.toOneChunk(ctx, blob)
 			if err != nil {
-				return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
+				c.workqueue.AddAfter(blob.Name, 5*time.Second)
+				klog.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
+				return
 			}
-			return nil
+			return
 		}
 
 		if blob.Status.Total == 0 {
 			err := c.toHeadChunk(ctx, blob)
 			if err != nil {
-				return fmt.Errorf("failed to create head chunk for blob %s: %v", blob.Name, err)
+				c.workqueue.AddAfter(blob.Name, 5*time.Second)
+				klog.Errorf("failed to create head chunk for blob %s: %v", blob.Name, err)
+				return
 			}
-			return nil
+			return
 		}
 
 		if blob.Status.AcceptRanges {
 			err := c.toChunks(ctx, blob)
 			if err != nil {
-				return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
+				c.workqueue.AddAfter(blob.Name, 5*time.Second)
+				klog.Errorf("failed to create chunks for blob %s: %v", blob.Name, err)
+				return
 			}
-			return nil
+			return
 		}
 
 		err := c.toOneChunk(ctx, blob)
 		if err != nil {
-			return fmt.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
+			c.workqueue.AddAfter(blob.Name, 5*time.Second)
+			klog.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
+			return
 		}
 
-	case v1alpha1.BlobPhaseSucceeded, v1alpha1.BlobPhaseFailed:
+	case v1alpha1.BlobPhaseSucceeded:
 		c.cleanupBlob(blob)
 	}
-
-	return nil
 }
 
 func buildHeadChunkName(blobName string, i int) string {

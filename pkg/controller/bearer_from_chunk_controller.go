@@ -19,8 +19,6 @@ package controller
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"math/rand"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -58,21 +56,9 @@ func NewBearerFromChunkController(
 		concurrency:    5,
 	}
 
-	c.bearerInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		UpdateFunc: func(oldObj, newObj interface{}) {
-			bearer := newObj.(*v1alpha1.Bearer)
-			key := bearer.Name
-			c.workqueue.Add(key)
-		},
-	})
-
 	c.chunkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			chunk, ok := obj.(*v1alpha1.Chunk)
-			if !ok {
-				return
-			}
-
+			chunk := obj.(*v1alpha1.Chunk)
 			bearerName := chunk.Annotations[BearerNameAnnotationKey]
 			if bearerName == "" {
 				return
@@ -80,20 +66,7 @@ func NewBearerFromChunkController(
 			c.workqueue.Add(bearerName)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
-			newChunk := newObj.(*v1alpha1.Chunk)
-
-			bearerName := newChunk.Annotations[BearerNameAnnotationKey]
-			if bearerName == "" {
-				return
-			}
-			c.workqueue.Add(bearerName)
-		},
-		DeleteFunc: func(obj interface{}) {
-			chunk, ok := obj.(*v1alpha1.Chunk)
-			if !ok {
-				return
-			}
-
+			chunk := newObj.(*v1alpha1.Chunk)
 			bearerName := chunk.Annotations[BearerNameAnnotationKey]
 			if bearerName == "" {
 				return
@@ -124,50 +97,43 @@ func (c *BearerFromChunkController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.chunkHandler(ctx, key)
-	if err != nil {
-		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error bearer chunking '%s': %v, requeuing", key, err)
-		return true
-	}
+	c.handler(ctx, key)
 
 	return true
 }
 
-func (c *BearerFromChunkController) chunkHandler(ctx context.Context, name string) error {
+func (c *BearerFromChunkController) handler(ctx context.Context, name string) {
 	bearer, err := c.bearerInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
+		if apierrors.IsNotFound(err) && c.bearerInformer.Informer().HasSynced() {
+			return
 		}
-		return err
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to get bearer '%s': %v", name, err)
+		return
 	}
 
 	if bearer.Status.HandlerName != c.handlerName {
-		return nil
+		return
 	}
 
 	if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
-		return nil
+		return
 	}
 
-	err = c.fromChunk(ctx, bearer)
-	if err != nil {
-		return fmt.Errorf("failed to update bearer status for bearer %s: %v", bearer.Name, err)
-	}
-
-	return nil
-}
-
-func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alpha1.Bearer) error {
 	chunkName := buildBearerChunkName(bearer.Name)
 	chunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err != nil {
-		return fmt.Errorf("failed to get chunk: %w", err)
+		if apierrors.IsNotFound(err) && c.chunkInformer.Informer().HasSynced() {
+			return
+		}
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to get chunk %s: %v", chunkName, err)
+		return
 	}
 
 	if chunk.Status.SourceResponse == nil {
-		return nil
+		return
 	}
 
 	switch chunk.Status.Phase {
@@ -175,7 +141,20 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 		bti := v1alpha1.BearerTokenInfo{}
 		err = json.Unmarshal(chunk.Status.ResponseBody, &bti)
 		if err != nil {
-			return fmt.Errorf("failed to unmarshal chunk response body: %v", err)
+			_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
+				b.Status.Phase = v1alpha1.BearerPhaseFailed
+				b.Status.Conditions = v1alpha1.AppendConditions(b.Status.Conditions, v1alpha1.Condition{
+					Type:    "InvalidTokenInfo",
+					Message: "Failed to unmarshal token info from chunk response body: " + err.Error(),
+				})
+				return b
+			})
+			if err != nil {
+				c.workqueue.AddAfter(name, 5*time.Second)
+				klog.Errorf("failed to update bearer status: %v", err)
+				return
+			}
+			return
 		}
 
 		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
@@ -184,14 +163,19 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 			return b
 		})
 		if err != nil {
-			return fmt.Errorf("failed to update bearer status: %v", err)
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update bearer status: %v", err)
+			return
 		}
 
 		err = c.client.TaskV1alpha1().Chunks().Delete(ctx, chunkName, metav1.DeleteOptions{})
 		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return fmt.Errorf("failed to update bearer status: %v", err)
+			if apierrors.IsNotFound(err) {
+				return
 			}
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to delete chunk %s: %v", chunkName, err)
+			return
 		}
 	case v1alpha1.ChunkPhaseFailed:
 		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
@@ -205,8 +189,9 @@ func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alp
 			return b
 		})
 		if err != nil {
-			return fmt.Errorf("failed to update bearer status: %v", err)
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update bearer status: %v", err)
+			return
 		}
 	}
-	return nil
 }

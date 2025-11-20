@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -114,36 +113,31 @@ func (c *ReleaseBlobController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	next, err := c.chunkHandler(ctx, key)
-	if err != nil {
-		klog.Errorf("error release blob chunking '%s': %v", key, err)
-	}
-
-	if next != 0 {
-		c.workqueue.AddAfter(key, next)
-	}
+	c.handler(ctx, key)
 
 	return true
 }
 
-func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (time.Duration, error) {
+func (c *ReleaseBlobController) handler(ctx context.Context, name string) {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return 0, nil
+		if apierrors.IsNotFound(err) && c.blobInformer.Informer().HasSynced() {
+			return
 		}
-		return 0, err
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to get blob %s: %v", name, err)
+		return
 	}
 
 	if blob.Status.HandlerName == "" {
-		return 0, nil
+		return
 	}
 
 	c.lastSeenMut.RLock()
 	lastSeenTime, ok := c.lastSeen[name]
 	c.lastSeenMut.RUnlock()
 	if !ok {
-		return 0, nil
+		return
 	}
 
 	switch blob.Status.Phase {
@@ -151,21 +145,24 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 		dur := 8 * time.Minute
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
-			return dur - sub, nil
+			c.workqueue.AddAfter(name, dur-sub)
+			return
 		}
 
 		newBlob := blob.DeepCopy()
 		newBlob.Status.Phase = v1alpha1.BlobPhaseUnknown
 
 		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, newBlob, metav1.UpdateOptions{})
-		if err != nil {
-			return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
+		if err != nil && !apierrors.IsConflict(err) {
+			c.workqueue.AddAfter(name, 10*time.Second)
+			klog.Errorf("failed to update blob %s: %v", name, err)
 		}
 	case v1alpha1.BlobPhaseUnknown:
 		dur := 30 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
-			return dur - sub, nil
+			c.workqueue.AddAfter(name, dur-sub)
+			return
 		}
 
 		newBlob := blob.DeepCopy()
@@ -173,13 +170,15 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 		newBlob.Status.HandlerName = ""
 
 		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, newBlob, metav1.UpdateOptions{})
-		if err != nil {
-			return 10 * time.Second, fmt.Errorf("failed to update blob %s: %v", name, err)
+		if err != nil && !apierrors.IsConflict(err) {
+			c.workqueue.AddAfter(name, 10*time.Second)
+			klog.Errorf("failed to update blob %s: %v", name, err)
+			return
 		}
 	case v1alpha1.BlobPhaseFailed:
 		ttl, ok := getTTLDuration(blob.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 		if !ok {
-			return 0, nil
+			return
 		}
 
 		// Use CompletionTime if available, otherwise fall back to lastSeenTime
@@ -191,17 +190,20 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 		}
 
 		if timeSinceCompletion < ttl {
-			return ttl - timeSinceCompletion, nil
+			c.workqueue.AddAfter(name, ttl-timeSinceCompletion)
+			return
 		}
 
 		err = c.client.TaskV1alpha1().Blobs().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
-			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
+			c.workqueue.AddAfter(name, 10*time.Second)
+			klog.Errorf("failed to delete blob %s: %v", name, err)
+			return
 		}
 	case v1alpha1.BlobPhaseSucceeded:
 		ttl, ok := getTTLDuration(blob.ObjectMeta, v1alpha1.ReleaseTTLAnnotation)
 		if !ok {
-			return 0, nil
+			return
 		}
 
 		// Use CompletionTime if available, otherwise fall back to lastSeenTime
@@ -213,13 +215,14 @@ func (c *ReleaseBlobController) chunkHandler(ctx context.Context, name string) (
 		}
 
 		if timeSinceCompletion < ttl {
-			return ttl - timeSinceCompletion, nil
+			c.workqueue.AddAfter(name, ttl-timeSinceCompletion)
+			return
 		}
-
 		err = c.client.TaskV1alpha1().Blobs().Delete(ctx, name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
-			return 10 * time.Second, fmt.Errorf("failed to delete blob %s: %v", name, err)
+			c.workqueue.AddAfter(name, 10*time.Second)
+			klog.Errorf("failed to delete blob %s: %v", name, err)
+			return
 		}
 	}
-	return 0, nil
 }

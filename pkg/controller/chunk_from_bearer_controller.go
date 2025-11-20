@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"math/rand"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -26,7 +25,8 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/internal/utils"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -102,23 +102,21 @@ func (c *ChunkFromBearerController) processNextItem(ctx context.Context) bool {
 	}
 	defer c.workqueue.Done(key)
 
-	err := c.blobHandler(ctx, key)
-	if err != nil {
-		c.workqueue.AddAfter(key, 5*time.Second+time.Duration(rand.Intn(100))*time.Millisecond)
-		klog.Errorf("error blob chunking '%s': %v, requeuing", key, err)
-		return true
-	}
+	c.handler(ctx, key)
 
 	return true
 }
 
-func (c *ChunkFromBearerController) blobHandler(ctx context.Context, name string) error {
-	chunkList, err := c.client.TaskV1alpha1().Chunks().List(ctx, metav1.ListOptions{})
+func (c *ChunkFromBearerController) handler(ctx context.Context, name string) {
+	chunkList, err := c.chunkInformer.Lister().List(labels.Everything())
 	if err != nil {
-		return err
+		c.workqueue.AddAfter(name, 5*time.Second)
+		klog.Errorf("failed to list chunks: %v", err)
+		return
 	}
 
-	for _, chunk := range chunkList.Items {
+	var retry bool
+	for _, chunk := range chunkList {
 		if chunk.Spec.BearerName != name {
 			continue
 		}
@@ -130,17 +128,20 @@ func (c *ChunkFromBearerController) blobHandler(ctx context.Context, name string
 			continue
 		}
 
-		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Chunks(), &chunk, func(ch *v1alpha1.Chunk) *v1alpha1.Chunk {
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Chunks(), chunk, func(ch *v1alpha1.Chunk) *v1alpha1.Chunk {
 			ch.Status.HandlerName = ""
 			ch.Status.Phase = v1alpha1.ChunkPhasePending
 			ch.Status.Progress = 0
 			ch.Status.Conditions = nil
 			return ch
 		})
-		if err != nil {
-			klog.Errorf("error resetting chunk '%s' status: %v", chunk.Name, err)
+		if err != nil && !apierrors.IsNotFound(err) {
+			klog.Errorf("failed to release chunk %s: %v", chunk.Name, err)
+			retry = true
 		}
 	}
 
-	return nil
+	if retry {
+		c.workqueue.AddAfter(name, 5*time.Second)
+	}
 }
