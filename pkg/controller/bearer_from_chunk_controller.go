@@ -137,10 +137,7 @@ func (c *BearerFromChunkController) processNextItem(ctx context.Context) bool {
 func (c *BearerFromChunkController) chunkHandler(ctx context.Context, name string) error {
 	bearer, err := c.bearerInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return err
+		return fmt.Errorf("failed to get bearer: %w", err)
 	}
 
 	if bearer.Status.HandlerName != c.handlerName {
@@ -151,15 +148,6 @@ func (c *BearerFromChunkController) chunkHandler(ctx context.Context, name strin
 		return nil
 	}
 
-	err = c.fromChunk(ctx, bearer)
-	if err != nil {
-		return fmt.Errorf("failed to update bearer status for bearer %s: %v", bearer.Name, err)
-	}
-
-	return nil
-}
-
-func (c *BearerFromChunkController) fromChunk(ctx context.Context, bearer *v1alpha1.Bearer) error {
 	chunkName := buildBearerChunkName(bearer.Name)
 	chunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err != nil {

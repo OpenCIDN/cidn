@@ -117,15 +117,9 @@ func (c *ChunkToBearerController) processNextItem(ctx context.Context) bool {
 func (c *ChunkToBearerController) chunkHandler(ctx context.Context, name string) error {
 	chunk, err := c.chunkInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
 		return err
 	}
-	return c.toBearer(ctx, chunk)
-}
 
-func (c *ChunkToBearerController) toBearer(ctx context.Context, chunk *v1alpha1.Chunk) error {
 	if chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
 		return nil
 	}
@@ -154,7 +148,7 @@ func (c *ChunkToBearerController) toBearer(ctx context.Context, chunk *v1alpha1.
 		return nil
 	}
 
-	_, err := c.bearerInformer.Lister().Get(chunk.Spec.BearerName)
+	_, err = c.bearerInformer.Lister().Get(chunk.Spec.BearerName)
 	if err == nil {
 		return nil
 	}

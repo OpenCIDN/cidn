@@ -149,9 +149,6 @@ func (c *BlobFromChunkController) processNextItem(ctx context.Context) bool {
 func (c *BlobFromChunkController) chunkHandler(ctx context.Context, name string) error {
 	blob, err := c.blobInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
 		return err
 	}
 

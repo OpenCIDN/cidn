@@ -140,9 +140,6 @@ func (c *BearerToChunkController) processNextItem(ctx context.Context) bool {
 func (c *BearerToChunkController) chunkHandler(ctx context.Context, name string) error {
 	bearer, err := c.bearerInformer.Lister().Get(name)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
 		return err
 	}
 
