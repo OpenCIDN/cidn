@@ -149,6 +149,9 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 		return
 	}
 
+	// Make this a deep copy to avoid mutating the shared informer cache
+	blob = blob.DeepCopy()
+
 	if blob.Spec.ChunksNumber == 1 {
 		err = c.fromOneChunk(ctx, blob)
 		if err != nil {
