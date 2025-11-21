@@ -168,7 +168,11 @@ func (c *BearerFromChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		if bti.ExpiresIn > 0 && bti.IssuedAt.IsZero() {
+		if bti.ExpiresIn == 0 {
+			bti.ExpiresIn = 600
+		}
+
+		if bti.IssuedAt.IsZero() {
 			bti.IssuedAt = chunk.CreationTimestamp
 		}
 
