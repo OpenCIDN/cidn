@@ -168,6 +168,10 @@ func (c *BearerFromChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
+		if bti.ExpiresIn > 0 && bti.IssuedAt.IsZero() {
+			bti.IssuedAt = chunk.CreationTimestamp
+		}
+
 		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
 			b.Status.TokenInfo = &bti
 			b.Status.Phase = v1alpha1.BearerPhaseSucceeded
