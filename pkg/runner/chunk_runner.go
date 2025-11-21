@@ -147,6 +147,14 @@ func (r *ChunkRunner) unmarkRecord(name string) {
 	delete(r.record, name)
 }
 
+func (r *ChunkRunner) clearRecord() {
+	r.recordMut.Lock()
+	defer r.recordMut.Unlock()
+	if len(r.record) != 0 {
+		r.record = map[string]struct{}{}
+	}
+}
+
 func (r *ChunkRunner) enqueueChunk() {
 	select {
 	case r.signal <- struct{}{}:
@@ -950,6 +958,7 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 	}
 
 	if size == 0 {
+		r.clearRecord()
 		return ErrNoPendingChunk
 	}
 
