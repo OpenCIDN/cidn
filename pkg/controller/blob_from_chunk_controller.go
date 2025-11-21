@@ -167,6 +167,10 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 			klog.Errorf("failed to update blob status: %v", err)
 			return
 		}
+
+		if blob.Status.Phase == v1alpha1.BlobPhaseRunning {
+			c.workqueue.AddAfter(name, 10*time.Second)
+		}
 		return
 	}
 
@@ -186,6 +190,10 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 		if err != nil {
 			c.workqueue.AddAfter(name, 5*time.Second)
 			return
+		}
+
+		if blob.Status.Phase == v1alpha1.BlobPhaseRunning {
+			c.workqueue.AddAfter(name, 10*time.Second)
 		}
 		return
 	}
@@ -212,6 +220,10 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 			klog.Errorf("failed to update blob status: %v", err)
 			return
 		}
+
+		if blob.Status.Phase == v1alpha1.BlobPhaseRunning {
+			c.workqueue.AddAfter(name, 10*time.Second)
+		}
 		return
 	}
 
@@ -231,6 +243,10 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 		c.workqueue.AddAfter(name, 5*time.Second)
 		klog.Errorf("failed to update blob status: %v", err)
 		return
+	}
+
+	if blob.Status.Phase == v1alpha1.BlobPhaseRunning {
+		c.workqueue.AddAfter(name, 10*time.Second)
 	}
 }
 

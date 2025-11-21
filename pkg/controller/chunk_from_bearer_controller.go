@@ -26,6 +26,7 @@ import (
 	informers "github.com/OpenCIDN/cidn/pkg/informers/externalversions/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -54,28 +55,18 @@ func NewChunkFromBearerController(
 		bearerInformer: sharedInformerFactory.Task().V1alpha1().Bearers(),
 		client:         client,
 		workqueue:      workqueue.NewTypedDelayingQueue[string](),
-		concurrency:    6,
+		concurrency:    5,
 	}
 
 	c.bearerInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			bearer := obj.(*v1alpha1.Bearer)
 			key := bearer.Name
-
-			if bearer.Status.Phase != v1alpha1.BearerPhaseSucceeded {
-				return
-			}
-
 			c.workqueue.Add(key)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			bearer := newObj.(*v1alpha1.Bearer)
 			key := bearer.Name
-
-			if bearer.Status.Phase != v1alpha1.BearerPhaseSucceeded {
-				return
-			}
-
 			c.workqueue.Add(key)
 		},
 	})
@@ -108,40 +99,64 @@ func (c *ChunkFromBearerController) processNextItem(ctx context.Context) bool {
 }
 
 func (c *ChunkFromBearerController) handler(ctx context.Context, name string) {
-	chunkList, err := c.chunkInformer.Lister().List(labels.Everything())
+	bearer, err := c.bearerInformer.Lister().Get(name)
 	if err != nil {
-		c.workqueue.AddAfter(name, 5*time.Second)
-		klog.Errorf("failed to list chunks: %v", err)
-		return
-	}
-
-	var retry bool
-	for _, chunk := range chunkList {
-		if chunk.Spec.BearerName != name {
-			continue
+		if !apierrors.IsNotFound(err) {
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to get bearer '%s': %v", name, err)
+			return
 		}
-		if chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
-			continue
-		}
-
-		if !chunk.Status.Retryable {
-			continue
-		}
-
-		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Chunks(), chunk, func(ch *v1alpha1.Chunk) *v1alpha1.Chunk {
-			ch.Status.HandlerName = ""
-			ch.Status.Phase = v1alpha1.ChunkPhasePending
-			ch.Status.Progress = 0
-			ch.Status.Conditions = nil
-			return ch
-		})
-		if err != nil && !apierrors.IsNotFound(err) {
-			klog.Errorf("failed to release chunk %s: %v", chunk.Name, err)
-			retry = true
+		bearer, err = c.client.TaskV1alpha1().Bearers().Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return
+			}
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to get bearer '%s' from API server: %v", name, err)
+			return
 		}
 	}
 
-	if retry {
-		c.workqueue.AddAfter(name, 5*time.Second)
+	switch bearer.Status.Phase {
+	case v1alpha1.BearerPhaseSucceeded:
+		chunkList, err := c.chunkInformer.Lister().List(labels.Everything())
+		if err != nil {
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to list chunks: %v", err)
+			return
+		}
+
+		var retry bool
+		for _, chunk := range chunkList {
+			if chunk.Spec.BearerName != name {
+				continue
+			}
+			if chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
+				continue
+			}
+
+			if !chunk.Status.Retryable {
+				continue
+			}
+
+			_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Chunks(), chunk, func(ch *v1alpha1.Chunk) *v1alpha1.Chunk {
+				ch.Status.HandlerName = ""
+				ch.Status.Phase = v1alpha1.ChunkPhasePending
+				ch.Status.Progress = 0
+				ch.Status.Conditions = nil
+				return ch
+			})
+			if err != nil && !apierrors.IsNotFound(err) {
+				klog.Errorf("failed to release chunk %s: %v", chunk.Name, err)
+				retry = true
+			}
+		}
+
+		if retry {
+			c.workqueue.AddAfter(name, 5*time.Second)
+		}
+	case v1alpha1.BearerPhaseRunning, v1alpha1.BearerPhaseUnknown:
+		c.workqueue.AddAfter(name, 10*time.Second)
 	}
+
 }

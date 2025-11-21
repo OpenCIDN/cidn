@@ -185,6 +185,8 @@ func (c *BlobToChunkController) handler(ctx context.Context, name string) {
 				klog.Errorf("failed to create chunk for blob %s: %v", blob.Name, err)
 				return
 			}
+
+			c.workqueue.AddAfter(name, 10*time.Second)
 			return
 		}
 
@@ -195,6 +197,8 @@ func (c *BlobToChunkController) handler(ctx context.Context, name string) {
 				klog.Errorf("failed to create head chunk for blob %s: %v", blob.Name, err)
 				return
 			}
+
+			c.workqueue.AddAfter(name, 10*time.Second)
 			return
 		}
 
@@ -205,6 +209,8 @@ func (c *BlobToChunkController) handler(ctx context.Context, name string) {
 				klog.Errorf("failed to create chunks for blob %s: %v", blob.Name, err)
 				return
 			}
+
+			c.workqueue.AddAfter(name, 10*time.Second)
 			return
 		}
 
@@ -215,6 +221,7 @@ func (c *BlobToChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
+		c.workqueue.AddAfter(name, 10*time.Second)
 	case v1alpha1.BlobPhaseSucceeded:
 		c.cleanupBlob(blob)
 	}

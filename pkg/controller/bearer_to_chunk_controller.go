@@ -163,6 +163,7 @@ func (c *BearerToChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
+		c.workqueue.AddAfter(name, 10*time.Second)
 	case v1alpha1.BearerPhaseSucceeded:
 		c.cleanupBearer(bearer)
 	}

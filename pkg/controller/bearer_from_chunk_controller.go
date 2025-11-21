@@ -208,5 +208,7 @@ func (c *BearerFromChunkController) handler(ctx context.Context, name string) {
 			klog.Errorf("failed to update bearer status: %v", err)
 			return
 		}
+	case v1alpha1.ChunkPhaseRunning:
+		c.workqueue.AddAfter(name, 10*time.Second)
 	}
 }
