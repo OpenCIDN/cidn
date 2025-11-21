@@ -204,7 +204,7 @@ func (c *ChunkToBearerController) handler(ctx context.Context, name string) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: chunk.Spec.BearerName,
 			Annotations: map[string]string{
-				v1alpha1.ReleaseTTLAnnotation: "24h",
+				v1alpha1.ReleaseTTLAnnotation: "10m",
 			},
 		},
 		Spec: v1alpha1.BearerSpec{
