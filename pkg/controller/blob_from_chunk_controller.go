@@ -168,9 +168,7 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		if blob.Status.Phase == v1alpha1.BlobPhaseRunning {
-			c.workqueue.AddAfter(name, 10*time.Second)
-		}
+		c.workqueue.AddAfter(name, 10*time.Second)
 		return
 	}
 
@@ -192,13 +190,12 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		if blob.Status.Phase == v1alpha1.BlobPhaseRunning {
-			c.workqueue.AddAfter(name, 10*time.Second)
-		}
+		c.workqueue.AddAfter(name, 10*time.Second)
 		return
 	}
 
 	if blob.Spec.ChunksNumber == 0 {
+		c.workqueue.AddAfter(name, 10*time.Second)
 		return
 	}
 
@@ -221,9 +218,7 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		if blob.Status.Phase == v1alpha1.BlobPhaseRunning {
-			c.workqueue.AddAfter(name, 10*time.Second)
-		}
+		c.workqueue.AddAfter(name, 10*time.Second)
 		return
 	}
 
@@ -245,9 +240,7 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 		return
 	}
 
-	if blob.Status.Phase == v1alpha1.BlobPhaseRunning {
-		c.workqueue.AddAfter(name, 10*time.Second)
-	}
+	c.workqueue.AddAfter(name, 10*time.Second)
 }
 
 func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alpha1.Blob) error {
