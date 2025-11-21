@@ -147,10 +147,6 @@ func (c *BearerFromChunkController) handler(ctx context.Context, name string) {
 		return
 	}
 
-	if chunk.Status.SourceResponse == nil {
-		return
-	}
-
 	switch chunk.Status.Phase {
 	case v1alpha1.ChunkPhaseSucceeded:
 		bti := v1alpha1.BearerTokenInfo{}
