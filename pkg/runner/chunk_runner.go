@@ -431,7 +431,6 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 				err := fmt.Errorf("unauthorized access to source URL")
 				r.unmarkRecord(chunk.Name)
 				s.handleProcessErrorAndRetryable("Unauthorized", err)
-
 			} else {
 				err := fmt.Errorf("unexpected status code: got %d, want %d",
 					srcResp.StatusCode, chunk.Spec.Source.Response.StatusCode)
@@ -490,53 +489,33 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 	return srcResp.Body, srcResp.ContentLength
 }
 
-func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr *swmrCount, contentLength int64) (string, error) {
+func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr *swmrCount, contentLength int64) (string, bool, error) {
 	destReq, err := r.buildRequest(ctx, dest, dr.NewReader(), contentLength)
 	if err != nil {
-		if retry, err := utils.IsNetworkError(err); !retry {
-			return "", fmt.Errorf("failed to build destination request: %w", err)
-		}
-
-		destReq, err = r.buildRequest(ctx, dest, dr.NewReader(), contentLength)
-		if err != nil {
-			return "", fmt.Errorf("retry: failed to build destination request: %w", err)
-		}
+		retry, err := utils.IsNetworkError(err)
+		return "", retry, fmt.Errorf("failed to build destination request: %w", err)
 	}
 
 	destResp, err := r.httpClient.Do(destReq)
+	retry, err := utils.IsHTTPResponseError(destResp, err)
 	if err != nil {
-		if retry, err := utils.IsHTTPResponseError(destResp, err); !retry {
-			return "", fmt.Errorf("failed to perform destination request: %w", err)
+		if destResp != nil && destResp.Body != nil {
+			destResp.Body.Close()
 		}
-
-		destReq, err = r.buildRequest(ctx, dest, dr.NewReader(), contentLength)
-		if err != nil {
-			return "", fmt.Errorf("retry prepare: failed to build destination request: %w", err)
-		}
-		destResp, err = r.httpClient.Do(destReq)
-		if err != nil {
-			return "", fmt.Errorf("retry: failed to perform destination request: %w", err)
-		}
+		return "", retry, fmt.Errorf("failed to perform destination request: %w", err)
 	}
 	defer destResp.Body.Close()
 
 	if dest.Response.StatusCode != 0 {
 		if destResp.StatusCode != dest.Response.StatusCode {
-			body, err := io.ReadAll(destResp.Body)
-			if err != nil {
-				return "", fmt.Errorf("unexpected status code from destination: got %d, want %d (failed to read response body: %v)",
-					destResp.StatusCode, dest.Response.StatusCode, err)
-			}
-			return "", fmt.Errorf("unexpected status code from destination: got %d, want %d, body: %s",
+			body, _ := io.ReadAll(destResp.Body)
+			return "", false, fmt.Errorf("unexpected status code from destination: got %d, want %d, body: %s",
 				destResp.StatusCode, dest.Response.StatusCode, string(body))
 		}
 	} else {
 		if destResp.StatusCode >= http.StatusMultipleChoices {
-			body, err := io.ReadAll(destResp.Body)
-			if err != nil {
-				return "", fmt.Errorf("destination returned error status code: %d (failed to read response body: %v)", destResp.StatusCode, err)
-			}
-			return "", fmt.Errorf("destination returned error status code: %d, body: %s", destResp.StatusCode, string(body))
+			body, _ := io.ReadAll(destResp.Body)
+			return "", false, fmt.Errorf("destination returned error status code: %d, body: %s", destResp.StatusCode, string(body))
 		}
 	}
 
@@ -546,10 +525,10 @@ func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.Chu
 	}
 
 	if etag == "" {
-		return "", fmt.Errorf("empty ETag received from destination")
+		return "", false, fmt.Errorf("empty ETag received from destination")
 	}
 
-	return etag, nil
+	return etag, false, nil
 }
 
 func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) {
@@ -665,9 +644,16 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 		i := i
 		dr := drs[i]
 		g.Go(func() error {
-			etag, err := r.destinationRequest(ctx, &dest, dr, contentLength)
+			etag, retry, err := r.destinationRequest(ctx, &dest, dr, contentLength)
 			if err != nil {
-				return err
+				if !retry {
+					return err
+				}
+				time.Sleep(time.Second)
+				etag, _, err = r.destinationRequest(ctx, &dest, dr, contentLength)
+				if err != nil {
+					return err
+				}
 			}
 			etags[i] = etag
 			return nil
@@ -676,7 +662,12 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	err = g.Wait()
 	if err != nil {
-		s.handleProcessError("DestinationRequestError", err)
+		if retry, err := utils.IsNetworkError(err); !retry {
+			s.handleProcessError("DestinationRequestError", err)
+		} else {
+			r.unmarkRecord(chunk.Name)
+			s.handleProcessErrorAndRetryable("DestinationRequestError", err)
+		}
 		return
 	}
 
