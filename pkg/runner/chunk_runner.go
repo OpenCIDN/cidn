@@ -688,7 +688,7 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **
 				updateProgress(&ss.Status, &ss.Spec, *gsr, *gdrs)
 			}
 
-			if prevStatus != nil && reflect.DeepEqual(prevStatus, &ss.Status) {
+			if prevStatus != nil && reflect.DeepEqual(prevStatus, &ss.Status) && time.Since(lastUpdateTime) < 2*r.updateDuration {
 				klog.Infof("No changes detected for chunk %s, skipping update. Last update was %s ago", ss.Name, time.Since(lastUpdateTime))
 				return ss
 			}
