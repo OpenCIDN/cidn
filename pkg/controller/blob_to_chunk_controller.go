@@ -425,14 +425,14 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 	}
 
 	if len(chunk.Spec.Destination) == 0 {
-		_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
-			b.Status.SucceededChunks = 1
-			b.Status.FailedChunks = 0
-			b.Status.PendingChunks = 0
-			b.Status.RunningChunks = 0
-			utils.SetBlobTerminalPhase(b, v1alpha1.BlobPhaseSucceeded)
-			b.Status.Progress = b.Status.Total
-			return b
+		_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+			blob.Status.SucceededChunks = 1
+			blob.Status.FailedChunks = 0
+			blob.Status.PendingChunks = 0
+			blob.Status.RunningChunks = 0
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseSucceeded)
+			blob.Status.Progress = blob.Status.Total
+			return blob
 		})
 		if err != nil {
 			return fmt.Errorf("failed to update blob status: %v", err)

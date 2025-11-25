@@ -149,7 +149,6 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 		return
 	}
 
-	// Make this a deep copy to avoid mutating the shared informer cache
 	blob = blob.DeepCopy()
 
 	if blob.Spec.ChunksNumber == 1 {
@@ -160,10 +159,10 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		blobStatus := blob.Status.DeepCopy()
-		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
-			b.Status = *blobStatus
-			return b
+		blobStatus := blob.Status
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+			blob.Status = blobStatus
+			return blob
 		})
 		if err != nil {
 			c.workqueue.AddAfter(name, 5*time.Second)
@@ -183,10 +182,10 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		blobStatus := blob.Status.DeepCopy()
-		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
-			b.Status = *blobStatus
-			return b
+		blobStatus := blob.Status
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+			blob.Status = blobStatus
+			return blob
 		})
 		if err != nil {
 			c.workqueue.AddAfter(name, 5*time.Second)
@@ -210,10 +209,10 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		blobStatus := blob.Status.DeepCopy()
-		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
-			b.Status = *blobStatus
-			return b
+		blobStatus := blob.Status
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+			blob.Status = blobStatus
+			return blob
 		})
 		if err != nil {
 			c.workqueue.AddAfter(name, 5*time.Second)
@@ -232,10 +231,10 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 		return
 	}
 
-	blobStatus := blob.Status.DeepCopy()
-	_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(b *v1alpha1.Blob) *v1alpha1.Blob {
-		b.Status = *blobStatus
-		return b
+	blobStatus := blob.Status
+	_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+		blob.Status = blobStatus
+		return blob
 	})
 	if err != nil {
 		c.workqueue.AddAfter(name, 5*time.Second)

@@ -88,17 +88,17 @@ func (c *BearerHoldController) ReleaseAll(ctx context.Context) error {
 		}
 
 		wg.Add(1)
-		go func(b *v1alpha1.Bearer) {
+		go func(bearer *v1alpha1.Bearer) {
 			defer wg.Done()
 
-			_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), b, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
+			_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
 				bearer.Status.HandlerName = ""
 				bearer.Status.Phase = v1alpha1.BearerPhasePending
 				bearer.Status.Conditions = nil
 				return bearer
 			})
 			if err != nil {
-				klog.Errorf("failed to release bearer %s: %v", b.Name, err)
+				klog.Errorf("failed to release bearer %s: %v", bearer.Name, err)
 			}
 		}(bearer)
 	}
@@ -161,6 +161,7 @@ func (c *BearerHoldController) handler(ctx context.Context, name string) {
 		return
 	}
 
+	bearer = bearer.DeepCopy()
 	bearer.Status.HandlerName = c.handlerName
 	bearer.Status.Phase = v1alpha1.BearerPhaseRunning
 	_, err = c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, bearer, metav1.UpdateOptions{})

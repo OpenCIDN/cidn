@@ -88,17 +88,17 @@ func (c *BlobHoldController) ReleaseAll(ctx context.Context) error {
 		}
 
 		wg.Add(1)
-		go func(b *v1alpha1.Blob) {
+		go func(blob *v1alpha1.Blob) {
 			defer wg.Done()
 
-			_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), b, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+			_, err := utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
 				blob.Status.HandlerName = ""
 				blob.Status.Phase = v1alpha1.BlobPhasePending
 				blob.Status.Conditions = nil
 				return blob
 			})
 			if err != nil {
-				klog.Errorf("failed to release blob %s: %v", b.Name, err)
+				klog.Errorf("failed to release blob %s: %v", blob.Name, err)
 			}
 		}(blob)
 	}
@@ -160,6 +160,8 @@ func (c *BlobHoldController) handler(ctx context.Context, name string) {
 	if blob.Status.Phase != v1alpha1.BlobPhasePending {
 		return
 	}
+
+	blob = blob.DeepCopy()
 
 	blob.Status.HandlerName = c.handlerName
 	blob.Status.Phase = v1alpha1.BlobPhaseRunning

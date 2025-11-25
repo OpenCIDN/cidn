@@ -158,10 +158,10 @@ func (c *ReleaseChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		newChunk := chunk.DeepCopy()
-		newChunk.Status.Phase = v1alpha1.ChunkPhaseUnknown
+		chunk := chunk.DeepCopy()
+		chunk.Status.Phase = v1alpha1.ChunkPhaseUnknown
 
-		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
+		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
 		if err != nil && !apierrors.IsConflict(err) {
 			c.workqueue.AddAfter(name, 10*time.Second)
 			klog.Errorf("failed to update chunk %s: %v", name, err)
@@ -175,11 +175,11 @@ func (c *ReleaseChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		newChunk := chunk.DeepCopy()
-		newChunk.Status.Phase = v1alpha1.ChunkPhasePending
-		newChunk.Status.HandlerName = ""
+		chunk := chunk.DeepCopy()
+		chunk.Status.Phase = v1alpha1.ChunkPhasePending
+		chunk.Status.HandlerName = ""
 
-		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
+		_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
 		if err != nil && !apierrors.IsConflict(err) {
 			c.workqueue.AddAfter(name, 10*time.Second)
 			klog.Errorf("failed to update chunk %s: %v", name, err)
@@ -194,14 +194,14 @@ func (c *ReleaseChunkController) handler(ctx context.Context, name string) {
 				return
 			}
 
-			newChunk := chunk.DeepCopy()
-			newChunk.Status.Phase = v1alpha1.ChunkPhasePending
-			newChunk.Status.Conditions = nil
-			newChunk.Status.Retryable = false
-			newChunk.Status.Retry++
-			newChunk.Status.HandlerName = ""
+			chunk := chunk.DeepCopy()
+			chunk.Status.Phase = v1alpha1.ChunkPhasePending
+			chunk.Status.Conditions = nil
+			chunk.Status.Retryable = false
+			chunk.Status.Retry++
+			chunk.Status.HandlerName = ""
 
-			_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, newChunk, metav1.UpdateOptions{})
+			_, err = c.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
 			if err != nil && !apierrors.IsConflict(err) {
 				c.workqueue.AddAfter(name, 10*time.Second)
 				klog.Errorf("failed to update chunk %s: %v", name, err)

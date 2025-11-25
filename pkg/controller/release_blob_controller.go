@@ -157,10 +157,10 @@ func (c *ReleaseBlobController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		newBlob := blob.DeepCopy()
-		newBlob.Status.Phase = v1alpha1.BlobPhaseUnknown
+		blob := blob.DeepCopy()
+		blob.Status.Phase = v1alpha1.BlobPhaseUnknown
 
-		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, newBlob, metav1.UpdateOptions{})
+		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
 		if err != nil && !apierrors.IsConflict(err) {
 			c.workqueue.AddAfter(name, 10*time.Second)
 			klog.Errorf("failed to update blob %s: %v", name, err)
@@ -173,11 +173,11 @@ func (c *ReleaseBlobController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		newBlob := blob.DeepCopy()
-		newBlob.Status.Phase = v1alpha1.BlobPhasePending
-		newBlob.Status.HandlerName = ""
+		blob := blob.DeepCopy()
+		blob.Status.Phase = v1alpha1.BlobPhasePending
+		blob.Status.HandlerName = ""
 
-		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, newBlob, metav1.UpdateOptions{})
+		_, err = c.client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{})
 		if err != nil && !apierrors.IsConflict(err) {
 			c.workqueue.AddAfter(name, 10*time.Second)
 			klog.Errorf("failed to update blob %s: %v", name, err)

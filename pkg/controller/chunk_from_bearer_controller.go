@@ -119,7 +119,7 @@ func (c *ChunkFromBearerController) handler(ctx context.Context, name string) {
 
 	switch bearer.Status.Phase {
 	case v1alpha1.BearerPhaseSucceeded:
-		chunkList, err := c.chunkInformer.Lister().List(labels.Everything())
+		chunks, err := c.chunkInformer.Lister().List(labels.Everything())
 		if err != nil {
 			c.workqueue.AddAfter(name, 5*time.Second)
 			klog.Errorf("failed to list chunks: %v", err)
@@ -127,7 +127,7 @@ func (c *ChunkFromBearerController) handler(ctx context.Context, name string) {
 		}
 
 		var retry bool
-		for _, chunk := range chunkList {
+		for _, chunk := range chunks {
 			if chunk.Spec.BearerName != name {
 				continue
 			}
@@ -139,12 +139,12 @@ func (c *ChunkFromBearerController) handler(ctx context.Context, name string) {
 				continue
 			}
 
-			_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Chunks(), chunk, func(ch *v1alpha1.Chunk) *v1alpha1.Chunk {
-				ch.Status.HandlerName = ""
-				ch.Status.Phase = v1alpha1.ChunkPhasePending
-				ch.Status.Progress = 0
-				ch.Status.Conditions = nil
-				return ch
+			_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Chunks(), chunk, func(chunk *v1alpha1.Chunk) *v1alpha1.Chunk {
+				chunk.Status.HandlerName = ""
+				chunk.Status.Phase = v1alpha1.ChunkPhasePending
+				chunk.Status.Progress = 0
+				chunk.Status.Conditions = nil
+				return chunk
 			})
 			if err != nil && !apierrors.IsNotFound(err) {
 				klog.Errorf("failed to release chunk %s: %v", chunk.Name, err)

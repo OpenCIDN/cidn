@@ -132,7 +132,7 @@ func (c *BearerFromChunkController) handler(ctx context.Context, name string) {
 		return
 	}
 
-	if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
+	if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded || bearer.Status.Phase == v1alpha1.BearerPhaseFailed {
 		return
 	}
 
@@ -152,13 +152,13 @@ func (c *BearerFromChunkController) handler(ctx context.Context, name string) {
 		bti := v1alpha1.BearerTokenInfo{}
 		err = json.Unmarshal(chunk.Status.ResponseBody, &bti)
 		if err != nil {
-			_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
-				b.Status.Phase = v1alpha1.BearerPhaseFailed
-				b.Status.Conditions = v1alpha1.AppendConditions(b.Status.Conditions, v1alpha1.Condition{
+			_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
+				bearer.Status.Phase = v1alpha1.BearerPhaseFailed
+				bearer.Status.Conditions = v1alpha1.AppendConditions(bearer.Status.Conditions, v1alpha1.Condition{
 					Type:    "InvalidTokenInfo",
 					Message: "Failed to unmarshal token info from chunk response body: " + err.Error(),
 				})
-				return b
+				return bearer
 			})
 			if err != nil {
 				c.workqueue.AddAfter(name, 5*time.Second)
@@ -176,10 +176,11 @@ func (c *BearerFromChunkController) handler(ctx context.Context, name string) {
 			bti.IssuedAt = chunk.CreationTimestamp
 		}
 
-		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
-			b.Status.TokenInfo = &bti
-			b.Status.Phase = v1alpha1.BearerPhaseSucceeded
-			return b
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
+			bearer.Status.TokenInfo = &bti
+			bearer.Status.Phase = v1alpha1.BearerPhaseSucceeded
+			bearer.Status.Conditions = nil
+			return bearer
 		})
 		if err != nil {
 			c.workqueue.AddAfter(name, 5*time.Second)
@@ -197,15 +198,15 @@ func (c *BearerFromChunkController) handler(ctx context.Context, name string) {
 			return
 		}
 	case v1alpha1.ChunkPhaseFailed:
-		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(b *v1alpha1.Bearer) *v1alpha1.Bearer {
-			retryable := chunk.Status.Retryable && chunk.Status.Retry < chunk.Spec.MaximumRetry
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Bearers(), bearer, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
+			retryable := chunk.Status.Retryable
 			if retryable {
-				b.Status.Phase = v1alpha1.BearerPhaseRunning
+				bearer.Status.Phase = v1alpha1.BearerPhaseRunning
 			} else {
-				b.Status.Phase = v1alpha1.BearerPhaseFailed
-				b.Status.Conditions = v1alpha1.AppendConditions(b.Status.Conditions, chunk.Status.Conditions...)
+				bearer.Status.Phase = v1alpha1.BearerPhaseFailed
+				bearer.Status.Conditions = v1alpha1.AppendConditions(bearer.Status.Conditions, chunk.Status.Conditions...)
 			}
-			return b
+			return bearer
 		})
 		if err != nil {
 			c.workqueue.AddAfter(name, 5*time.Second)
