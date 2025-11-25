@@ -677,7 +677,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **readCount, gdrs *[]*swmrCount) func() {
 	var (
 		prevStatus     *v1alpha1.ChunkStatus
-		lastUpdateTime time.Time
+		lastUpdateTime = time.Now()
 	)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -688,24 +688,67 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **
 				updateProgress(&ss.Status, &ss.Spec, *gsr, *gdrs)
 			}
 
-			if prevStatus != nil && reflect.DeepEqual(prevStatus, &ss.Status) && time.Since(lastUpdateTime) < 2*r.updateDuration {
-				klog.Infof("No changes detected for chunk %s, skipping update. Last update was %s ago", ss.Name, time.Since(lastUpdateTime))
+			if reflect.DeepEqual(prevStatus, &ss.Status) {
+				since := time.Since(lastUpdateTime)
+				if since <= 2*time.Minute {
+					return ss
+				}
+
+				chunk := ss.DeepCopy()
+				chunk.Status.Phase = v1alpha1.ChunkPhasePending
+				chunk.Status.HandlerName = ""
+				_, err := r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
+				if err != nil {
+					klog.Infof("Failed to reset chunk status for chunk %s: %v", chunk.Name, err)
+					return ss
+				}
+				klog.Infof("Reset chunk status %s", chunk.Name)
+				cancel()
 				return ss
 			}
 
-			s := ss.Status.DeepCopy()
-			chunk, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Chunks(), ss, func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
-				ss.Status = *s
-				return ss
-			})
-
+			chunk, err := r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, ss, metav1.UpdateOptions{})
 			if err != nil {
 				if apierrors.IsNotFound(err) {
+					klog.Infof("Chunk %s not found: %v", ss.Name, err)
 					cancel()
 					return ss
 				}
-				klog.Infof("Failed to update chunk status for chunk %s: %v", ss.Name, err)
-				return ss
+				if !apierrors.IsConflict(err) {
+					klog.Infof("Failed to update chunk status for chunk %s: %v", ss.Name, err)
+					return ss
+				}
+
+				chunk, err = r.client.TaskV1alpha1().Chunks().Get(ctx, ss.Name, metav1.GetOptions{})
+				if err != nil {
+					if apierrors.IsNotFound(err) {
+						klog.Infof("Chunk %s not found: %v", ss.Name, err)
+						cancel()
+						return ss
+					}
+					klog.Infof("Failed to get chunk %s: %v", ss.Name, err)
+					return ss
+				}
+				if chunk.Status.HandlerName != r.handlerName {
+					klog.Infof("Chunk %s handler name changed: %v", ss.Name, err)
+					cancel()
+					return ss
+				}
+
+				if *gsr != nil {
+					updateProgress(&chunk.Status, &chunk.Spec, *gsr, *gdrs)
+				}
+
+				chunk, err = r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
+				if err != nil {
+					if apierrors.IsNotFound(err) {
+						klog.Infof("Chunk %s not found: %v", ss.Name, err)
+						cancel()
+						return ss
+					}
+					klog.Infof("Failed to update chunk status for chunk %s: %v", ss.Name, err)
+					return ss
+				}
 			}
 
 			prevStatus = chunk.Status.DeepCopy()
