@@ -197,6 +197,8 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 		}(chunk)
 	}
 
+	wg.Wait()
+
 	return nil
 }
 
