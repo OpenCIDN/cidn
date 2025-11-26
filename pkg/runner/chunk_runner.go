@@ -808,12 +808,18 @@ func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *
 	}
 
 	<-continues
-	r.waitForPartialChunk(chunk, s, swmr, etags)
+	r.waitForPartialChunk(s, swmr, etags)
 }
 
-func (r *ChunkRunner) waitForPartialChunk(chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string) {
+func (r *ChunkRunner) waitForPartialChunk(s *state, swmr ioswmr.SWMR, etags []string) {
 	chunks := r.client.TaskV1alpha1().Chunks()
 	for {
+		chunk := s.Get()
+		if chunk.Status.HandlerName != r.handlerName {
+			klog.Infof("Chunk %s handler name changed", chunk.Name)
+			return
+		}
+
 		pchunk, err := chunks.Get(context.Background(), chunk.Spec.Sha256PartialPreviousName, metav1.GetOptions{})
 		if err != nil {
 			if apierrors.IsNotFound(err) {
@@ -1100,6 +1106,13 @@ func (s *state) Update(fun func(ss *v1alpha1.Chunk) *v1alpha1.Chunk) {
 
 	status := fun(s.ss.DeepCopy())
 	s.ss = status.DeepCopy()
+}
+
+func (s *state) Get() *v1alpha1.Chunk {
+	s.mut.Lock()
+	defer s.mut.Unlock()
+
+	return s.ss.DeepCopy()
 }
 
 func handleProcessError(chunk *v1alpha1.Chunk, typ string, err error) {
