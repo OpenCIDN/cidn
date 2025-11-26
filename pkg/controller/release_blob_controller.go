@@ -150,7 +150,7 @@ func (c *ReleaseBlobController) handler(ctx context.Context, name string) {
 
 	switch blob.Status.Phase {
 	case v1alpha1.BlobPhaseRunning:
-		dur := 8 * time.Minute
+		dur := 5 * time.Minute
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			c.workqueue.AddAfter(name, dur-sub)
