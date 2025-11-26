@@ -157,10 +157,10 @@ func (c *ReleaseBearerController) handler(ctx context.Context, name string) {
 			return
 		}
 
-		newBearer := bearer.DeepCopy()
-		newBearer.Status.Phase = v1alpha1.BearerPhaseUnknown
+		bearer := bearer.DeepCopy()
+		bearer.Status.Phase = v1alpha1.BearerPhaseUnknown
 
-		_, err = c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, newBearer, metav1.UpdateOptions{})
+		_, err = c.client.TaskV1alpha1().Bearers().UpdateStatus(ctx, bearer, metav1.UpdateOptions{})
 		if err != nil && !apierrors.IsConflict(err) {
 			c.workqueue.AddAfter(name, 10*time.Second)
 			klog.Errorf("failed to update bearer %s: %v", name, err)
