@@ -151,11 +151,37 @@ func (c *ReleaseChunkController) handler(ctx context.Context, name string) {
 
 	switch chunk.Status.Phase {
 	case v1alpha1.ChunkPhaseRunning:
-		dur := 5 * time.Minute
+		dur := 3 * time.Minute
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
 			c.workqueue.AddAfter(name, dur-sub)
 			return
+		}
+
+		if chunk.Spec.Sha256PartialPreviousName != "" && chunk.Spec.Sha256PartialPreviousName != "-" {
+			prevChunk, err := c.chunkInformer.Lister().Get(chunk.Spec.Sha256PartialPreviousName)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					c.workqueue.AddAfter(name, 5*time.Second)
+					klog.Errorf("failed to get previous chunk '%s': %v", chunk.Spec.Sha256PartialPreviousName, err)
+					return
+				}
+				prevChunk, err = c.client.TaskV1alpha1().Chunks().Get(ctx, chunk.Spec.Sha256PartialPreviousName, metav1.GetOptions{})
+				if err != nil {
+					if !apierrors.IsNotFound(err) {
+						c.workqueue.AddAfter(name, 5*time.Second)
+						klog.Errorf("failed to get previous chunk '%s' from API server: %v", chunk.Spec.Sha256PartialPreviousName, err)
+						return
+					}
+				}
+			}
+
+			if prevChunk != nil &&
+				prevChunk.Status.Phase != v1alpha1.ChunkPhaseSucceeded &&
+				prevChunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
+				c.workqueue.AddAfter(name, 1*time.Minute)
+				return
+			}
 		}
 
 		chunk := chunk.DeepCopy()
