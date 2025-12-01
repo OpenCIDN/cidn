@@ -29,6 +29,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -670,6 +671,21 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 			r.unmarkRecord(chunk.Name)
 			s.handleProcessErrorAndRetryable("DestinationRequestError", err)
 		}
+		return
+	}
+
+	chunk = s.Get()
+	if chunk.Status.Progress != chunk.Spec.Total {
+		r.unmarkRecord(chunk.Name)
+		err := fmt.Errorf("incomplete transfer: got %d, want %d", chunk.Status.Progress, chunk.Spec.Total)
+		s.handleProcessErrorAndRetryable("IncompleteTransfer", err)
+		return
+	}
+
+	if slices.Contains(etags, "") {
+		r.unmarkRecord(chunk.Name)
+		err := fmt.Errorf("destinations failed to return ETag")
+		s.handleProcessErrorAndRetryable("MissingETag", err)
 		return
 	}
 
