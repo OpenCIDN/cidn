@@ -674,6 +674,11 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 		return
 	}
 
+	s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
+		updateProgress(&ss.Status, &ss.Spec, gsr, gdrs)
+		return ss
+	})
+
 	chunk = s.Get()
 	if chunk.Spec.Total > 0 && chunk.Status.Progress != chunk.Spec.Total {
 		r.unmarkRecord(chunk.Name)
