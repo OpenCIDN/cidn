@@ -675,7 +675,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	}
 
 	chunk = s.Get()
-	if chunk.Status.Progress != chunk.Spec.Total {
+	if chunk.Spec.Total > 0 && chunk.Status.Progress != chunk.Spec.Total {
 		r.unmarkRecord(chunk.Name)
 		err := fmt.Errorf("incomplete transfer: got %d, want %d", chunk.Status.Progress, chunk.Spec.Total)
 		s.handleProcessErrorAndRetryable("IncompleteTransfer", err)
