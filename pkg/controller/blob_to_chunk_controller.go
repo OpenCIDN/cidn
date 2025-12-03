@@ -535,13 +535,7 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 
 		uploadID := uploadIDs[j]
 		if uploadID == "" {
-			chunk.Spec.Destination = append(chunk.Spec.Destination, v1alpha1.ChunkHTTP{
-				Request: v1alpha1.ChunkHTTPRequest{
-					Method: "",
-					URL:    "",
-				},
-			})
-			continue
+			return nil, fmt.Errorf("upload ID for destination %q is empty", dst.Name)
 		}
 
 		mp := s3.GetMultipartWithUploadID(dst.Path, uploadID)
@@ -580,14 +574,6 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 		}
 
 		destinationNames = append(destinationNames, dst.Name)
-
-		if dst.SkipIfExists && blob.Status.Total > 0 {
-			fi, err := s3.StatHead(ctx, dst.Path)
-			if err == nil && fi.Size() == blob.Status.Total {
-				uploadIDs = append(uploadIDs, "")
-				continue
-			}
-		}
 
 		mp, err := s3.GetMultipart(ctx, dst.Path)
 		if err != nil {
