@@ -782,7 +782,11 @@ func (c *BlobToChunkController) createChunks(ctx context.Context, blob *v1alpha1
 				chunk, err := c.chunkInformer.Lister().Get(name)
 				if err == nil && chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
 					g.Go(func() error {
-						return c.scheduleChunkDeletion(ctx, name)
+						err := c.scheduleChunkDeletion(ctx, name)
+						if err != nil {
+							klog.Errorf("failed to schedule deletion for chunk %s: %v", name, err)
+						}
+						return nil
 					})
 				}
 			}
