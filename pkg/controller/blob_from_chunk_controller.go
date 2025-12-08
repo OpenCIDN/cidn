@@ -72,7 +72,11 @@ func NewBlobFromChunkController(
 	c.blobInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			blob := obj.(*v1alpha1.Blob)
-			c.workqueue.Add(blob.Name)
+			c.workqueue.AddAfter(blob.Name, 10*time.Second)
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			blob := newObj.(*v1alpha1.Blob)
+			c.workqueue.AddAfter(blob.Name, 10*time.Second)
 		},
 	})
 

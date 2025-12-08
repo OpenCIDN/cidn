@@ -59,7 +59,11 @@ func NewBearerFromChunkController(
 	c.bearerInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			bearer := obj.(*v1alpha1.Bearer)
-			c.workqueue.Add(bearer.Name)
+			c.workqueue.AddAfter(bearer.Name, 10*time.Second)
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			bearer := newObj.(*v1alpha1.Bearer)
+			c.workqueue.AddAfter(bearer.Name, 10*time.Second)
 		},
 	})
 
