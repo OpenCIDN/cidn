@@ -153,7 +153,7 @@ func (c *ReleaseBearerController) handler(ctx context.Context, name string) {
 		dur := 3 * time.Minute
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
-			c.workqueue.AddAfter(name, dur-sub)
+			c.workqueue.AddAfter(name, max(time.Second, dur-sub))
 			return
 		}
 
@@ -170,7 +170,7 @@ func (c *ReleaseBearerController) handler(ctx context.Context, name string) {
 		dur := 30 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
-			c.workqueue.AddAfter(name, dur-sub)
+			c.workqueue.AddAfter(name, max(time.Second, dur-sub))
 			return
 		}
 		err = c.client.TaskV1alpha1().Bearers().Delete(ctx, name, metav1.DeleteOptions{})
@@ -187,7 +187,7 @@ func (c *ReleaseBearerController) handler(ctx context.Context, name string) {
 
 		sub := time.Since(lastSeenTime)
 		if sub < ttl {
-			c.workqueue.AddAfter(name, ttl-sub)
+			c.workqueue.AddAfter(name, max(time.Second, ttl-sub))
 			return
 		}
 
@@ -224,7 +224,7 @@ func (c *ReleaseBearerController) handler(ctx context.Context, name string) {
 		}
 		sub := time.Since(lastSeenTime)
 		if sub < ttl {
-			c.workqueue.AddAfter(name, ttl-sub)
+			c.workqueue.AddAfter(name, max(time.Second, ttl-sub))
 			return
 		}
 

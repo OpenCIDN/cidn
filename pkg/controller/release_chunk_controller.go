@@ -154,7 +154,7 @@ func (c *ReleaseChunkController) handler(ctx context.Context, name string) {
 		dur := 3 * time.Minute
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
-			c.workqueue.AddAfter(name, dur-sub)
+			c.workqueue.AddAfter(name, max(time.Second, dur-sub))
 			return
 		}
 
@@ -197,7 +197,7 @@ func (c *ReleaseChunkController) handler(ctx context.Context, name string) {
 		dur := 30 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
-			c.workqueue.AddAfter(name, dur-sub)
+			c.workqueue.AddAfter(name, max(time.Second, dur-sub))
 			return
 		}
 
@@ -216,7 +216,7 @@ func (c *ReleaseChunkController) handler(ctx context.Context, name string) {
 			dur := time.Duration(math.Pow(2, float64(chunk.Status.Retry))) * time.Second
 			sub := time.Since(lastSeenTime)
 			if sub < dur {
-				c.workqueue.AddAfter(name, dur-sub)
+				c.workqueue.AddAfter(name, max(time.Second, dur-sub))
 				return
 			}
 
@@ -249,7 +249,7 @@ func (c *ReleaseChunkController) handler(ctx context.Context, name string) {
 			}
 
 			if timeSinceCompletion < ttl {
-				c.workqueue.AddAfter(name, ttl-timeSinceCompletion)
+				c.workqueue.AddAfter(name, max(time.Second, ttl-timeSinceCompletion))
 				return
 			}
 
@@ -276,7 +276,7 @@ func (c *ReleaseChunkController) handler(ctx context.Context, name string) {
 		}
 
 		if timeSinceCompletion < ttl {
-			c.workqueue.AddAfter(name, ttl-timeSinceCompletion)
+			c.workqueue.AddAfter(name, max(time.Second, ttl-timeSinceCompletion))
 			return
 		}
 

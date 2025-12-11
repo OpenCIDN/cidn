@@ -153,7 +153,7 @@ func (c *ReleaseBlobController) handler(ctx context.Context, name string) {
 		dur := 5 * time.Minute
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
-			c.workqueue.AddAfter(name, dur-sub)
+			c.workqueue.AddAfter(name, max(time.Second, dur-sub))
 			return
 		}
 
@@ -169,7 +169,7 @@ func (c *ReleaseBlobController) handler(ctx context.Context, name string) {
 		dur := 30 * time.Second
 		sub := time.Since(lastSeenTime)
 		if sub < dur {
-			c.workqueue.AddAfter(name, dur-sub)
+			c.workqueue.AddAfter(name, max(time.Second, dur-sub))
 			return
 		}
 
@@ -198,7 +198,7 @@ func (c *ReleaseBlobController) handler(ctx context.Context, name string) {
 		}
 
 		if timeSinceCompletion < ttl {
-			c.workqueue.AddAfter(name, ttl-timeSinceCompletion)
+			c.workqueue.AddAfter(name, max(time.Second, ttl-timeSinceCompletion))
 			return
 		}
 
@@ -223,7 +223,7 @@ func (c *ReleaseBlobController) handler(ctx context.Context, name string) {
 		}
 
 		if timeSinceCompletion < ttl {
-			c.workqueue.AddAfter(name, ttl-timeSinceCompletion)
+			c.workqueue.AddAfter(name, max(time.Second, ttl-timeSinceCompletion))
 			return
 		}
 		err = c.client.TaskV1alpha1().Blobs().Delete(ctx, name, metav1.DeleteOptions{})
