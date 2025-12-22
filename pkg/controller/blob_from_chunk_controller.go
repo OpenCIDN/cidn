@@ -358,7 +358,16 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1.Blob) error {
 	mp, err := c.multipartInformer.Lister().Get(blob.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get multiparts: %w", err)
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get multipart: %w", err)
+		}
+		mp, err = c.client.TaskV1alpha1().Multiparts().Get(ctx, blob.Name, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return fmt.Errorf("multipart %s not found", blob.Name)
+			}
+			return fmt.Errorf("failed to get multipart from API server: %w", err)
+		}
 	}
 
 	mp = mp.DeepCopy()
