@@ -127,16 +127,9 @@ func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
 	}
 
 	if blob.Spec.ChunksNumber > 1 {
-		_, err = c.multipartInformer.Lister().Get(blob.Name)
+		err := c.cleanupMultipart(context.Background(), blob)
 		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				klog.Errorf("failed to get multipart for blob %s: %v", blob.Name, err)
-			}
-		} else {
-			err = c.client.TaskV1alpha1().Multiparts().Delete(context.Background(), blob.Name, metav1.DeleteOptions{})
-			if err != nil && !apierrors.IsNotFound(err) {
-				klog.Errorf("failed to delete multipart for blob %s: %v", blob.Name, err)
-			}
+			klog.Errorf("failed to cleanup multipart for blob %s: %v", blob.Name, err)
 		}
 	}
 }
@@ -600,6 +593,41 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 	}
 
 	return mp, nil
+}
+
+func (c *BlobToChunkController) cleanupMultipart(ctx context.Context, blob *v1alpha1.Blob) error {
+	mp, err := c.client.TaskV1alpha1().Multiparts().Get(ctx, blob.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to get multipart: %v", err)
+	}
+
+	for i, dst := range blob.Spec.Destination {
+		s3 := c.s3[dst.Name]
+		if s3 == nil {
+			continue
+		}
+
+		uploadID := mp.UploadIDs[i]
+		if uploadID == "" {
+			continue
+		}
+
+		multipart := s3.GetMultipartWithUploadID(dst.Path, uploadID)
+		err := multipart.Cancel(ctx)
+		if err != nil {
+			klog.Errorf("failed to abort multipart upload for blob %s on destination %s: %v", blob.Name, dst.Name, err)
+		}
+	}
+
+	err = c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to delete multipart: %v", err)
+	}
+
+	return nil
 }
 
 // chunkCounts holds the count of chunks in different phases
