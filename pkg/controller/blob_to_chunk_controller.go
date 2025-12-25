@@ -117,13 +117,20 @@ func (c *BlobToChunkController) runWorker(ctx context.Context) {
 }
 
 func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
-	err := c.client.TaskV1alpha1().Chunks().DeleteCollection(context.Background(), metav1.DeleteOptions{}, metav1.ListOptions{
-		LabelSelector: labels.Set{
-			BlobUIDLabelKey: string(blob.UID),
-		}.String(),
-	})
+	chunks, err := chunkLister(c.chunkInformer.Informer().GetIndexer()).List(
+		labels.Everything(),
+		labels.SelectorFromSet(labels.Set{
+			BlobNameAnnotationKey: blob.Name,
+		}))
 	if err != nil {
-		klog.Errorf("failed to delete chunks for blob %s: %v", blob.Name, err)
+		klog.Errorf("failed to list chunks for blob %s: %v", blob.Name, err)
+	}
+
+	for _, chunk := range chunks {
+		err := c.client.TaskV1alpha1().Chunks().Delete(context.Background(), chunk.Name, metav1.DeleteOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			klog.Errorf("failed to delete chunk %s for blob %s: %v", chunk.Name, blob.Name, err)
+		}
 	}
 
 	if blob.Spec.ChunksNumber > 1 {
@@ -228,8 +235,7 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 	chunkName := buildHeadChunkName(blob.Name, 0)
 	existingChunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err == nil && existingChunk != nil {
-		if existingChunk.Annotations[BlobNameAnnotationKey] == blob.Name &&
-			existingChunk.Labels[BlobUIDLabelKey] == string(blob.UID) {
+		if existingChunk.Annotations[BlobNameAnnotationKey] == blob.Name {
 			return nil
 		}
 
@@ -254,20 +260,10 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 
 	chunk := &v1alpha1.Chunk{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: chunkName,
-			Labels: map[string]string{
-				BlobUIDLabelKey: string(blob.UID),
-			},
+			Name:   chunkName,
+			Labels: map[string]string{},
 			Annotations: map[string]string{
 				BlobNameAnnotationKey: blob.Name,
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: v1alpha1.GroupVersion.String(),
-					Kind:       v1alpha1.BlobKind,
-					Name:       blob.Name,
-					UID:        blob.UID,
-				},
 			},
 		},
 		Spec: v1alpha1.ChunkSpec{
@@ -310,8 +306,7 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 	existingChunk, err := c.chunkInformer.Lister().Get(chunkName)
 	if err == nil && existingChunk != nil {
 		if existingChunk.Spec.Sha256 == blob.Spec.ContentSha256 &&
-			existingChunk.Annotations[BlobNameAnnotationKey] == blob.Name &&
-			existingChunk.Labels[BlobUIDLabelKey] == string(blob.UID) {
+			existingChunk.Annotations[BlobNameAnnotationKey] == blob.Name {
 			// Chunk already exists and matches, no need to create a new one
 			return nil
 		}
@@ -329,20 +324,10 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 
 	chunk := &v1alpha1.Chunk{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: chunkName,
-			Labels: map[string]string{
-				BlobUIDLabelKey: string(blob.UID),
-			},
+			Name:   chunkName,
+			Labels: map[string]string{},
 			Annotations: map[string]string{
 				BlobNameAnnotationKey: blob.Name,
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: v1alpha1.GroupVersion.String(),
-					Kind:       v1alpha1.BlobKind,
-					Name:       blob.Name,
-					UID:        blob.UID,
-				},
 			},
 		},
 		Spec: v1alpha1.ChunkSpec{
@@ -444,23 +429,12 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 }
 
 func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num, start, end int64, lastName string, uploadIDs []string) (*v1alpha1.Chunk, error) {
-	apiVersion := v1alpha1.GroupVersion.String()
 	chunk := &v1alpha1.Chunk{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-			Labels: map[string]string{
-				BlobUIDLabelKey: string(blob.UID),
-			},
+			Name:   name,
+			Labels: map[string]string{},
 			Annotations: map[string]string{
 				BlobNameAnnotationKey: blob.Name,
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: apiVersion,
-					Kind:       v1alpha1.BlobKind,
-					Name:       blob.Name,
-					UID:        blob.UID,
-				},
 			},
 		},
 		Spec: v1alpha1.ChunkSpec{
@@ -746,9 +720,11 @@ func (c *BlobToChunkController) scheduleChunkCreation(ctx context.Context, chunk
 
 func (c *BlobToChunkController) toChunks(ctx context.Context, blob *v1alpha1.Blob) error {
 	// Get existing chunks and count by phase
-	chunks, err := c.chunkInformer.Lister().List(labels.SelectorFromSet(labels.Set{
-		BlobUIDLabelKey: string(blob.UID),
-	}))
+	chunks, err := chunkLister(c.chunkInformer.Informer().GetIndexer()).List(
+		labels.Everything(),
+		labels.SelectorFromSet(labels.Set{
+			BlobNameAnnotationKey: blob.Name,
+		}))
 	if err != nil {
 		return err
 	}

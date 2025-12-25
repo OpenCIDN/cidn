@@ -30,7 +30,6 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -109,11 +108,8 @@ func (c *BearerToChunkController) runWorker(ctx context.Context) {
 }
 
 func (c *BearerToChunkController) cleanupBearer(bearer *v1alpha1.Bearer) {
-	err := c.client.TaskV1alpha1().Chunks().DeleteCollection(context.Background(), metav1.DeleteOptions{}, metav1.ListOptions{
-		LabelSelector: labels.Set{
-			BearerUIDLabelKey: string(bearer.UID),
-		}.String(),
-	})
+	chunkName := buildBearerChunkName(bearer.Name)
+	err := c.client.TaskV1alpha1().Chunks().Delete(context.Background(), chunkName, metav1.DeleteOptions{})
 	if err != nil {
 		klog.Errorf("failed to delete chunks for bearer %s: %v", bearer.Name, err)
 	}
@@ -185,20 +181,10 @@ func (c *BearerToChunkController) toChunk(ctx context.Context, bearer *v1alpha1.
 
 	chunk := &v1alpha1.Chunk{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: chunkName,
-			Labels: map[string]string{
-				BearerUIDLabelKey: string(bearer.UID),
-			},
+			Name:   chunkName,
+			Labels: map[string]string{},
 			Annotations: map[string]string{
 				BearerNameAnnotationKey: bearer.Name,
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: v1alpha1.GroupVersion.String(),
-					Kind:       v1alpha1.BearerKind,
-					Name:       bearer.Name,
-					UID:        bearer.UID,
-				},
 			},
 		},
 		Spec: v1alpha1.ChunkSpec{

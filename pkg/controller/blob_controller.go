@@ -20,14 +20,16 @@ import (
 	"context"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
+	taskv1alpha1 "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
+	"github.com/OpenCIDN/cidn/pkg/internal/utils"
 	"github.com/wzshiming/sss"
+	"k8s.io/client-go/tools/cache"
 )
 
 const (
 	BlobNameAnnotationKey = v1alpha1.GroupName + "/blob-name"
-	BlobUIDLabelKey       = v1alpha1.GroupName + "/blob-uid"
 )
 
 type BlobController struct {
@@ -88,4 +90,8 @@ func (c *BlobController) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func chunkLister(index cache.Indexer) utils.ResourceIndexer[*taskv1alpha1.Chunk] {
+	return utils.NewResourceIndexer[*taskv1alpha1.Chunk](index, taskv1alpha1.Resource("chunk"), "")
 }

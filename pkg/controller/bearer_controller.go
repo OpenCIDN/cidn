@@ -27,7 +27,6 @@ import (
 
 const (
 	BearerNameAnnotationKey = v1alpha1.GroupName + "/bearer-name"
-	BearerUIDLabelKey       = v1alpha1.GroupName + "/bearer-uid"
 )
 
 type BearerController struct {

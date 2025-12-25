@@ -372,9 +372,11 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 
 	mp = mp.DeepCopy()
 
-	chunks, err := c.chunkInformer.Lister().List(labels.SelectorFromSet(labels.Set{
-		BlobUIDLabelKey: string(blob.UID),
-	}))
+	chunks, err := chunkLister(c.chunkInformer.Informer().GetIndexer()).List(
+		labels.Everything(),
+		labels.SelectorFromSet(labels.Set{
+			BlobNameAnnotationKey: blob.Name,
+		}))
 	if err != nil {
 		return fmt.Errorf("failed to list chunks: %w", err)
 	}
@@ -614,9 +616,11 @@ func verifyDestinationSha256(ctx context.Context, s3 *sss.SSS, dst *v1alpha1.Blo
 // deleteChunksInNonFinalStates deletes chunks that are in Running, Pending, or Unknown states
 // when a blob fails. This ensures cleanup of incomplete work when a blob cannot be completed.
 func (c *BlobFromChunkController) deleteChunksInNonFinalStates(ctx context.Context, blob *v1alpha1.Blob) {
-	chunks, err := c.chunkInformer.Lister().List(labels.SelectorFromSet(labels.Set{
-		BlobUIDLabelKey: string(blob.UID),
-	}))
+	chunks, err := chunkLister(c.chunkInformer.Informer().GetIndexer()).List(
+		labels.Everything(),
+		labels.SelectorFromSet(labels.Set{
+			BlobNameAnnotationKey: blob.Name,
+		}))
 	if err != nil {
 		klog.Errorf("failed to list chunks for blob %s during cleanup: %v", blob.Name, err)
 		return
