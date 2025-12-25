@@ -187,7 +187,8 @@ func (c *BearerToChunkController) toChunk(ctx context.Context, bearer *v1alpha1.
 		ObjectMeta: metav1.ObjectMeta{
 			Name: chunkName,
 			Labels: map[string]string{
-				BearerUIDLabelKey: string(bearer.UID),
+				BearerUIDLabelKey:  string(bearer.UID),
+				BearerNameLabelKey: bearer.Name,
 			},
 			Annotations: map[string]string{
 				BearerNameAnnotationKey: bearer.Name,

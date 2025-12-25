@@ -256,7 +256,8 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 		ObjectMeta: metav1.ObjectMeta{
 			Name: chunkName,
 			Labels: map[string]string{
-				BlobUIDLabelKey: string(blob.UID),
+				BlobUIDLabelKey:  string(blob.UID),
+				BlobNameLabelKey: blob.Name,
 			},
 			Annotations: map[string]string{
 				BlobNameAnnotationKey: blob.Name,
@@ -331,7 +332,8 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 		ObjectMeta: metav1.ObjectMeta{
 			Name: chunkName,
 			Labels: map[string]string{
-				BlobUIDLabelKey: string(blob.UID),
+				BlobUIDLabelKey:  string(blob.UID),
+				BlobNameLabelKey: blob.Name,
 			},
 			Annotations: map[string]string{
 				BlobNameAnnotationKey: blob.Name,
@@ -449,7 +451,8 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
-				BlobUIDLabelKey: string(blob.UID),
+				BlobUIDLabelKey:  string(blob.UID),
+				BlobNameLabelKey: blob.Name,
 			},
 			Annotations: map[string]string{
 				BlobNameAnnotationKey: blob.Name,

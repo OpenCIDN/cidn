@@ -27,6 +27,7 @@ import (
 
 const (
 	BlobNameAnnotationKey = v1alpha1.GroupName + "/blob-name"
+	BlobNameLabelKey      = v1alpha1.GroupName + "/blob-name"
 	BlobUIDLabelKey       = v1alpha1.GroupName + "/blob-uid"
 )
 
