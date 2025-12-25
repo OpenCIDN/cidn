@@ -260,6 +260,11 @@ func (in *BlobSpec) DeepCopyInto(out *BlobSpec) {
 		*out = make([]BlobDestination, len(*in))
 		copy(*out, *in)
 	}
+	if in.SourceResponseHeadersToDestination != nil {
+		in, out := &in.SourceResponseHeadersToDestination, &out.SourceResponseHeadersToDestination
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 
@@ -279,6 +284,13 @@ func (in *BlobStatus) DeepCopyInto(out *BlobStatus) {
 	if in.CompletionTime != nil {
 		in, out := &in.CompletionTime, &out.CompletionTime
 		*out = (*in).DeepCopy()
+	}
+	if in.SourceResponseHeaders != nil {
+		in, out := &in.SourceResponseHeaders, &out.SourceResponseHeaders
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
 	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
@@ -433,6 +445,11 @@ func (in *ChunkSpec) DeepCopyInto(out *ChunkSpec) {
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
+	}
+	if in.SourceResponseHeadersToDestination != nil {
+		in, out := &in.SourceResponseHeadersToDestination, &out.SourceResponseHeadersToDestination
+		*out = make([]string, len(*in))
+		copy(*out, *in)
 	}
 	return
 }

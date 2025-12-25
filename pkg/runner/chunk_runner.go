@@ -364,7 +364,7 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 	return nil
 }
 
-func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) (io.ReadCloser, int64) {
+func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) (io.ReadCloser, int64, map[string]string) {
 	err := r.tryAddBearer(ctx, chunk)
 	if err != nil {
 		if errors.Is(err, ErrBearerNotReady) {
@@ -377,13 +377,13 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 				return ss
 			})
 			r.unmarkRecord(chunk.Name)
-			return nil, 0
+			return nil, 0, nil
 		} else if errors.Is(err, ErrAuthentication) {
 			s.handleProcessError("AuthenticationError", err)
 		} else {
 			s.handleProcessError("BearerFetchError", err)
 		}
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	srcReq, err := r.buildRequest(ctx, &chunk.Spec.Source, nil, 0)
@@ -395,7 +395,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		} else {
 			s.handleProcessError("BuildRequestError", err)
 		}
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	srcResp, err := r.httpClient.Do(srcReq)
@@ -410,7 +410,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		} else {
 			s.handleProcessError("SourceRequestError", err)
 		}
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	headers := map[string]string{}
@@ -442,7 +442,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
 			}
-			return nil, 0
+			return nil, 0, nil
 		}
 	} else {
 		if srcResp.StatusCode >= http.StatusMultipleChoices {
@@ -460,7 +460,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
 			}
-			return nil, 0
+			return nil, 0, nil
 		}
 	}
 
@@ -473,7 +473,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		if srcResp.Body != nil {
 			srcResp.Body.Close()
 		}
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	for k, v := range chunk.Spec.Source.Response.Headers {
@@ -485,14 +485,27 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
 			}
-			return nil, 0
+			return nil, 0, nil
 		}
 	}
 
-	return srcResp.Body, srcResp.ContentLength
+	return srcResp.Body, srcResp.ContentLength, headers
 }
 
-func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr *swmrCount, contentLength int64) (string, bool, error) {
+func (r *ChunkRunner) destinationRequest(ctx context.Context, chunk *v1alpha1.Chunk, dest *v1alpha1.ChunkHTTP, dr *swmrCount, contentLength int64, sourceHeaders map[string]string) (string, bool, error) {
+	// Apply headers from source response to destination request if specified
+	if len(chunk.Spec.SourceResponseHeadersToDestination) > 0 && sourceHeaders != nil {
+		if dest.Request.Headers == nil {
+			dest.Request.Headers = make(map[string]string)
+		}
+		for _, headerName := range chunk.Spec.SourceResponseHeadersToDestination {
+			headerNameLower := strings.ToLower(headerName)
+			if value, exists := sourceHeaders[headerNameLower]; exists {
+				dest.Request.Headers[headerName] = value
+			}
+		}
+	}
+
 	destReq, err := r.buildRequest(ctx, dest, dr.NewReader(), contentLength)
 	if err != nil {
 		retry, err := utils.IsNetworkError(err)
@@ -552,7 +565,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	stopProgress := r.startProgressUpdater(ctx, s, &gsr, &gdrs)
 	defer stopProgress()
 
-	body, contentLength := r.sourceRequest(ctx, chunk, s)
+	body, contentLength, sourceHeaders := r.sourceRequest(ctx, chunk, s)
 	if body == nil {
 		return
 	}
@@ -647,13 +660,13 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 		i := i
 		dr := drs[i]
 		g.Go(func() error {
-			etag, retry, err := r.destinationRequest(ctx, &dest, dr, contentLength)
+			etag, retry, err := r.destinationRequest(ctx, chunk, &dest, dr, contentLength, sourceHeaders)
 			if err != nil {
 				if !retry {
 					return err
 				}
 				time.Sleep(time.Second)
-				etag, _, err = r.destinationRequest(ctx, &dest, dr, contentLength)
+				etag, _, err = r.destinationRequest(ctx, chunk, &dest, dr, contentLength, sourceHeaders)
 				if err != nil {
 					return err
 				}

@@ -98,6 +98,12 @@ type BlobStatus struct {
 	// +optional
 	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
 
+	// SourceResponseHeaders specifies which headers from the source response
+	// should be forwarded to destination requests.
+	// only works when there is a multiple chunk.
+	// +optional
+	SourceResponseHeaders map[string]string `json:"sourceResponseHeaders,omitempty"`
+
 	// Conditions holds conditions for the Blob.
 	// +patchMergeKey=type
 	// +patchStrategy=merge
@@ -115,6 +121,11 @@ type BlobSpec struct {
 
 	// Destination is the destination of the blob.
 	Destination []BlobDestination `json:"destination"`
+
+	// SourceResponseHeadersToDestination specifies which headers from the source response
+	// should be forwarded to destination requests (e.g., ["Content-Type", "Content-Disposition"]).
+	// +optional
+	SourceResponseHeadersToDestination []string `json:"sourceResponseHeadersToDestination,omitempty"`
 
 	// Priority represents the relative importance of this blob when multiple blobs exist.
 	Priority int64 `json:"priority"`

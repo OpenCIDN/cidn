@@ -567,6 +567,21 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							},
 						},
 					},
+					"sourceResponseHeadersToDestination": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SourceResponseHeadersToDestination specifies which headers from the source response should be forwarded to destination requests (e.g., [\"Content-Type\", \"Content-Disposition\"]).",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
 					"priority": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Priority represents the relative importance of this blob when multiple blobs exist.",
@@ -725,6 +740,22 @@ func schema_pkg_apis_task_v1alpha1_BlobStatus(ref common.ReferenceCallback) comm
 						SchemaProps: spec.SchemaProps{
 							Description: "CompletionTime represents the time when the blob reached a terminal phase (Succeeded or Failed). This field is used to calculate the TTL for resource cleanup.",
 							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.Time"),
+						},
+					},
+					"sourceResponseHeaders": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SourceResponseHeaders specifies which headers from the source response should be forwarded to destination requests. only works when there is a multiple chunk.",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
 						},
 					},
 					"conditions": {
@@ -1004,6 +1035,21 @@ func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) commo
 									SchemaProps: spec.SchemaProps{
 										Default: map[string]interface{}{},
 										Ref:     ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTP"),
+									},
+								},
+							},
+						},
+					},
+					"sourceResponseHeadersToDestination": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SourceResponseHeadersToDestination specifies which headers from the source response should be forwarded to destination requests (e.g., [\"Content-Type\", \"Content-Disposition\"]).",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
 									},
 								},
 							},

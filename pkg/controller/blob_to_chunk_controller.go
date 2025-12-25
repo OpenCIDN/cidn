@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -346,10 +347,11 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 			},
 		},
 		Spec: v1alpha1.ChunkSpec{
-			Total:        blob.Status.Total,
-			Priority:     blob.Spec.Priority,
-			Sha256:       blob.Spec.ContentSha256,
-			MaximumRetry: blob.Spec.MaximumRetry - blob.Status.Retry,
+			Total:                              blob.Status.Total,
+			Priority:                           blob.Spec.Priority,
+			Sha256:                             blob.Spec.ContentSha256,
+			MaximumRetry:                       blob.Spec.MaximumRetry - blob.Status.Retry,
+			SourceResponseHeadersToDestination: blob.Spec.SourceResponseHeadersToDestination,
 		},
 		Status: v1alpha1.ChunkStatus{
 			Phase: v1alpha1.ChunkPhasePending,
@@ -570,7 +572,22 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 
 		mp, err := s3.GetMultipart(ctx, dst.Path)
 		if err != nil {
-			mp, err = s3.NewMultipart(ctx, dst.Path)
+			opts := []sss.WriterOptions{}
+			if len(blob.Spec.SourceResponseHeadersToDestination) > 0 && len(blob.Status.SourceResponseHeaders) > 0 {
+				for _, headerKey := range blob.Spec.SourceResponseHeadersToDestination {
+					switch strings.ToLower(headerKey) {
+					case "content-type":
+						if headerValue, ok := blob.Status.SourceResponseHeaders[headerKey]; ok {
+							opts = append(opts, sss.WithContentType(headerValue))
+						}
+					case "content-disposition":
+						if headerValue, ok := blob.Status.SourceResponseHeaders[headerKey]; ok {
+							opts = append(opts, sss.WithContentDisposition(headerValue))
+						}
+					}
+				}
+			}
+			mp, err = s3.NewMultipart(ctx, dst.Path, opts...)
 			if err != nil {
 				return nil, err
 			}
