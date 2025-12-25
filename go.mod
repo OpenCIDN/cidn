@@ -8,7 +8,7 @@ require (
 	github.com/gorilla/handlers v1.5.2
 	github.com/spf13/cobra v1.9.1
 	github.com/wzshiming/ioswmr v0.0.0-20250120111738-c884d3ebe493
-	github.com/wzshiming/sss v0.4.0
+	github.com/wzshiming/sss v0.7.0
 	golang.org/x/sync v0.17.0
 	k8s.io/apimachinery v0.33.6
 	k8s.io/apiserver v0.33.6

@@ -162,6 +162,11 @@ type ChunkSpec struct {
 	// Destination is the destination of the chunk.
 	Destination []ChunkHTTP `json:"destination,omitempty"`
 
+	// SourceResponseHeadersToDestination specifies which headers from the source response
+	// should be forwarded to destination requests (e.g., ["Content-Type", "Content-Disposition"]).
+	// +optional
+	SourceResponseHeadersToDestination []string `json:"sourceResponseHeadersToDestination,omitempty"`
+
 	// Priority represents the relative importance of this chunk when multiple chunks exist.
 	Priority int64 `json:"priority"`
 
