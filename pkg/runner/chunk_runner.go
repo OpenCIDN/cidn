@@ -647,16 +647,24 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 		i := i
 		dr := drs[i]
 		g.Go(func() error {
-			etag, retry, err := r.destinationRequest(ctx, &dest, dr, contentLength)
-			if err != nil {
+			var err error
+			var etag string
+			var retry bool
+			waitTime := 5 * time.Second
+
+			for i := 0; i < 5; i++ {
+				etag, retry, err = r.destinationRequest(ctx, &dest, dr, contentLength)
+				if err == nil {
+					break
+				}
 				if !retry {
 					return err
 				}
-				time.Sleep(time.Second)
-				etag, _, err = r.destinationRequest(ctx, &dest, dr, contentLength)
-				if err != nil {
-					return err
-				}
+				time.Sleep(waitTime)
+				waitTime *= 2
+			}
+			if err != nil {
+				return err
 			}
 			etags[i] = etag
 			return nil
