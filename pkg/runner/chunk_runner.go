@@ -547,9 +547,10 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	var gsr *readCount
 	var gdrs []*swmrCount
-	ctx := context.Background()
 
-	stopProgress := r.startProgressUpdater(ctx, s, &gsr, &gdrs)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	stopProgress := r.startProgressUpdater(ctx, cancel, s, &gsr, &gdrs)
 	defer stopProgress()
 
 	body, contentLength := r.sourceRequest(ctx, chunk, s)
@@ -692,13 +693,11 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	r.handleSha256AndFinalize(continues, chunk, s, swmr, etags)
 }
 
-func (r *ChunkRunner) startProgressUpdater(ctx context.Context, s *state, gsr **readCount, gdrs *[]*swmrCount) func() {
+func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s *state, gsr **readCount, gdrs *[]*swmrCount) func() {
 	var (
 		prevStatus     *v1alpha1.ChunkStatus
 		lastUpdateTime = time.Now()
 	)
-
-	ctx, cancel := context.WithCancel(ctx)
 
 	chunkFunc := func() {
 		s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
