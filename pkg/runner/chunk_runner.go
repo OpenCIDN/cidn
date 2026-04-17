@@ -606,10 +606,10 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	sr := newReadCount(ctx, body)
 	g.Go(func() error {
 		_, err := io.Copy(swmr, sr)
-		if err != nil {
-			return err
+		if closeErr := swmr.Close(); err == nil {
+			err = closeErr
 		}
-		return swmr.Close()
+		return err
 	})
 
 	etags := make([]string, len(chunk.Spec.Destination))
