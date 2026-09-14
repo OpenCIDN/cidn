@@ -226,9 +226,9 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	}
 
 	if len(r.concurrencySem) >= cap(r.concurrencySem) {
-		klog.Infof("Maximum concurrency reached, waiting...")
 		select {
-		case <-time.After(1 * time.Second):
+		case <-r.signal:
+		case <-time.After(5 * time.Second):
 		case <-ctx.Done():
 			return false
 		}
@@ -247,7 +247,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 		return true
 	}
 
-	err = r.handlePending(context.Background(), chunks, func(c *v1alpha1.Chunk) {
+	stats, err := r.handlePending(context.Background(), chunks, func(c *v1alpha1.Chunk) {
 		continues := make(chan struct{})
 		go r.process(continues, c.DeepCopy())
 		continues <- struct{}{}
@@ -256,7 +256,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	})
 	if err != nil {
 		if errors.Is(err, ErrNoPendingChunk) {
-			klog.Infof("no pending chunks available")
+			klog.Infof("No chunk acquired: pending=%d free=%d skipped=%d stale=%d conflicts=%d", stats.pending, stats.free, stats.skipped, stats.stale, stats.conflicts)
 		} else {
 			klog.Errorf("failed to get pending chunk: %v", err)
 		}
@@ -270,6 +270,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 		return true
 	}
 
+	klog.Infof("Acquired %d/%d chunks: pending=%d conflicts=%d", stats.acquired, stats.free, stats.pending, stats.conflicts)
 	return true
 }
 
@@ -922,15 +923,76 @@ func updateSha256(sha256 string, sha256Partial []byte, reader io.Reader) (string
 	return sha256, nil, nil
 }
 
-func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chunk, cb func(*v1alpha1.Chunk)) error {
-	size := 0
+type pendingStats struct {
+	pending, free, acquired, skipped, stale, conflicts int
+}
+
+func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chunk, cb func(*v1alpha1.Chunk)) (pendingStats, error) {
+	stats := pendingStats{pending: len(chunks), free: cap(r.concurrencySem) - len(r.concurrencySem)}
+	if stats.free <= 0 {
+		return stats, nil
+	}
+
+	resetBearers := make(map[string]struct{})
+	batch := make([]*v1alpha1.Chunk, 0, stats.free)
+	flush := func() {
+		results := make([]struct {
+			chunk *v1alpha1.Chunk
+			err   error
+		}, len(batch))
+		var wg sync.WaitGroup
+		for index, chunk := range batch {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				chunk.Status.HandlerName = r.handlerName
+				chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
+				results[index].chunk, results[index].err = r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
+			}()
+		}
+		wg.Wait()
+
+		for index, result := range results {
+			chunk := batch[index]
+			if result.err != nil {
+				if apierrors.IsConflict(result.err) || apierrors.IsNotFound(result.err) {
+					r.unmarkRecord(chunk.Name)
+					stats.conflicts++
+					continue
+				}
+				klog.Warningf("Failed to acquire chunk %s: %v", chunk.Name, result.err)
+				r.unmarkRecord(chunk.Name)
+				continue
+			}
+
+			updated := result.chunk
+			if updated.Status.HandlerName != r.handlerName {
+				klog.Infof("Chunk %s was acquired by another handler", updated.Name)
+				r.unmarkRecord(updated.Name)
+				continue
+			}
+
+			r.concurrencySem <- struct{}{}
+			stats.acquired++
+			go func() {
+				defer func() {
+					<-r.concurrencySem
+					r.enqueueChunk()
+				}()
+				cb(updated)
+			}()
+		}
+		batch = batch[:0]
+	}
+
 	for _, chunk := range chunks {
-		if len(r.concurrencySem) >= cap(r.concurrencySem) {
-			return nil
+		if stats.acquired >= stats.free {
+			break
 		}
 
 		if !r.markRecord(chunk.Name) {
 			klog.Infof("Chunk %s is already being processed, skipping", chunk.Name)
+			stats.skipped++
 			continue
 		}
 
@@ -941,6 +1003,7 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 					if bearer.Status.TokenInfo == nil {
 						klog.Infof("Bearer %s has no token info, skipping chunk %s", bearer.Name, chunk.Name)
 						r.unmarkRecord(chunk.Name)
+						stats.skipped++
 						continue
 					}
 
@@ -952,17 +1015,21 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 
 						if since >= expires {
 							if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
-								_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
-									bearer.Status.HandlerName = ""
-									bearer.Status.Phase = v1alpha1.BearerPhasePending
-									return bearer
-								})
-								if err != nil {
-									klog.Warningf("Failed to update bearer %s status: %v", bearer.Name, err)
+								if _, reset := resetBearers[bearer.Name]; !reset {
+									resetBearers[bearer.Name] = struct{}{}
+									_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
+										bearer.Status.HandlerName = ""
+										bearer.Status.Phase = v1alpha1.BearerPhasePending
+										return bearer
+									})
+									if err != nil {
+										klog.Warningf("Failed to update bearer %s status: %v", bearer.Name, err)
+									}
 								}
 							}
 							klog.Infof("Bearer %s token has expired, skipping chunk %s", bearer.Name, chunk.Name)
 							r.unmarkRecord(chunk.Name)
+							stats.skipped++
 							continue
 						}
 					}
@@ -975,51 +1042,40 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 				if !apierrors.IsNotFound(err) {
 					klog.Warningf("Failed to get partial chunk %s: %v", chunk.Spec.Sha256PartialPreviousName, err)
 					r.unmarkRecord(chunk.Name)
+					stats.skipped++
 					continue
 				}
 
 			} else if pchunk.Status.Phase == v1alpha1.ChunkPhasePending {
 				klog.Infof("Partial chunk %s is still pending, skipping chunk %s", chunk.Spec.Sha256PartialPreviousName, chunk.Name)
 				r.unmarkRecord(chunk.Name)
+				stats.skipped++
 				continue
 			}
 		}
 
-		chunk.Status.HandlerName = r.handlerName
-		chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
-		chunk, err := r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
-		if err != nil {
-			if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
-				continue
-			}
-			klog.Warningf("Failed to acquire chunk %s: %v", chunk.Name, err)
+		latest, err := r.chunkInformer.Lister().Get(chunk.Name)
+		if err != nil || latest.Status.HandlerName != "" || latest.Status.Phase != v1alpha1.ChunkPhasePending {
 			r.unmarkRecord(chunk.Name)
+			stats.stale++
 			continue
 		}
 
-		if chunk.Status.HandlerName != r.handlerName {
-			klog.Infof("Chunk %s was acquired by another handler", chunk.Name)
-			r.unmarkRecord(chunk.Name)
-			continue
+		batch = append(batch, latest.DeepCopy())
+		if len(batch) >= stats.free-stats.acquired {
+			flush()
 		}
-
-		r.concurrencySem <- struct{}{}
-		go func() {
-			defer func() {
-				<-r.concurrencySem
-			}()
-			cb(chunk)
-		}()
-
-		size++
+	}
+	if len(batch) != 0 {
+		flush()
 	}
 
-	if size == 0 {
+	if stats.acquired == 0 {
 		r.clearRecord()
-		return ErrNoPendingChunk
+		return stats, ErrNoPendingChunk
 	}
 
-	return nil
+	return stats, nil
 }
 
 // getPendingList returns pending Chunks by priority descending, retry ascending, and random order within each tier.
