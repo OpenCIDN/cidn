@@ -1022,7 +1022,7 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 	return nil
 }
 
-// getPendingList returns all Chunks in Pending state, sorted by weight and creation time
+// getPendingList returns pending Chunks by priority descending, retry ascending, and random order within each tier.
 func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 	chunks, err := r.chunkInformer.Lister().List(labels.Everything())
 	if err != nil {
@@ -1042,7 +1042,6 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 		}
 	}
 
-	// Sort by weight (descending) and creation time (ascending)
 	sort.Slice(pendingChunks, func(i, j int) bool {
 		a := pendingChunks[i]
 		b := pendingChunks[j]
@@ -1050,48 +1049,24 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 			return a.Spec.Priority > b.Spec.Priority
 		}
 
-		if a.Status.Retry != b.Status.Retry {
-			return a.Status.Retry < b.Status.Retry
-		}
-
-		atime := a.CreationTimestamp.Time
-		if a.Status.CompletionTime != nil {
-			atime = a.Status.CompletionTime.Time
-		}
-		btime := b.CreationTimestamp.Time
-		if b.Status.CompletionTime != nil {
-			btime = b.Status.CompletionTime.Time
-		}
-
-		return atime.Before(btime)
+		return a.Status.Retry < b.Status.Retry
 	})
 
-	return shuffleChunks(pendingChunks), nil
-}
-
-// shuffleChunks shuffles the chunks to a certain degree to reduce conflicts
-func shuffleChunks(chunks []*v1alpha1.Chunk) []*v1alpha1.Chunk {
-	n := len(chunks)
-	if n <= 1 {
-		return chunks
-	}
-
-	// Define a shuffle range (e.g., 25% of the list size)
-	shuffleRange := n / 4
-	if shuffleRange < 1 {
-		shuffleRange = 1
-	}
-
-	// Shuffle within the defined range
-	for i := 0; i < n; i++ {
-		j := i + rand.Intn(shuffleRange)
-		if j >= n {
-			j = n - 1
+	for start := 0; start < len(pendingChunks); {
+		end := start + 1
+		for end < len(pendingChunks) &&
+			pendingChunks[end].Spec.Priority == pendingChunks[start].Spec.Priority &&
+			pendingChunks[end].Status.Retry == pendingChunks[start].Status.Retry {
+			end++
 		}
-		chunks[i], chunks[j] = chunks[j], chunks[i]
+		tier := pendingChunks[start:end]
+		rand.Shuffle(len(tier), func(left, right int) {
+			tier[left], tier[right] = tier[right], tier[left]
+		})
+		start = end
 	}
 
-	return chunks
+	return pendingChunks, nil
 }
 
 type hashEncoding interface {
