@@ -34,6 +34,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -57,6 +58,8 @@ var (
 	ErrAuthentication = errors.New("authentication error")
 	ErrNoPendingChunk = fmt.Errorf("no pending chunks available")
 )
+
+var staleResetAfter = 2 * time.Minute
 
 // ChunkRunner executes Chunk tasks
 type ChunkRunner struct {
@@ -165,14 +168,15 @@ func (r *ChunkRunner) enqueueChunk() {
 
 // Release releases the current held chunk
 func (r *ChunkRunner) Release(ctx context.Context) error {
-	chunks, err := r.chunkInformer.Lister().List(labels.Everything())
+	list, err := r.client.TaskV1alpha1().Chunks().List(ctx, metav1.ListOptions{FieldSelector: "status.handlerName=" + r.handlerName})
 	if err != nil {
-		return fmt.Errorf("failed to list blobs: %w", err)
+		return fmt.Errorf("failed to list chunks: %w", err)
 	}
 
 	var wg sync.WaitGroup
 
-	for _, chunk := range chunks {
+	for index := range list.Items {
+		chunk := &list.Items[index]
 		if chunk.Status.HandlerName != r.handlerName {
 			continue
 		}
@@ -708,7 +712,7 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 
 			if reflect.DeepEqual(prevStatus, &ss.Status) {
 				since := time.Since(lastUpdateTime)
-				if since <= 2*time.Minute {
+				if since <= staleResetAfter || s.waiting.Load() {
 					return ss
 				}
 
@@ -753,9 +757,7 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 					return ss
 				}
 
-				if *gsr != nil {
-					updateProgress(&chunk.Status, &chunk.Spec, *gsr, *gdrs)
-				}
+				chunk.Status = ss.Status
 
 				chunk, err = r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
 				if err != nil {
@@ -823,17 +825,31 @@ func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *
 		return
 	}
 
+	s.waiting.Store(true)
 	<-continues
 	r.waitForPartialChunk(s, swmr, etags)
 }
 
 func (r *ChunkRunner) waitForPartialChunk(s *state, swmr ioswmr.SWMR, etags []string) {
 	chunks := r.client.TaskV1alpha1().Chunks()
+	var lastOwnershipCheck time.Time
 	for {
 		chunk := s.Get()
-		if chunk.Status.HandlerName != r.handlerName {
-			klog.Infof("Chunk %s handler name changed", chunk.Name)
-			return
+		if time.Since(lastOwnershipCheck) >= r.updateDuration {
+			lastOwnershipCheck = time.Now()
+			own, err := chunks.Get(context.Background(), chunk.Name, metav1.GetOptions{})
+			if apierrors.IsNotFound(err) {
+				klog.Infof("Chunk %s no longer exists, stop waiting", chunk.Name)
+				return
+			}
+			if err != nil {
+				time.Sleep(time.Second)
+				continue
+			}
+			if own.Status.HandlerName != r.handlerName {
+				klog.Infof("Chunk %s handler name changed", chunk.Name)
+				return
+			}
 		}
 
 		pchunk, err := chunks.Get(context.Background(), chunk.Spec.Sha256PartialPreviousName, metav1.GetOptions{})
@@ -1136,8 +1152,9 @@ func newSha256() hashEncoding {
 }
 
 type state struct {
-	ss  *v1alpha1.Chunk
-	mut sync.Mutex
+	ss      *v1alpha1.Chunk
+	mut     sync.Mutex
+	waiting atomic.Bool
 }
 
 func newState(s *v1alpha1.Chunk) *state {

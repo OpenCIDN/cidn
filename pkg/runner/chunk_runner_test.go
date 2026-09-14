@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +30,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned/fake"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
+	"github.com/wzshiming/ioswmr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -64,6 +67,206 @@ func newTestChunk(name string, priority, retry int64) *v1alpha1.Chunk {
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec:       v1alpha1.ChunkSpec{Priority: priority},
 		Status:     v1alpha1.ChunkStatus{Phase: v1alpha1.ChunkPhasePending, Retry: retry},
+	}
+}
+
+func TestReleaseReleasesOwnedActiveChunksOutsideInformer(t *testing.T) {
+	var chunks []*v1alpha1.Chunk
+	for _, phase := range []v1alpha1.ChunkPhase{v1alpha1.ChunkPhaseRunning, v1alpha1.ChunkPhasePending, v1alpha1.ChunkPhaseUnknown, v1alpha1.ChunkPhaseSucceeded} {
+		chunk := newTestChunk(string(phase), 0, 0)
+		chunk.Status.HandlerName = "runner-test"
+		chunk.Status.Phase = phase
+		chunk.Status.Conditions = []v1alpha1.Condition{{Type: "Existing", Message: "keep unless released"}}
+		chunks = append(chunks, chunk)
+	}
+	other := newTestChunk("other", 0, 0)
+	other.Status.HandlerName = "other"
+	other.Status.Phase = v1alpha1.ChunkPhaseRunning
+	chunks = append(chunks, other)
+	runner, client := newTestRunner(t, 1, chunks, nil)
+	if err := runner.chunkInformer.Informer().GetIndexer().Replace(nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Release(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, chunk := range chunks {
+		got, err := client.TaskV1alpha1().Chunks().Get(context.Background(), chunk.Name, metav1.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := chunk.DeepCopy()
+		if chunk.Status.HandlerName == runner.handlerName && chunk.Status.Phase != v1alpha1.ChunkPhaseSucceeded {
+			want.Status.HandlerName = ""
+			want.Status.Phase = v1alpha1.ChunkPhasePending
+			want.Status.Conditions = nil
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("chunk %s: got status %+v, want %+v", chunk.Name, got.Status, want.Status)
+		}
+	}
+}
+
+func TestProgressUpdaterPreservesWaitingChunksButResetsStalledDownloads(t *testing.T) {
+	previous := staleResetAfter
+	staleResetAfter = 50 * time.Millisecond
+	var states []*state
+	t.Cleanup(func() {
+		for _, current := range states {
+			current.mut.Lock()
+			defer current.mut.Unlock()
+		}
+		staleResetAfter = previous
+	})
+	for _, waiting := range []bool{true, false} {
+		t.Run(fmt.Sprintf("waiting-%t", waiting), func(t *testing.T) {
+			chunk := newTestChunk("running", 0, 0)
+			chunk.Status.HandlerName = "runner-test"
+			chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
+			runner, client := newTestRunner(t, 1, []*v1alpha1.Chunk{chunk}, nil)
+			runner.updateDuration = 10 * time.Millisecond
+			updates := trackStatusUpdates(client, "chunks", nil)
+			current := newState(chunk)
+			current.waiting.Store(waiting)
+			states = append(states, current)
+			ctx, cancel := context.WithCancel(context.Background())
+			var source *readCount
+			var destinations []*swmrCount
+			stop := runner.startProgressUpdater(ctx, cancel, current, &source, &destinations)
+			t.Cleanup(func() {
+				stop()
+				cancel()
+			})
+			if waiting {
+				time.Sleep(300 * time.Millisecond)
+				if ctx.Err() != nil {
+					t.Error("waiting chunk was cancelled by stale reset")
+				}
+			} else {
+				select {
+				case <-ctx.Done():
+				case <-time.After(time.Second):
+					t.Error("stalled download was not cancelled within 1s")
+				}
+			}
+			updates.mut.Lock()
+			defer updates.mut.Unlock()
+			reset := false
+			for _, object := range updates.objects {
+				status := object.(*v1alpha1.Chunk).Status
+				if status.Phase == v1alpha1.ChunkPhasePending || status.HandlerName == "" {
+					reset = true
+					if status.Phase != v1alpha1.ChunkPhasePending || status.HandlerName != "" {
+						t.Errorf("incomplete reset: phase=%s handler=%q", status.Phase, status.HandlerName)
+					}
+				}
+			}
+			if reset == waiting {
+				t.Errorf("waiting=%t: reset update observed=%t", waiting, reset)
+			}
+		})
+	}
+}
+
+func TestProgressUpdaterKeepsLocalResultAfterConflict(t *testing.T) {
+	chunk := newTestChunk("finished", 0, 0)
+	chunk.Status.HandlerName = "runner-test"
+	chunk.Status.Phase = v1alpha1.ChunkPhaseUnknown
+	runner, client := newTestRunner(t, 1, []*v1alpha1.Chunk{chunk}, nil)
+	runner.updateDuration = 10 * time.Millisecond
+	updates := trackStatusUpdates(client, "chunks", nil)
+	first := true
+	client.PrependReactor("update", "chunks", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() == "status" && first {
+			first = false
+			return true, nil, apierrors.NewConflict(v1alpha1.Resource("chunks"), chunk.Name, errors.New("controller changed status"))
+		}
+		return false, nil, nil
+	})
+	local := chunk.DeepCopy()
+	local.Status.Phase = v1alpha1.ChunkPhaseSucceeded
+	local.Status.Etags = []string{"e1"}
+	current := newState(local)
+	ctx, cancel := context.WithCancel(context.Background())
+	var source *readCount
+	var destinations []*swmrCount
+	stop := sync.OnceFunc(runner.startProgressUpdater(ctx, cancel, current, &source, &destinations))
+	t.Cleanup(func() {
+		stop()
+		cancel()
+	})
+	stop()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got, err := client.TaskV1alpha1().Chunks().Get(context.Background(), chunk.Name, metav1.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status.Phase == v1alpha1.ChunkPhaseSucceeded && reflect.DeepEqual(got.Status.Etags, []string{"e1"}) {
+			if len(updates.snapshot()) == 0 {
+				t.Fatal("no status retry recorded")
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("conflict lost local result: phase=%s etags=%v", got.Status.Phase, got.Status.Etags)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestWaitForPartialChunkStopsWhenOwnershipIsLost(t *testing.T) {
+	for _, missing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("missing-%t", missing), func(t *testing.T) {
+			previous := newTestChunk("A", 0, 0)
+			previous.Status.Phase = v1alpha1.ChunkPhaseRunning
+			chunk := newTestChunk("B", 0, 0)
+			chunk.Status.HandlerName = "other"
+			chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
+			chunk.Spec.Sha256PartialPreviousName = previous.Name
+			chunks := []*v1alpha1.Chunk{previous}
+			if !missing {
+				chunks = append(chunks, chunk)
+			}
+			runner, client := newTestRunner(t, 1, chunks, nil)
+			runner.updateDuration = 10 * time.Millisecond
+			local := chunk.DeepCopy()
+			local.Status.HandlerName = runner.handlerName
+			current := newState(local)
+			file, err := os.CreateTemp(t.TempDir(), "chunk-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := file.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			swmr := ioswmr.NewSWMR(file)
+			done := make(chan struct{})
+			t.Cleanup(func() {
+				if err := client.TaskV1alpha1().Chunks().Delete(context.Background(), previous.Name, metav1.DeleteOptions{}); err != nil {
+					t.Error(err)
+				}
+				select {
+				case <-done:
+				case <-time.After(2 * time.Second):
+					t.Error("waiter did not exit during cleanup")
+				}
+			})
+			go func() {
+				runner.waitForPartialChunk(current, swmr, nil)
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				t.Fatal("waiter did not stop within 3s after ownership was lost")
+			}
+			if phase := current.Get().Status.Phase; phase != v1alpha1.ChunkPhaseRunning {
+				t.Errorf("waiter wrote a result after ownership was lost: phase=%s", phase)
+			}
+		})
 	}
 }
 
@@ -120,8 +323,9 @@ func TestGetPendingListTieredRandomOrder(t *testing.T) {
 }
 
 type callRecorder struct {
-	mut   sync.Mutex
-	names []string
+	mut     sync.Mutex
+	names   []string
+	objects []runtime.Object
 }
 
 func trackStatusUpdates(client *fake.Clientset, resource string, conflicts map[string]bool) *callRecorder {
@@ -134,6 +338,7 @@ func trackStatusUpdates(client *fake.Clientset, resource string, conflicts map[s
 		name := update.GetObject().(metav1.Object).GetName()
 		recorder.mut.Lock()
 		recorder.names = append(recorder.names, name)
+		recorder.objects = append(recorder.objects, update.GetObject().DeepCopyObject())
 		recorder.mut.Unlock()
 		if conflicts[name] {
 			return true, nil, apierrors.NewConflict(v1alpha1.Resource(resource), name, errors.New("already claimed"))
