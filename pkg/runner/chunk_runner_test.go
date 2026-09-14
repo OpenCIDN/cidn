@@ -107,6 +107,38 @@ func TestReleaseReleasesOwnedActiveChunksOutsideInformer(t *testing.T) {
 	}
 }
 
+func TestReleaseKeepsChunkThatFinishedDuringRelease(t *testing.T) {
+	chunk := newTestChunk("finishing", 0, 0)
+	chunk.Status.HandlerName = "runner-test"
+	chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
+	runner, client := newTestRunner(t, 1, []*v1alpha1.Chunk{chunk}, nil)
+	succeeded := chunk.DeepCopy()
+	succeeded.Status.Phase = v1alpha1.ChunkPhaseSucceeded
+	succeeded.Status.Etags = []string{"e1"}
+	gvr := v1alpha1.SchemeGroupVersion.WithResource("chunks")
+	conflicted := false
+	client.PrependReactor("update", "chunks", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if conflicted || action.(k8stesting.UpdateAction).GetSubresource() != "status" {
+			return false, nil, nil
+		}
+		conflicted = true
+		if err := client.Tracker().Update(gvr, succeeded, ""); err != nil {
+			t.Error(err)
+		}
+		return true, nil, apierrors.NewConflict(v1alpha1.Resource("chunks"), chunk.Name, errors.New("finished meanwhile"))
+	})
+	if err := runner.Release(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.TaskV1alpha1().Chunks().Get(context.Background(), chunk.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Status, succeeded.Status) {
+		t.Errorf("release reverted a finished chunk: got %+v, want %+v", got.Status, succeeded.Status)
+	}
+}
+
 func TestProgressUpdaterPreservesWaitingChunksButResetsStalledDownloads(t *testing.T) {
 	previous := staleResetAfter
 	staleResetAfter = 50 * time.Millisecond

@@ -177,11 +177,7 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 
 	for index := range list.Items {
 		chunk := &list.Items[index]
-		if chunk.Status.HandlerName != r.handlerName {
-			continue
-		}
-
-		if chunk.Status.Phase != v1alpha1.ChunkPhasePending && chunk.Status.Phase != v1alpha1.ChunkPhaseRunning && chunk.Status.Phase != v1alpha1.ChunkPhaseUnknown {
+		if !r.holdsChunk(chunk) {
 			continue
 		}
 
@@ -191,6 +187,9 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 			defer wg.Done()
 
 			_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Chunks(), chunk, func(chunk *v1alpha1.Chunk) *v1alpha1.Chunk {
+				if !r.holdsChunk(chunk) {
+					return chunk
+				}
 				chunk.Status.HandlerName = ""
 				chunk.Status.Phase = v1alpha1.ChunkPhasePending
 				chunk.Status.Conditions = nil
@@ -205,6 +204,17 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 	wg.Wait()
 
 	return nil
+}
+
+func (r *ChunkRunner) holdsChunk(chunk *v1alpha1.Chunk) bool {
+	if chunk.Status.HandlerName != r.handlerName {
+		return false
+	}
+	switch chunk.Status.Phase {
+	case v1alpha1.ChunkPhasePending, v1alpha1.ChunkPhaseRunning, v1alpha1.ChunkPhaseUnknown:
+		return true
+	}
+	return false
 }
 
 // Shutdown stops the runner
