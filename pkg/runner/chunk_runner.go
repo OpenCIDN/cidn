@@ -34,6 +34,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -57,6 +58,8 @@ var (
 	ErrAuthentication = errors.New("authentication error")
 	ErrNoPendingChunk = fmt.Errorf("no pending chunks available")
 )
+
+var staleResetAfter = 2 * time.Minute
 
 // ChunkRunner executes Chunk tasks
 type ChunkRunner struct {
@@ -165,19 +168,16 @@ func (r *ChunkRunner) enqueueChunk() {
 
 // Release releases the current held chunk
 func (r *ChunkRunner) Release(ctx context.Context) error {
-	chunks, err := r.chunkInformer.Lister().List(labels.Everything())
+	list, err := r.client.TaskV1alpha1().Chunks().List(ctx, metav1.ListOptions{FieldSelector: "status.handlerName=" + r.handlerName})
 	if err != nil {
-		return fmt.Errorf("failed to list blobs: %w", err)
+		return fmt.Errorf("failed to list chunks: %w", err)
 	}
 
 	var wg sync.WaitGroup
 
-	for _, chunk := range chunks {
-		if chunk.Status.HandlerName != r.handlerName {
-			continue
-		}
-
-		if chunk.Status.Phase != v1alpha1.ChunkPhasePending && chunk.Status.Phase != v1alpha1.ChunkPhaseRunning && chunk.Status.Phase != v1alpha1.ChunkPhaseUnknown {
+	for index := range list.Items {
+		chunk := &list.Items[index]
+		if !r.holdsChunk(chunk) {
 			continue
 		}
 
@@ -187,6 +187,9 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 			defer wg.Done()
 
 			_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Chunks(), chunk, func(chunk *v1alpha1.Chunk) *v1alpha1.Chunk {
+				if !r.holdsChunk(chunk) {
+					return chunk
+				}
 				chunk.Status.HandlerName = ""
 				chunk.Status.Phase = v1alpha1.ChunkPhasePending
 				chunk.Status.Conditions = nil
@@ -201,6 +204,17 @@ func (r *ChunkRunner) Release(ctx context.Context) error {
 	wg.Wait()
 
 	return nil
+}
+
+func (r *ChunkRunner) holdsChunk(chunk *v1alpha1.Chunk) bool {
+	if chunk.Status.HandlerName != r.handlerName {
+		return false
+	}
+	switch chunk.Status.Phase {
+	case v1alpha1.ChunkPhasePending, v1alpha1.ChunkPhaseRunning, v1alpha1.ChunkPhaseUnknown:
+		return true
+	}
+	return false
 }
 
 // Shutdown stops the runner
@@ -226,9 +240,9 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	}
 
 	if len(r.concurrencySem) >= cap(r.concurrencySem) {
-		klog.Infof("Maximum concurrency reached, waiting...")
 		select {
-		case <-time.After(1 * time.Second):
+		case <-r.signal:
+		case <-time.After(5 * time.Second):
 		case <-ctx.Done():
 			return false
 		}
@@ -247,7 +261,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 		return true
 	}
 
-	err = r.handlePending(context.Background(), chunks, func(c *v1alpha1.Chunk) {
+	stats, err := r.handlePending(context.Background(), chunks, func(c *v1alpha1.Chunk) {
 		continues := make(chan struct{})
 		go r.process(continues, c.DeepCopy())
 		continues <- struct{}{}
@@ -256,7 +270,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 	})
 	if err != nil {
 		if errors.Is(err, ErrNoPendingChunk) {
-			klog.Infof("no pending chunks available")
+			klog.Infof("No chunk acquired: pending=%d free=%d skipped=%d stale=%d conflicts=%d", stats.pending, stats.free, stats.skipped, stats.stale, stats.conflicts)
 		} else {
 			klog.Errorf("failed to get pending chunk: %v", err)
 		}
@@ -270,6 +284,7 @@ func (r *ChunkRunner) processNextItem(ctx context.Context) bool {
 		return true
 	}
 
+	klog.Infof("Acquired %d/%d chunks: pending=%d conflicts=%d", stats.acquired, stats.free, stats.pending, stats.conflicts)
 	return true
 }
 
@@ -707,7 +722,7 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 
 			if reflect.DeepEqual(prevStatus, &ss.Status) {
 				since := time.Since(lastUpdateTime)
-				if since <= 2*time.Minute {
+				if since <= staleResetAfter || s.waiting.Load() {
 					return ss
 				}
 
@@ -752,9 +767,7 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 					return ss
 				}
 
-				if *gsr != nil {
-					updateProgress(&chunk.Status, &chunk.Spec, *gsr, *gdrs)
-				}
+				chunk.Status = ss.Status
 
 				chunk, err = r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
 				if err != nil {
@@ -822,17 +835,31 @@ func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *
 		return
 	}
 
+	s.waiting.Store(true)
 	<-continues
 	r.waitForPartialChunk(s, swmr, etags)
 }
 
 func (r *ChunkRunner) waitForPartialChunk(s *state, swmr ioswmr.SWMR, etags []string) {
 	chunks := r.client.TaskV1alpha1().Chunks()
+	var lastOwnershipCheck time.Time
 	for {
 		chunk := s.Get()
-		if chunk.Status.HandlerName != r.handlerName {
-			klog.Infof("Chunk %s handler name changed", chunk.Name)
-			return
+		if time.Since(lastOwnershipCheck) >= r.updateDuration {
+			lastOwnershipCheck = time.Now()
+			own, err := chunks.Get(context.Background(), chunk.Name, metav1.GetOptions{})
+			if apierrors.IsNotFound(err) {
+				klog.Infof("Chunk %s no longer exists, stop waiting", chunk.Name)
+				return
+			}
+			if err != nil {
+				time.Sleep(time.Second)
+				continue
+			}
+			if own.Status.HandlerName != r.handlerName {
+				klog.Infof("Chunk %s handler name changed", chunk.Name)
+				return
+			}
 		}
 
 		pchunk, err := chunks.Get(context.Background(), chunk.Spec.Sha256PartialPreviousName, metav1.GetOptions{})
@@ -922,15 +949,76 @@ func updateSha256(sha256 string, sha256Partial []byte, reader io.Reader) (string
 	return sha256, nil, nil
 }
 
-func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chunk, cb func(*v1alpha1.Chunk)) error {
-	size := 0
+type pendingStats struct {
+	pending, free, acquired, skipped, stale, conflicts int
+}
+
+func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chunk, cb func(*v1alpha1.Chunk)) (pendingStats, error) {
+	stats := pendingStats{pending: len(chunks), free: cap(r.concurrencySem) - len(r.concurrencySem)}
+	if stats.free <= 0 {
+		return stats, nil
+	}
+
+	resetBearers := make(map[string]struct{})
+	batch := make([]*v1alpha1.Chunk, 0, stats.free)
+	flush := func() {
+		results := make([]struct {
+			chunk *v1alpha1.Chunk
+			err   error
+		}, len(batch))
+		var wg sync.WaitGroup
+		for index, chunk := range batch {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				chunk.Status.HandlerName = r.handlerName
+				chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
+				results[index].chunk, results[index].err = r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
+			}()
+		}
+		wg.Wait()
+
+		for index, result := range results {
+			chunk := batch[index]
+			if result.err != nil {
+				if apierrors.IsConflict(result.err) || apierrors.IsNotFound(result.err) {
+					r.unmarkRecord(chunk.Name)
+					stats.conflicts++
+					continue
+				}
+				klog.Warningf("Failed to acquire chunk %s: %v", chunk.Name, result.err)
+				r.unmarkRecord(chunk.Name)
+				continue
+			}
+
+			updated := result.chunk
+			if updated.Status.HandlerName != r.handlerName {
+				klog.Infof("Chunk %s was acquired by another handler", updated.Name)
+				r.unmarkRecord(updated.Name)
+				continue
+			}
+
+			r.concurrencySem <- struct{}{}
+			stats.acquired++
+			go func() {
+				defer func() {
+					<-r.concurrencySem
+					r.enqueueChunk()
+				}()
+				cb(updated)
+			}()
+		}
+		batch = batch[:0]
+	}
+
 	for _, chunk := range chunks {
-		if len(r.concurrencySem) >= cap(r.concurrencySem) {
-			return nil
+		if stats.acquired >= stats.free {
+			break
 		}
 
 		if !r.markRecord(chunk.Name) {
 			klog.Infof("Chunk %s is already being processed, skipping", chunk.Name)
+			stats.skipped++
 			continue
 		}
 
@@ -941,6 +1029,7 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 					if bearer.Status.TokenInfo == nil {
 						klog.Infof("Bearer %s has no token info, skipping chunk %s", bearer.Name, chunk.Name)
 						r.unmarkRecord(chunk.Name)
+						stats.skipped++
 						continue
 					}
 
@@ -952,17 +1041,21 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 
 						if since >= expires {
 							if bearer.Status.Phase == v1alpha1.BearerPhaseSucceeded {
-								_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
-									bearer.Status.HandlerName = ""
-									bearer.Status.Phase = v1alpha1.BearerPhasePending
-									return bearer
-								})
-								if err != nil {
-									klog.Warningf("Failed to update bearer %s status: %v", bearer.Name, err)
+								if _, reset := resetBearers[bearer.Name]; !reset {
+									resetBearers[bearer.Name] = struct{}{}
+									_, err := utils.UpdateResourceStatusWithRetry(ctx, r.client.TaskV1alpha1().Bearers(), bearer, func(bearer *v1alpha1.Bearer) *v1alpha1.Bearer {
+										bearer.Status.HandlerName = ""
+										bearer.Status.Phase = v1alpha1.BearerPhasePending
+										return bearer
+									})
+									if err != nil {
+										klog.Warningf("Failed to update bearer %s status: %v", bearer.Name, err)
+									}
 								}
 							}
 							klog.Infof("Bearer %s token has expired, skipping chunk %s", bearer.Name, chunk.Name)
 							r.unmarkRecord(chunk.Name)
+							stats.skipped++
 							continue
 						}
 					}
@@ -975,54 +1068,43 @@ func (r *ChunkRunner) handlePending(ctx context.Context, chunks []*v1alpha1.Chun
 				if !apierrors.IsNotFound(err) {
 					klog.Warningf("Failed to get partial chunk %s: %v", chunk.Spec.Sha256PartialPreviousName, err)
 					r.unmarkRecord(chunk.Name)
+					stats.skipped++
 					continue
 				}
 
 			} else if pchunk.Status.Phase == v1alpha1.ChunkPhasePending {
 				klog.Infof("Partial chunk %s is still pending, skipping chunk %s", chunk.Spec.Sha256PartialPreviousName, chunk.Name)
 				r.unmarkRecord(chunk.Name)
+				stats.skipped++
 				continue
 			}
 		}
 
-		chunk.Status.HandlerName = r.handlerName
-		chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
-		chunk, err := r.client.TaskV1alpha1().Chunks().UpdateStatus(ctx, chunk, metav1.UpdateOptions{})
-		if err != nil {
-			if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
-				continue
-			}
-			klog.Warningf("Failed to acquire chunk %s: %v", chunk.Name, err)
+		latest, err := r.chunkInformer.Lister().Get(chunk.Name)
+		if err != nil || latest.Status.HandlerName != "" || latest.Status.Phase != v1alpha1.ChunkPhasePending {
 			r.unmarkRecord(chunk.Name)
+			stats.stale++
 			continue
 		}
 
-		if chunk.Status.HandlerName != r.handlerName {
-			klog.Infof("Chunk %s was acquired by another handler", chunk.Name)
-			r.unmarkRecord(chunk.Name)
-			continue
+		batch = append(batch, latest.DeepCopy())
+		if len(batch) >= stats.free-stats.acquired {
+			flush()
 		}
-
-		r.concurrencySem <- struct{}{}
-		go func() {
-			defer func() {
-				<-r.concurrencySem
-			}()
-			cb(chunk)
-		}()
-
-		size++
+	}
+	if len(batch) != 0 {
+		flush()
 	}
 
-	if size == 0 {
+	if stats.acquired == 0 {
 		r.clearRecord()
-		return ErrNoPendingChunk
+		return stats, ErrNoPendingChunk
 	}
 
-	return nil
+	return stats, nil
 }
 
-// getPendingList returns all Chunks in Pending state, sorted by weight and creation time
+// getPendingList returns pending Chunks by priority descending, retry ascending, and random order within each tier.
 func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 	chunks, err := r.chunkInformer.Lister().List(labels.Everything())
 	if err != nil {
@@ -1042,7 +1124,6 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 		}
 	}
 
-	// Sort by weight (descending) and creation time (ascending)
 	sort.Slice(pendingChunks, func(i, j int) bool {
 		a := pendingChunks[i]
 		b := pendingChunks[j]
@@ -1050,48 +1131,24 @@ func (r *ChunkRunner) getPendingList() ([]*v1alpha1.Chunk, error) {
 			return a.Spec.Priority > b.Spec.Priority
 		}
 
-		if a.Status.Retry != b.Status.Retry {
-			return a.Status.Retry < b.Status.Retry
-		}
-
-		atime := a.CreationTimestamp.Time
-		if a.Status.CompletionTime != nil {
-			atime = a.Status.CompletionTime.Time
-		}
-		btime := b.CreationTimestamp.Time
-		if b.Status.CompletionTime != nil {
-			btime = b.Status.CompletionTime.Time
-		}
-
-		return atime.Before(btime)
+		return a.Status.Retry < b.Status.Retry
 	})
 
-	return shuffleChunks(pendingChunks), nil
-}
-
-// shuffleChunks shuffles the chunks to a certain degree to reduce conflicts
-func shuffleChunks(chunks []*v1alpha1.Chunk) []*v1alpha1.Chunk {
-	n := len(chunks)
-	if n <= 1 {
-		return chunks
-	}
-
-	// Define a shuffle range (e.g., 25% of the list size)
-	shuffleRange := n / 4
-	if shuffleRange < 1 {
-		shuffleRange = 1
-	}
-
-	// Shuffle within the defined range
-	for i := 0; i < n; i++ {
-		j := i + rand.Intn(shuffleRange)
-		if j >= n {
-			j = n - 1
+	for start := 0; start < len(pendingChunks); {
+		end := start + 1
+		for end < len(pendingChunks) &&
+			pendingChunks[end].Spec.Priority == pendingChunks[start].Spec.Priority &&
+			pendingChunks[end].Status.Retry == pendingChunks[start].Status.Retry {
+			end++
 		}
-		chunks[i], chunks[j] = chunks[j], chunks[i]
+		tier := pendingChunks[start:end]
+		rand.Shuffle(len(tier), func(left, right int) {
+			tier[left], tier[right] = tier[right], tier[left]
+		})
+		start = end
 	}
 
-	return chunks
+	return pendingChunks, nil
 }
 
 type hashEncoding interface {
@@ -1105,8 +1162,9 @@ func newSha256() hashEncoding {
 }
 
 type state struct {
-	ss  *v1alpha1.Chunk
-	mut sync.Mutex
+	ss      *v1alpha1.Chunk
+	mut     sync.Mutex
+	waiting atomic.Bool
 }
 
 func newState(s *v1alpha1.Chunk) *state {
