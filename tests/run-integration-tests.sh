@@ -88,7 +88,7 @@ cleanup() {
         if [ "$exit_code" -ne 0 ]; then
             echo ""
             echo -e "${YELLOW}Logs of all services:${NC}"
-            docker compose -f compose.local.yaml logs
+            docker compose -f compose.local.yaml logs || true
         fi
         echo ""
         echo -e "${YELLOW}Cleaning up Docker Compose services...${NC}"
