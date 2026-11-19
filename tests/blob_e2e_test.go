@@ -205,7 +205,8 @@ func waitForBlobDone(t *testing.T, client versioned.Interface, name string) *tas
 				t.Logf("blob %s is %s after %s", name, blob.Status.Phase, time.Since(start).Round(time.Second))
 				return blob
 			}
-		} else {
+		} else if ctx.Err() == nil {
+			// A Get cut short by the deadline says nothing about the API server.
 			lastErr = err
 		}
 
