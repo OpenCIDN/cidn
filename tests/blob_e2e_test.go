@@ -46,6 +46,7 @@ const (
 func TestBlobSingleChunkSucceeds(t *testing.T) {
 	t.Parallel()
 	client := newE2EClient(t)
+	t.Fatal("deliberately broken e2e case")
 	name := uniqueName("e2e-single")
 	sha := writeSource(t, name, 1<<20)
 	createBlob(t, client, name, sha)

@@ -21,6 +21,7 @@ import (
 )
 
 func TestDecimalStringLength(t *testing.T) {
+	t.Fatal("deliberately broken unit test")
 	tests := []struct {
 		name string
 		n    int64
