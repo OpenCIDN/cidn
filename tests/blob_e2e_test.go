@@ -25,6 +25,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,6 +74,25 @@ func TestBlobMultiChunkSucceeds(t *testing.T) {
 	if blob.Spec.ChunksNumber < 2 {
 		t.Errorf("blob %s was split into %d chunks, want more than 1", name, blob.Spec.ChunksNumber)
 	}
+}
+
+func TestBlobSha256MismatchFails(t *testing.T) {
+	t.Parallel()
+	client := newE2EClient(t)
+	name := uniqueName("e2e-mismatch")
+	writeSource(t, name, 1<<20)
+	createBlob(t, client, name, strings.Repeat("0", 64))
+
+	blob := waitForBlobDone(t, client, name)
+	if blob.Status.Phase != taskv1alpha1.BlobPhaseFailed {
+		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseFailed, statusJSON(blob))
+	}
+	for _, condition := range blob.Status.Conditions {
+		if strings.Contains(condition.Message, "sha256 mismatch") {
+			return
+		}
+	}
+	t.Errorf("blob %s failed without a sha256 mismatch condition; status: %s", name, statusJSON(blob))
 }
 
 // newE2EClient skips in short mode and fails when the API server is unreachable.
