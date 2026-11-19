@@ -58,6 +58,23 @@ func TestBlobSingleChunkSucceeds(t *testing.T) {
 	}
 }
 
+func TestBlobMultiChunkSucceeds(t *testing.T) {
+	t.Parallel()
+	client := newE2EClient(t)
+	name := uniqueName("e2e-multi")
+	sha := writeSource(t, name, 16<<20)
+	createBlob(t, client, name, sha)
+
+	blob := waitForBlobDone(t, client, name)
+	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
+		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
+	}
+	// Chunks are deleted once the Blob succeeds, so only the Blob tells how it was split.
+	if blob.Spec.ChunksNumber < 2 {
+		t.Errorf("blob %s was split into %d chunks, want more than 1", name, blob.Spec.ChunksNumber)
+	}
+}
+
 // newE2EClient skips in short mode and fails when the API server is unreachable.
 func newE2EClient(t *testing.T) versioned.Interface {
 	t.Helper()
