@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     stop_signal: SIGINT
     stop_grace_period: 3s
-    image: m.daocloud.io/quay.io/minio/minio:RELEASE.2025-05-24T17-08-30Z
+    image: m.daocloud.io/ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z
     entrypoint:
     - sh
     command:
