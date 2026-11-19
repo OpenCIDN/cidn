@@ -1,3 +1,4 @@
+name: cidn
 services:
   minio:
     restart: unless-stopped
