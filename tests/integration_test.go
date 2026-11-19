@@ -98,7 +98,7 @@ func TestAPIServerHealth(t *testing.T) {
 
 	err = waitForAPIServer(t, config)
 	if err != nil {
-		t.Skipf("API server not available: %v (use docker compose up to start services)", err)
+		t.Fatalf("API server not available: %v (use docker compose up to start services)", err)
 	}
 
 	t.Log("API server health check passed")
@@ -117,7 +117,7 @@ func TestBlobLifecycle(t *testing.T) {
 
 	err = waitForAPIServer(t, config)
 	if err != nil {
-		t.Skipf("API server not available: %v (use docker compose up to start services)", err)
+		t.Fatalf("API server not available: %v (use docker compose up to start services)", err)
 	}
 
 	client, err := versioned.NewForConfig(config)
@@ -211,7 +211,7 @@ func TestChunkListing(t *testing.T) {
 
 	err = waitForAPIServer(t, config)
 	if err != nil {
-		t.Skipf("API server not available: %v (use docker compose up to start services)", err)
+		t.Fatalf("API server not available: %v (use docker compose up to start services)", err)
 	}
 
 	client, err := versioned.NewForConfig(config)
