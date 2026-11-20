@@ -307,6 +307,10 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 // fromFirstChunk follows a skipHead blob through its first chunk, the provider of part 1.
 func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1alpha1.Blob) error {
 	chunk, err := c.chunkInformer.Lister().Get(buildFirstChunkName(blob.Name))
+	if apierrors.IsNotFound(err) && blob.Status.Total != 0 {
+		// Like any part's chunk, the first chunk goes once the next part is recorded.
+		return c.fromChunks(ctx, blob)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to get chunk: %w", err)
 	}

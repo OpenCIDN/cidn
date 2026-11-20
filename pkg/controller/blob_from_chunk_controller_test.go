@@ -374,3 +374,25 @@ func TestSkipHeadBlobCommitsItsFirstChunkAsItsOnlyPart(t *testing.T) {
 		})
 	}
 }
+
+func newTestRecordedPart(blob *v1alpha1.Blob, name string, num int64) *v1alpha1.Chunk {
+	chunk := newTestChunk(name, blob, v1alpha1.ChunkPhaseSucceeded)
+	chunk.Spec.ChunkIndex, chunk.Spec.Total = num, blob.Spec.ChunkSize
+	chunk.Status.Etags = []string{fmt.Sprintf("etag-%d", num)}
+	return chunk
+}
+
+func TestLaidOutSkipHeadBlobCommitsItsPartsOnceItsFirstChunkIsGone(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	// An empty upload ID makes the commit skip the store.
+	mp := newTestMultipart(blob, 0, "")
+	mp.UploadEtags = []v1alpha1.UploadEtags{{Size: 10, Etags: []string{"etag-1"}}, {Size: 10, Etags: []string{"etag-2"}}, {Size: 10, Etags: []string{"etag-3"}}}
+	c, client := newTestFromChunkController(t, blob, newTestRecordedPart(blob, "blob:part:blob:3:14-1e", 3), mp)
+
+	c.handler(context.Background(), blob.Name)
+
+	got := getBlob(t, client, blob.Name)
+	if got.Status.Phase != v1alpha1.BlobPhaseSucceeded || got.Status.Progress != 30 {
+		t.Errorf("phase %s, progress %d, conditions %v; want %s, 30", got.Status.Phase, got.Status.Progress, got.Status.Conditions, v1alpha1.BlobPhaseSucceeded)
+	}
+}
