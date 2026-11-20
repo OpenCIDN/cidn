@@ -121,6 +121,40 @@ func TestSkipHeadBlobWithoutRangeSupportSucceedsInOneChunk(t *testing.T) {
 	}
 }
 
+func TestSkipHeadBlobWithOnlyChunkSizeIsSplitByIt(t *testing.T) {
+	t.Parallel()
+	client := newE2EClient(t)
+	name := uniqueName("e2e-skip-head-chunk-size")
+	sha := writeSource(t, name, 16<<20)
+	chunkSize := int64(6 << 20)
+	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name), skipHead, chunkSizeOnly(chunkSize))
+
+	blob := waitForBlobDone(t, client, name)
+	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
+		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
+	}
+	if blob.Spec.ChunksNumber != 3 || blob.Spec.ChunkSize != chunkSize {
+		t.Errorf("blob %s was split into %d chunks of %d bytes, want 3 of %d", name, blob.Spec.ChunksNumber, blob.Spec.ChunkSize, chunkSize)
+	}
+}
+
+func TestBlobWithOnlyChunkSizeIsSplitByIt(t *testing.T) {
+	t.Parallel()
+	client := newE2EClient(t)
+	name := uniqueName("e2e-chunk-size")
+	sha := writeSource(t, name, 16<<20)
+	chunkSize := int64(6 << 20)
+	createBlob(t, client, name, sha, chunkSizeOnly(chunkSize))
+
+	blob := waitForBlobDone(t, client, name)
+	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
+		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
+	}
+	if blob.Spec.ChunksNumber != 3 || blob.Spec.ChunkSize != chunkSize {
+		t.Errorf("blob %s was split into %d chunks of %d bytes, want 3 of %d", name, blob.Spec.ChunksNumber, blob.Spec.ChunkSize, chunkSize)
+	}
+}
+
 // noHeadSource serves testdata/<name>.rand from path, one of the nginx-test paths that answer every HEAD with 401.
 func noHeadSource(path, name string) func(*taskv1alpha1.BlobSpec) {
 	return func(spec *taskv1alpha1.BlobSpec) {
@@ -130,6 +164,14 @@ func noHeadSource(path, name string) func(*taskv1alpha1.BlobSpec) {
 
 func skipHead(spec *taskv1alpha1.BlobSpec) {
 	spec.SkipHead = true
+}
+
+// chunkSizeOnly presets ChunkSize alone; createBlob's MinimumChunkSize would decide the layout otherwise.
+func chunkSizeOnly(size int64) func(*taskv1alpha1.BlobSpec) {
+	return func(spec *taskv1alpha1.BlobSpec) {
+		spec.MinimumChunkSize = 0
+		spec.ChunkSize = size
+	}
 }
 
 // watchChunkNames watches the Chunks of the blob named blobName; the returned func ends the watch and lists their names.
