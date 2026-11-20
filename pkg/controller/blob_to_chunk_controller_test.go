@@ -202,6 +202,39 @@ func TestCleanupBlobRemovesTheChunksAndOnlyAMultipartBlobsUpload(t *testing.T) {
 	}
 }
 
+func TestBlobWithoutSkipHeadStartsWithAHeadOfItsFirstSource(t *testing.T) {
+	blob := newTestBlob()
+	blob.Spec.Source = []v1alpha1.BlobSource{
+		{URL: "http://source.example/blob", BearerName: "bearer", Headers: map[string]string{"x-token": "token"}},
+		{URL: "http://mirror.example/blob"},
+	}
+	blob.Spec.Priority = 7
+	blob.Status.Retry = 1
+	c, client := newTestToChunkController(t, map[string]*sss.SSS{}, blob)
+
+	c.handler(context.Background(), blob.Name)
+
+	chunk, err := client.TaskV1alpha1().Chunks().Get(context.Background(), "blob:head:blob:0", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(chunk.Annotations, map[string]string{BlobNameAnnotationKey: "blob"}) {
+		t.Errorf("annotations %v, want only the blob name", chunk.Annotations)
+	}
+	wantSpec := v1alpha1.ChunkSpec{
+		Source: v1alpha1.ChunkHTTP{
+			Request:  v1alpha1.ChunkHTTPRequest{Method: "HEAD", URL: "http://source.example/blob", Headers: map[string]string{"X-Token": "token"}},
+			Response: v1alpha1.ChunkHTTPResponse{StatusCode: 200},
+		},
+		BearerName:   "bearer",
+		Priority:     7,
+		MaximumRetry: 2,
+	}
+	if !reflect.DeepEqual(chunk.Spec, wantSpec) {
+		t.Errorf("spec\n%+v\nwant\n%+v", chunk.Spec, wantSpec)
+	}
+}
+
 func chunkNames(t *testing.T, client *fake.Clientset) []string {
 	t.Helper()
 	list, err := client.TaskV1alpha1().Chunks().List(context.Background(), metav1.ListOptions{})
