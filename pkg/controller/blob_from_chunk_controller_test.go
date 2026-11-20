@@ -469,3 +469,22 @@ func TestSkipHeadBlobRecordsAPartItsMultipartDidNotHoldYet(t *testing.T) {
 		t.Errorf("succeeded chunks %d, progress %d; want 2, 20", got.Status.SucceededChunks, got.Status.Progress)
 	}
 }
+
+func TestFailedFirstChunkRemovesTheUnfinishedParts(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	blob.Status.RunningChunks, blob.Status.PendingChunks = 2, 1
+	first := newTestFirstChunk(blob, v1alpha1.ChunkPhaseFailed)
+	first.Status.Conditions = []v1alpha1.Condition{{Type: "UnexpectedStatusCode", Message: "unexpected status code: got 404, want 200"}}
+	partTwo := newTestChunk("blob:part:blob:2:0a-14", blob, v1alpha1.ChunkPhaseRunning)
+	partThree := newTestChunk("blob:part:blob:3:14-1e", blob, v1alpha1.ChunkPhasePending)
+	c, client := newTestFromChunkController(t, blob, first, partTwo, partThree, newTestMultipart(blob, 3, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	if got, want := chunkNames(t, client), []string{"blob:first:blob"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("chunks %v, want %v", got, want)
+	}
+	if got := getBlob(t, client, blob.Name); got.Status.Phase != v1alpha1.BlobPhaseFailed || got.Status.RunningChunks != 0 || got.Status.PendingChunks != 0 {
+		t.Errorf("phase %s, running chunks %d, pending chunks %d; want %s, 0, 0", got.Status.Phase, got.Status.RunningChunks, got.Status.PendingChunks, v1alpha1.BlobPhaseFailed)
+	}
+}

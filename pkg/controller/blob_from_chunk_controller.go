@@ -320,6 +320,9 @@ func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1al
 		if !chunk.Status.Retryable {
 			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
+			blob.Status.RunningChunks = 0
+			blob.Status.PendingChunks = 0
+			c.deleteChunksInNonFinalStates(ctx, blob)
 			c.abortUnusedMultipart(ctx, blob)
 			return nil
 		}
