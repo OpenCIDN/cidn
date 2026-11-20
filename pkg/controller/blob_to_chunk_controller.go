@@ -134,7 +134,7 @@ func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
 	}
 
 	if blob.Spec.ChunksNumber > 1 {
-		err := c.cleanupMultipart(context.Background(), blob)
+		err := cleanupMultipart(context.Background(), c.client, c.s3, blob)
 		if err != nil {
 			klog.Errorf("failed to cleanup multipart for blob %s: %v", blob.Name, err)
 		}
@@ -579,8 +579,8 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 	return mp, nil
 }
 
-func (c *BlobToChunkController) cleanupMultipart(ctx context.Context, blob *v1alpha1.Blob) error {
-	mp, err := c.client.TaskV1alpha1().Multiparts().Get(ctx, blob.Name, metav1.GetOptions{})
+func cleanupMultipart(ctx context.Context, client versioned.Interface, stores map[string]*sss.SSS, blob *v1alpha1.Blob) error {
+	mp, err := client.TaskV1alpha1().Multiparts().Get(ctx, blob.Name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
@@ -589,7 +589,7 @@ func (c *BlobToChunkController) cleanupMultipart(ctx context.Context, blob *v1al
 	}
 
 	for i, dst := range blob.Spec.Destination {
-		s3 := c.s3[dst.Name]
+		s3 := stores[dst.Name]
 		if s3 == nil {
 			continue
 		}
@@ -606,7 +606,7 @@ func (c *BlobToChunkController) cleanupMultipart(ctx context.Context, blob *v1al
 		}
 	}
 
-	err = c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
+	err = client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to delete multipart: %v", err)
 	}
