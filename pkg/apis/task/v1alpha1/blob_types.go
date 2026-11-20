@@ -149,6 +149,9 @@ type BlobSpec struct {
 	// This is useful for servers that support range requests but don't properly advertise it.
 	// +optional
 	ForceAcceptRanges bool `json:"forceAcceptRanges,omitempty"`
+
+	// SkipHead replaces the HEAD with a GET without Range whose body becomes the first part.
+	SkipHead bool `json:"skipHead,omitempty"`
 }
 
 // BlobSource defines the source for a blob.

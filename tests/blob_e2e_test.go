@@ -151,8 +151,8 @@ func writeSource(t *testing.T, name string, size int64) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-// createBlob copies testdata/<name>.rand from nginx-test to minio-1, verifying it against sha.
-func createBlob(t *testing.T, client versioned.Interface, name, sha string) {
+// createBlob copies testdata/<name>.rand from nginx-test to minio-1, verifying it against sha; edits adjust the spec first.
+func createBlob(t *testing.T, client versioned.Interface, name, sha string, edits ...func(*taskv1alpha1.BlobSpec)) {
 	t.Helper()
 	blob := &taskv1alpha1.Blob{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
@@ -170,6 +170,9 @@ func createBlob(t *testing.T, client versioned.Interface, name, sha string) {
 			ContentSha256:    sha,
 			MaximumRetry:     maximumRetry,
 		},
+	}
+	for _, edit := range edits {
+		edit(&blob.Spec)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)

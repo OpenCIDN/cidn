@@ -149,6 +149,26 @@ type ChunkHTTP struct {
 	Response ChunkHTTPResponse `json:"response"`
 }
 
+// ChunkFirstPart carries what the runner needs to lay out a blob from its first response.
+// +k8s:deepcopy-gen=true
+// +k8s:openapi-gen=true
+type ChunkFirstPart struct {
+	// MinimumChunkSize is the blob's preset minimum chunk size.
+	MinimumChunkSize int64 `json:"minimumChunkSize,omitempty"`
+
+	// ChunkSize is the blob's preset chunk size.
+	ChunkSize int64 `json:"chunkSize,omitempty"`
+
+	// ChunksNumber is the blob's preset number of chunks.
+	ChunksNumber int64 `json:"chunksNumber,omitempty"`
+
+	// ForceAcceptRanges is the blob's ForceAcceptRanges, applied to the first response.
+	ForceAcceptRanges bool `json:"forceAcceptRanges,omitempty"`
+
+	// ExistingSizes is, per destination, the size of the object SkipIfExists compares, or 0.
+	ExistingSizes []int64 `json:"existingSizes,omitempty"`
+}
+
 // ChunkSpec defines the specification for Chunk.
 // +k8s:deepcopy-gen=true
 // +k8s:openapi-gen=true
@@ -186,6 +206,9 @@ type ChunkSpec struct {
 
 	// InlineResponseBody indicates whether the response body should be inlined in the status
 	InlineResponseBody bool `json:"inlineResponseBody,omitempty"`
+
+	// FirstPart marks the first request of a skipHead blob; its body becomes part 1.
+	FirstPart *ChunkFirstPart `json:"firstPart,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

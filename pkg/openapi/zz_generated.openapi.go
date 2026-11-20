@@ -41,6 +41,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobSpec":          schema_pkg_apis_task_v1alpha1_BlobSpec(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.BlobStatus":        schema_pkg_apis_task_v1alpha1_BlobStatus(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.Chunk":             schema_pkg_apis_task_v1alpha1_Chunk(ref),
+		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkFirstPart":    schema_pkg_apis_task_v1alpha1_ChunkFirstPart(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTP":         schema_pkg_apis_task_v1alpha1_ChunkHTTP(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPRequest":  schema_pkg_apis_task_v1alpha1_ChunkHTTPRequest(ref),
 		"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTPResponse": schema_pkg_apis_task_v1alpha1_ChunkHTTPResponse(ref),
@@ -634,6 +635,13 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "",
 						},
 					},
+					"skipHead": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SkipHead replaces the HEAD with a GET without Range whose body becomes the first part.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"source", "destination", "priority"},
 			},
@@ -808,6 +816,62 @@ func schema_pkg_apis_task_v1alpha1_Chunk(ref common.ReferenceCallback) common.Op
 		},
 		Dependencies: []string{
 			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkSpec", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkStatus", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
+	}
+}
+
+func schema_pkg_apis_task_v1alpha1_ChunkFirstPart(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ChunkFirstPart carries what the runner needs to lay out a blob from its first response.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"minimumChunkSize": {
+						SchemaProps: spec.SchemaProps{
+							Description: "MinimumChunkSize is the blob's preset minimum chunk size.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"chunkSize": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ChunkSize is the blob's preset chunk size.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"chunksNumber": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ChunksNumber is the blob's preset number of chunks.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"forceAcceptRanges": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ForceAcceptRanges is the blob's ForceAcceptRanges, applied to the first response.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
+					"existingSizes": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ExistingSizes is, per destination, the size of the object SkipIfExists compares, or 0.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: 0,
+										Type:    []string{"integer"},
+										Format:  "int64",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -1066,12 +1130,18 @@ func schema_pkg_apis_task_v1alpha1_ChunkSpec(ref common.ReferenceCallback) commo
 							Format:      "",
 						},
 					},
+					"firstPart": {
+						SchemaProps: spec.SchemaProps{
+							Description: "FirstPart marks the first request of a skipHead blob; its body becomes part 1.",
+							Ref:         ref("github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkFirstPart"),
+						},
+					},
 				},
 				Required: []string{"source", "priority"},
 			},
 		},
 		Dependencies: []string{
-			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTP"},
+			"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkFirstPart", "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1.ChunkHTTP"},
 	}
 }
 
