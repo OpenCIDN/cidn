@@ -156,6 +156,25 @@ func TestOtherPresetsKeepTheirLayoutAfterStatusUpdates(t *testing.T) {
 	}
 }
 
+func TestLayoutSetByTheTotalTilesTheContent(t *testing.T) {
+	tests := []struct {
+		name             string
+		chunksNumber     int64
+		total            int64
+		wantChunksNumber int64
+		wantChunkSize    int64
+	}{
+		{name: "content up to 5MiB", chunksNumber: 4, total: 5 * mib, wantChunksNumber: 1, wantChunkSize: 5 * mib},
+		{name: "chunks capped at 5GiB", chunksNumber: 2, total: 20 * gib, wantChunksNumber: 4, wantChunkSize: 5 * gib},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := mustUpdate(t, testStatusStrategy, newBlob(v1alpha1.BlobSpec{ChunksNumber: tt.chunksNumber}), setTotal(tt.total, true))
+			checkLayout(t, "when the total is set", blob, tt.wantChunksNumber, tt.wantChunkSize)
+		})
+	}
+}
+
 func TestStatusUpdateSettingTheTotalIsAccepted(t *testing.T) {
 	presets := []v1alpha1.BlobSpec{
 		{},

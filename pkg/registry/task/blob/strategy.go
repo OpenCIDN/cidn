@@ -131,61 +131,7 @@ func setsTotal(oldBlob, newBlob *v1alpha1.Blob) bool {
 }
 
 func determineLayout(blob *v1alpha1.Blob) {
-	if !blob.Status.AcceptRanges {
-		blob.Spec.ChunksNumber = 1
-		blob.Spec.ChunkSize = blob.Status.Total
-	} else if blob.Spec.MinimumChunkSize != 0 {
-		blob.Spec.ChunksNumber = getChunksNumberByMinimumChunkSize(blob.Status.Total, blob.Spec.MinimumChunkSize)
-		blob.Spec.ChunkSize = getChunkSize(blob.Status.Total, blob.Spec.ChunksNumber)
-	} else if blob.Spec.ChunkSize == 0 && blob.Spec.ChunksNumber != 0 {
-		blob.Spec.ChunkSize = getChunkSize(blob.Status.Total, blob.Spec.ChunksNumber)
-	} else if blob.Spec.ChunkSize != 0 && blob.Spec.ChunksNumber == 0 {
-		blob.Spec.ChunksNumber = getChunksNumber(blob.Status.Total, blob.Spec.ChunkSize)
-	} else {
-		blob.Spec.ChunksNumber = 1
-		blob.Spec.ChunkSize = blob.Status.Total
-	}
-}
-
-func getChunksNumberByMinimumChunkSize(total, minimumChunkSize int64) int64 {
-	chunksNumber := total / minimumChunkSize
-	if chunksNumber <= 1 {
-		return 1
-	}
-	if chunksNumber >= 10000 {
-		return 10000
-	}
-	return chunksNumber
-}
-
-func getChunkSize(total, chunksNumber int64) int64 {
-	if total <= 5*1024*1024 { // <= 5MiB
-		return total
-	}
-	chunkSize := total / chunksNumber
-	if total%chunksNumber != 0 {
-		chunkSize++
-	}
-
-	if chunkSize >= 5*1024*1024*1024 { // <= 5GiB
-		return 5 * 1024 * 1024 * 1024
-	}
-	return chunkSize
-}
-
-func getChunksNumber(total, chunkSize int64) int64 {
-	if chunkSize == 0 {
-		return 1
-	}
-	if chunkSize >= total {
-		return 1
-	}
-
-	count := total / chunkSize
-	if total%chunkSize != 0 {
-		count++
-	}
-	return count
+	blob.Spec.ChunksNumber, blob.Spec.ChunkSize = v1alpha1.ComputeChunkLayout(blob.Status.Total, blob.Status.AcceptRanges, blob.Spec.MinimumChunkSize, blob.Spec.ChunkSize, blob.Spec.ChunksNumber)
 }
 
 func (*blobStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object) field.ErrorList {
