@@ -22,7 +22,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"strconv"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -262,17 +261,10 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 			return fmt.Errorf("chunk %s succeeded but has no source response", chunkName)
 		}
 
-		total, _ := strconv.ParseInt(chunk.Status.SourceResponse.Headers["content-length"], 10, 64)
-		if total <= 0 {
-			blob.Status.Total = -1
-		} else {
-			blob.Status.Total = total
-			// Use ForceAcceptRanges if set, otherwise check the server response
-			if blob.Spec.ForceAcceptRanges {
-				blob.Status.AcceptRanges = true
-			} else {
-				blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
-			}
+		total, acceptRanges := v1alpha1.ParseResponseHeaders(chunk.Status.SourceResponse.Headers, blob.Spec.ForceAcceptRanges)
+		blob.Status.Total = total
+		if total > 0 {
+			blob.Status.AcceptRanges = acceptRanges
 		}
 		blob.Status.Phase = v1alpha1.BlobPhaseRunning
 	case v1alpha1.ChunkPhaseFailed:
@@ -342,13 +334,9 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 
 	if blob.Status.Total <= 0 {
 		resp := chunk.Status.SourceResponse
-		if resp != nil && resp.StatusCode == 200 && resp.Headers != nil {
-			cl := resp.Headers["content-length"]
-			if cl != "" {
-				total, _ := strconv.ParseInt(cl, 10, 64)
-				if total > 0 {
-					blob.Status.Total = total
-				}
+		if resp != nil && resp.StatusCode == 200 {
+			if total, _ := v1alpha1.ParseResponseHeaders(resp.Headers, false); total > 0 {
+				blob.Status.Total = total
 			}
 		}
 	}
