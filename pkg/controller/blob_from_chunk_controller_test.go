@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,6 +34,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
+	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -238,6 +241,57 @@ func TestSkipHeadBlobTakesNoTotalFromAFailedAttemptsResponse(t *testing.T) {
 				t.Errorf("total %d, accept ranges %t; want 0, false", got.Status.Total, got.Status.AcceptRanges)
 			}
 		})
+	}
+}
+
+func TestSkipHeadBlobIsQueuedAtOnceWhenItsTotalIsWritten(t *testing.T) {
+	withoutSkipHead := newTestBlob()
+	withoutSkipHead.Name = "without-skiphead"
+	waiting := newTestSkipHeadBlob()
+	waiting.Name = "waiting"
+	laidOut := newTestLaidOutSkipHeadBlob()
+	laidOut.Name = "laid-out"
+	started := newTestSkipHeadBlob()
+	started.Name = "started"
+	client := fake.NewSimpleClientset(withoutSkipHead, waiting, laidOut, started)
+	var once sync.Once
+	watching := make(chan struct{})
+	client.PrependWatchReactor("blobs", func(action clienttesting.Action) (bool, watch.Interface, error) {
+		w, err := client.Tracker().Watch(action.GetResource(), action.GetNamespace())
+		once.Do(func() { close(watching) })
+		return true, w, err
+	})
+	factory := externalversions.NewSharedInformerFactory(client, 0)
+	c := NewBlobFromChunkController(testHandlerName, map[string]*sss.SSS{}, client, factory)
+	t.Cleanup(c.workqueue.ShutDown)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	factory.Start(ctx.Done())
+	factory.WaitForCacheSync(ctx.Done())
+	select {
+	case <-watching:
+	case <-time.After(5 * time.Second):
+		t.Fatal("blobs never watched")
+	}
+
+	withoutSkipHead.Status.Total = 1024
+	waiting.Status.Retry = 1
+	laidOut.Status.Progress = 10
+	started.Status.Total = 1024
+	// Events arrive in order, so the other updates were handled once the last one is queued.
+	for _, blob := range []*v1alpha1.Blob{withoutSkipHead, waiting, laidOut, started} {
+		if _, err := client.TaskV1alpha1().Blobs().UpdateStatus(ctx, blob, metav1.UpdateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := wait.PollUntilContextTimeout(ctx, 5*time.Millisecond, 5*time.Second, true, func(context.Context) (bool, error) {
+		return c.workqueue.Len() != 0, nil
+	}); err != nil {
+		t.Fatal("no blob queued before the 10 s requeue")
+	}
+	if key, _ := c.workqueue.Get(); key != started.Name || c.workqueue.Len() != 0 {
+		t.Errorf("queued %q and %d more, want only %q", key, c.workqueue.Len(), started.Name)
 	}
 }
 

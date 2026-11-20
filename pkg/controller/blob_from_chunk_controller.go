@@ -77,6 +77,11 @@ func NewBlobFromChunkController(
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			blob := newObj.(*v1alpha1.Blob)
+			// A skipHead blob's first chunk may have ended before its total was known.
+			if blob.Spec.SkipHead && oldObj.(*v1alpha1.Blob).Status.Total == 0 && blob.Status.Total != 0 {
+				c.workqueue.Add(blob.Name)
+				return
+			}
 			c.workqueue.AddAfter(blob.Name, 10*time.Second)
 		},
 	})
