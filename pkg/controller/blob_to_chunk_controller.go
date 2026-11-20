@@ -178,11 +178,23 @@ func (c *BlobToChunkController) handler(ctx context.Context, name string) {
 
 	switch blob.Status.Phase {
 	case v1alpha1.BlobPhaseRunning, v1alpha1.BlobPhaseUnknown:
-		if blob.Spec.SkipHead {
+		if blob.Spec.SkipHead && blob.Status.Total == 0 {
 			err := c.toFirstChunk(ctx, blob)
 			if err != nil {
 				c.workqueue.AddAfter(blob.Name, 5*time.Second)
 				klog.Errorf("failed to create first chunk for blob %s: %v", blob.Name, err)
+				return
+			}
+
+			c.workqueue.AddAfter(name, 10*time.Second)
+			return
+		}
+
+		if blob.Spec.SkipHead {
+			err := c.toChunks(ctx, blob)
+			if err != nil {
+				c.workqueue.AddAfter(blob.Name, 5*time.Second)
+				klog.Errorf("failed to create chunks for blob %s: %v", blob.Name, err)
 				return
 			}
 
@@ -871,6 +883,11 @@ func (c *BlobToChunkController) createChunks(ctx context.Context, blob *v1alpha1
 
 		num := i + 1
 		name := fmt.Sprintf("blob:part:%s:%0*d:%0*x-%0*x", blob.Name, p0, num, s0, start, s0, end)
+		// A skipHead blob's first chunk provides its part 1.
+		firstChunk := num == 1 && blob.Spec.SkipHead
+		if firstChunk {
+			name = buildFirstChunkName(blob.Name)
+		}
 
 		// Skip if chunk is already uploaded
 		if shouldSkipChunk(mp, i) {
@@ -900,7 +917,13 @@ func (c *BlobToChunkController) createChunks(ctx context.Context, blob *v1alpha1
 		}
 
 		// Build and schedule chunk creation
-		chunk, err := c.buildChunk(blob, name, num, start, end, lastName, mp.UploadIDs)
+		var chunk *v1alpha1.Chunk
+		var err error
+		if firstChunk {
+			chunk, err = c.buildFirstChunk(ctx, blob, mp.UploadIDs)
+		} else {
+			chunk, err = c.buildChunk(blob, name, num, start, end, lastName, mp.UploadIDs)
+		}
 		if err != nil {
 			return err
 		}

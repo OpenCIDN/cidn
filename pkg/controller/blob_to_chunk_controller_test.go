@@ -355,3 +355,63 @@ func TestLaidOutBlobWithoutSkipHeadCreatesItsPartsFromPartOne(t *testing.T) {
 
 	waitForChunkNames(t, client, "blob:part:blob:1:00-0a", "blob:part:blob:2:0a-14")
 }
+
+func getChunk(t *testing.T, client *fake.Clientset, name string) *v1alpha1.Chunk {
+	t.Helper()
+	chunk, err := client.TaskV1alpha1().Chunks().Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return chunk
+}
+
+func newTestLaidOutSkipHeadBlob() *v1alpha1.Blob {
+	blob := newTestSkipHeadBlob()
+	blob.Spec.ChunksNumber, blob.Spec.ChunkSize = 3, 10
+	blob.Status.Total, blob.Status.AcceptRanges = 30, true
+	return blob
+}
+
+func TestLaidOutSkipHeadBlobCreatesItsOtherPartsLikeAnyBlob(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	blob.Spec.MaximumRunning, blob.Spec.MaximumPending = 3, 2
+	c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestFirstChunk(blob, v1alpha1.ChunkPhaseRunning), newTestMultipart(blob, 1, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	waitForChunkNames(t, client, "blob:first:blob", "blob:part:blob:2:0a-14", "blob:part:blob:3:14-1e")
+}
+
+func TestPartTwoOfASkipHeadBlobContinuesTheHashOfItsFirstChunk(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	blob.Spec.ContentSha256 = "sha"
+	c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestFirstChunk(blob, v1alpha1.ChunkPhaseRunning), newTestMultipart(blob, 1, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	waitForChunkNames(t, client, "blob:first:blob", "blob:part:blob:2:0a-14")
+	if got := getChunk(t, client, "blob:part:blob:2:0a-14").Spec.Sha256PartialPreviousName; got != "blob:first:blob" {
+		t.Errorf("part 2 continues the hash of %q, want blob:first:blob", got)
+	}
+}
+
+func TestRunningFirstChunkCountsAgainstMaximumRunning(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	blob.Spec.MaximumRunning, blob.Spec.MaximumPending = 2, 2
+	c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestFirstChunk(blob, v1alpha1.ChunkPhaseRunning), newTestMultipart(blob, 1, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	waitForChunkNames(t, client, "blob:first:blob", "blob:part:blob:2:0a-14")
+}
+
+func TestRecordedPartOneGetsNoFirstChunkAgain(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	mp := newTestMultipart(blob, 3, "upload-1")
+	mp.UploadEtags[0] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+	c, client := newTestToChunkController(t, newTestStorage(t), blob, mp)
+
+	c.handler(context.Background(), blob.Name)
+
+	waitForChunkNames(t, client, "blob:part:blob:2:0a-14")
+}
