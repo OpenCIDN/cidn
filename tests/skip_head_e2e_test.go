@@ -193,7 +193,10 @@ func TestSkipHeadBlobSha256MismatchFails(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-skip-head-mismatch")
 	writeSource(t, name, 16<<20)
-	createBlob(t, client, name, strings.Repeat("0", 64), noHeadSource(noHeadPath, name), skipHead)
+	createBlob(t, client, name, strings.Repeat("0", 64), noHeadSource(noHeadPath, name), skipHead, func(spec *taskv1alpha1.BlobSpec) {
+		// Only the hash chain may report the mismatch; re-verification gives the same message.
+		spec.Destination[0].ReverifySha256 = false
+	})
 
 	blob := waitForBlobDone(t, client, name)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseFailed {
