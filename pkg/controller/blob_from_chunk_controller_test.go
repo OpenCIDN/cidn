@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -147,6 +148,89 @@ func TestFromOneChunkTakesAMissingTotalFromAnOKResponse(t *testing.T) {
 			}
 			if blob.Status.Total != tt.wantTotal {
 				t.Errorf("total %d, want %d", blob.Status.Total, tt.wantTotal)
+			}
+		})
+	}
+}
+
+func newTestSkipHeadBlob() *v1alpha1.Blob {
+	blob := newTestBlob()
+	blob.Spec.SkipHead = true
+	return blob
+}
+
+func newTestFirstChunk(blob *v1alpha1.Blob, phase v1alpha1.ChunkPhase) *v1alpha1.Chunk {
+	chunk := newTestChunk("blob:first:"+blob.Name, blob, phase)
+	chunk.Spec.ChunkIndex = 1
+	chunk.Spec.FirstPart = &v1alpha1.ChunkFirstPart{}
+	return chunk
+}
+
+func getBlob(t *testing.T, client *fake.Clientset, name string) *v1alpha1.Blob {
+	t.Helper()
+	blob, err := client.TaskV1alpha1().Blobs().Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return blob
+}
+
+func TestSkipHeadBlobTakesItsTotalFromTheRunningFirstChunk(t *testing.T) {
+	tests := []struct {
+		name              string
+		chunksNumber      int64
+		headers           map[string]string
+		forceAcceptRanges bool
+		wantAcceptRanges  bool
+	}{
+		{name: "accept-ranges bytes", headers: map[string]string{"content-length": "1048576", "accept-ranges": "bytes"}, wantAcceptRanges: true},
+		{name: "accept-ranges missing", headers: map[string]string{"content-length": "1048576"}},
+		{name: "ForceAcceptRanges of the first part", headers: map[string]string{"content-length": "1048576"}, forceAcceptRanges: true, wantAcceptRanges: true},
+		{name: "one chunk preset", chunksNumber: 1, headers: map[string]string{"content-length": "1048576", "accept-ranges": "bytes"}, wantAcceptRanges: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			blob.Spec.ChunksNumber = tt.chunksNumber
+			blob.Status.Phase = v1alpha1.BlobPhaseUnknown
+			chunk := newTestFirstChunk(blob, v1alpha1.ChunkPhaseRunning)
+			chunk.Spec.FirstPart.ForceAcceptRanges = tt.forceAcceptRanges
+			chunk.Status.SourceResponse = &v1alpha1.ChunkHTTPResponse{StatusCode: http.StatusOK, Headers: tt.headers}
+			c, client := newTestFromChunkController(t, blob, chunk)
+
+			c.handler(context.Background(), blob.Name)
+
+			got := getBlob(t, client, blob.Name)
+			if got.Status.Total != 1048576 || got.Status.AcceptRanges != tt.wantAcceptRanges {
+				t.Errorf("total %d, accept ranges %t; want 1048576, %t", got.Status.Total, got.Status.AcceptRanges, tt.wantAcceptRanges)
+			}
+			if got.Status.Phase != v1alpha1.BlobPhaseRunning {
+				t.Errorf("phase %s, want %s", got.Status.Phase, v1alpha1.BlobPhaseRunning)
+			}
+		})
+	}
+}
+
+func TestSkipHeadBlobTakesNoTotalFromAFailedAttemptsResponse(t *testing.T) {
+	tests := []struct {
+		statusCode int
+		retryable  bool
+	}{
+		{statusCode: http.StatusUnauthorized, retryable: true},
+		{statusCode: http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.statusCode), func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			chunk := newTestFirstChunk(blob, v1alpha1.ChunkPhaseFailed)
+			chunk.Status.Retryable = tt.retryable
+			chunk.Status.SourceResponse = &v1alpha1.ChunkHTTPResponse{StatusCode: tt.statusCode, Headers: map[string]string{"content-length": "153", "accept-ranges": "bytes"}}
+			c, client := newTestFromChunkController(t, blob, chunk)
+
+			c.handler(context.Background(), blob.Name)
+
+			if got := getBlob(t, client, blob.Name); got.Status.Total != 0 || got.Status.AcceptRanges {
+				t.Errorf("total %d, accept ranges %t; want 0, false", got.Status.Total, got.Status.AcceptRanges)
 			}
 		})
 	}

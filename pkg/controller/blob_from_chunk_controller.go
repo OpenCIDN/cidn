@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/http"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -154,6 +155,29 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 
 	blob = blob.DeepCopy()
 
+	if blob.Spec.SkipHead {
+		err = c.fromFirstChunk(ctx, blob)
+		if err != nil {
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+			return
+		}
+
+		blobStatus := blob.Status
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+			blob.Status = blobStatus
+			return blob
+		})
+		if err != nil {
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update blob status: %v", err)
+			return
+		}
+
+		c.workqueue.AddAfter(name, 10*time.Second)
+		return
+	}
+
 	if blob.Spec.ChunksNumber == 1 {
 		err = c.fromOneChunk(ctx, blob)
 		if err != nil {
@@ -276,6 +300,22 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
 		}
 	}
+	return nil
+}
+
+// fromFirstChunk follows a skipHead blob through its first chunk, the provider of part 1.
+func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1alpha1.Blob) error {
+	chunk, err := c.chunkInformer.Lister().Get(buildFirstChunkName(blob.Name))
+	if err != nil {
+		return fmt.Errorf("failed to get chunk: %w", err)
+	}
+
+	if blob.Status.Total == 0 {
+		if resp := chunk.Status.SourceResponse; resp != nil && resp.StatusCode == http.StatusOK {
+			blob.Status.Total, blob.Status.AcceptRanges = v1alpha1.ParseResponseHeaders(resp.Headers, chunk.Spec.FirstPart.ForceAcceptRanges)
+		}
+	}
+	blob.Status.Phase = v1alpha1.BlobPhaseRunning
 	return nil
 }
 
