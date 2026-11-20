@@ -812,8 +812,11 @@ func (c *BlobToChunkController) needsMultipartRecreation(blob *v1alpha1.Blob, mp
 		destinationNames = append(destinationNames, dst.Name)
 	}
 
+	// A skipHead blob starts from one empty slot; any other record was left by an earlier blob.
+	staleStart := blob.Spec.SkipHead && blob.Status.Total == 0 &&
+		(len(mp.UploadEtags) != 1 || mp.UploadEtags[0].Size != 0 || len(mp.UploadEtags[0].Etags) != 0)
 	needsRecreation := !slices.Equal(destinationNames, mp.DestinationNames) ||
-		(!blob.Spec.SkipHead && blob.Spec.ChunksNumber != int64(len(mp.UploadEtags)))
+		(!blob.Spec.SkipHead && blob.Spec.ChunksNumber != int64(len(mp.UploadEtags))) || staleStart
 	return needsRecreation, nil
 }
 

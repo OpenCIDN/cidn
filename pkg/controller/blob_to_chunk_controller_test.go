@@ -19,6 +19,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"strconv"
@@ -273,6 +276,62 @@ func TestExistingFirstChunkNeedsNothingFromTheStore(t *testing.T) {
 
 	if err := c.toFirstChunk(context.Background(), blob); err != nil {
 		t.Errorf("toFirstChunk: %v, want nothing to do", err)
+	}
+}
+
+// newTestUploadStorage is a store without unfinished uploads that opens the next one as uploadID.
+func newTestUploadStorage(t *testing.T, uploadID string) map[string]*sss.SSS {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Query().Has("uploads"):
+			io.WriteString(w, "<ListMultipartUploadsResult><IsTruncated>false</IsTruncated></ListMultipartUploadsResult>")
+		case r.Method == http.MethodPost && r.URL.Query().Has("uploads"):
+			fmt.Fprintf(w, "<InitiateMultipartUploadResult><Key>blob</Key><UploadId>%s</UploadId></InitiateMultipartUploadResult>", uploadID)
+		default:
+			t.Errorf("unexpected store call %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusNotImplemented)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	s, err := sss.NewSSS(sss.WithAccessKey("key"), sss.WithSecretKey("secret"), sss.WithBucket("bucket"), sss.WithRegion("us-east-1"), sss.WithRegionEndpoint(srv.URL), sss.WithForcePathStyle(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]*sss.SSS{"storage": s}
+}
+
+func TestSkipHeadBlobStartsWithAFreshMultipartInsteadOfAStaleOne(t *testing.T) {
+	tests := []struct {
+		name         string
+		slots        []v1alpha1.UploadEtags
+		wantUploadID string
+	}{
+		{name: "fresh one-slot record", slots: make([]v1alpha1.UploadEtags, 1), wantUploadID: "upload-1"},
+		{name: "no slot", slots: []v1alpha1.UploadEtags{}, wantUploadID: "upload-2"},
+		{name: "more slots", slots: make([]v1alpha1.UploadEtags, 3), wantUploadID: "upload-2"},
+		{name: "recorded part 1", slots: []v1alpha1.UploadEtags{{Size: 10, Etags: []string{"old-etag-1"}}}, wantUploadID: "upload-2"},
+		{name: "part 1 with a size only", slots: []v1alpha1.UploadEtags{{Size: 10}}, wantUploadID: "upload-2"},
+		{name: "recorded part 2", slots: []v1alpha1.UploadEtags{{}, {Size: 10, Etags: []string{"old-etag-2"}}}, wantUploadID: "upload-2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			mp := newTestMultipart(blob, 0, "upload-1")
+			mp.UploadEtags = tt.slots
+			c, client := newTestToChunkController(t, newTestUploadStorage(t, "upload-2"), blob, mp)
+
+			c.handler(context.Background(), blob.Name)
+
+			got, err := client.TaskV1alpha1().Multiparts().Get(context.Background(), blob.Name, metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got.UploadIDs, []string{tt.wantUploadID}) || !reflect.DeepEqual(got.UploadEtags, make([]v1alpha1.UploadEtags, 1)) {
+				t.Errorf("upload IDs %v, parts %+v; want [%s] and one empty part", got.UploadIDs, got.UploadEtags, tt.wantUploadID)
+			}
+			checkPartURLs(t, getChunk(t, client, "blob:first:blob"), 1, tt.wantUploadID)
+		})
 	}
 }
 
