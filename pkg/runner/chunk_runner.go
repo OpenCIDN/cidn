@@ -379,7 +379,7 @@ func (r *ChunkRunner) tryAddBearer(ctx context.Context, chunk *v1alpha1.Chunk) e
 	return nil
 }
 
-func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) (io.ReadCloser, int64) {
+func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, s *state) (body io.ReadCloser, contentLength int64, truncated bool) {
 	err := r.tryAddBearer(ctx, chunk)
 	if err != nil {
 		if errors.Is(err, ErrBearerNotReady) {
@@ -392,13 +392,13 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 				return ss
 			})
 			r.unmarkRecord(chunk.Name)
-			return nil, 0
+			return nil, 0, false
 		} else if errors.Is(err, ErrAuthentication) {
 			s.handleProcessError("AuthenticationError", err)
 		} else {
 			s.handleProcessError("BearerFetchError", err)
 		}
-		return nil, 0
+		return nil, 0, false
 	}
 
 	srcReq, err := r.buildRequest(ctx, &chunk.Spec.Source, nil, 0)
@@ -410,7 +410,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		} else {
 			s.handleProcessError("BuildRequestError", err)
 		}
-		return nil, 0
+		return nil, 0, false
 	}
 
 	srcResp, err := r.httpClient.Do(srcReq)
@@ -425,7 +425,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		} else {
 			s.handleProcessError("SourceRequestError", err)
 		}
-		return nil, 0
+		return nil, 0, false
 	}
 
 	headers := map[string]string{}
@@ -457,7 +457,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
 			}
-			return nil, 0
+			return nil, 0, false
 		}
 	} else {
 		if srcResp.StatusCode >= http.StatusMultipleChoices {
@@ -475,7 +475,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
 			}
-			return nil, 0
+			return nil, 0, false
 		}
 	}
 
@@ -488,7 +488,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		if srcResp.Body != nil {
 			srcResp.Body.Close()
 		}
-		return nil, 0
+		return nil, 0, false
 	}
 
 	for k, v := range chunk.Spec.Source.Response.Headers {
@@ -500,7 +500,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 			if srcResp.Body != nil {
 				srcResp.Body.Close()
 			}
-			return nil, 0
+			return nil, 0, false
 		}
 	}
 
@@ -518,18 +518,18 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 				utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
 				return ss
 			})
-			return nil, 0
+			return nil, 0, false
 		}
 		chunksNumber, chunkSize := v1alpha1.ComputeChunkLayout(total, acceptRanges, firstPart.MinimumChunkSize, firstPart.ChunkSize, firstPart.ChunksNumber)
 		if chunksNumber > 1 {
 			return struct {
 				io.Reader
 				io.Closer
-			}{io.LimitReader(srcResp.Body, chunkSize), srcResp.Body}, chunkSize
+			}{io.LimitReader(srcResp.Body, chunkSize), srcResp.Body}, chunkSize, true
 		}
 	}
 
-	return srcResp.Body, srcResp.ContentLength
+	return srcResp.Body, srcResp.ContentLength, false
 }
 
 func (r *ChunkRunner) destinationRequest(ctx context.Context, dest *v1alpha1.ChunkHTTP, dr *swmrCount, contentLength int64) (string, bool, error) {
@@ -593,7 +593,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	stopProgress := r.startProgressUpdater(ctx, cancel, s, &gsr, &gdrs)
 	defer stopProgress()
 
-	body, contentLength := r.sourceRequest(ctx, chunk, s)
+	body, contentLength, _ := r.sourceRequest(ctx, chunk, s)
 	if body == nil {
 		return
 	}
