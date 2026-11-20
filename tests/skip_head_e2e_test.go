@@ -36,12 +36,17 @@ const (
 	chunkWatchSettle = 5 * time.Second
 )
 
+// The nginx-test paths that answer every HEAD with 401.
+const (
+	noHeadPath = "/no-head/"
+)
+
 func TestBlobWithoutSkipHeadFailsWhenTheSourceRejectsHead(t *testing.T) {
 	t.Parallel()
 	client := newE2EClient(t)
 	name := uniqueName("e2e-head-rejected")
 	sha := writeSource(t, name, 1<<20)
-	createBlob(t, client, name, sha, noHeadSource(name))
+	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name))
 
 	blob := waitForBlobDone(t, client, name)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseFailed {
@@ -61,7 +66,7 @@ func TestSkipHeadBlobMultiChunkSucceedsWithoutHeadOrFullChunk(t *testing.T) {
 	name := uniqueName("e2e-skip-head-multi")
 	sha := writeSource(t, name, 16<<20)
 	chunkNames := watchChunkNames(t, client, name)
-	createBlob(t, client, name, sha, noHeadSource(name), skipHead)
+	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name), skipHead)
 
 	blob := waitForBlobDone(t, client, name)
 	names := chunkNames()
@@ -87,7 +92,7 @@ func TestSkipHeadBlobSingleChunkSucceeds(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-skip-head-single")
 	sha := writeSource(t, name, 1<<20)
-	createBlob(t, client, name, sha, noHeadSource(name), skipHead)
+	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name), skipHead)
 
 	blob := waitForBlobDone(t, client, name)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
@@ -98,10 +103,10 @@ func TestSkipHeadBlobSingleChunkSucceeds(t *testing.T) {
 	}
 }
 
-// noHeadSource serves testdata/<name>.rand from the nginx-test path that answers every HEAD with 401.
-func noHeadSource(name string) func(*taskv1alpha1.BlobSpec) {
+// noHeadSource serves testdata/<name>.rand from path, one of the nginx-test paths that answer every HEAD with 401.
+func noHeadSource(path, name string) func(*taskv1alpha1.BlobSpec) {
 	return func(spec *taskv1alpha1.BlobSpec) {
-		spec.Source[0].URL = "http://cidn-nginx-test-1/no-head/" + name + ".rand"
+		spec.Source[0].URL = "http://cidn-nginx-test-1" + path + name + ".rand"
 	}
 }
 
