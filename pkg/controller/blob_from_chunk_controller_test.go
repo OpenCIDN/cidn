@@ -620,3 +620,24 @@ func TestFailedFirstChunkRemovesTheUnfinishedParts(t *testing.T) {
 		t.Errorf("phase %s, running chunks %d, pending chunks %d; want %s, 0, 0", got.Status.Phase, got.Status.RunningChunks, got.Status.PendingChunks, v1alpha1.BlobPhaseFailed)
 	}
 }
+
+func TestFirstChunkOfAnotherSizeRemovesTheUnfinishedParts(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	blob.Status.RunningChunks, blob.Status.PendingChunks = 2, 1
+	partTwo := newTestChunk("blob:part:blob:2:0a-14", blob, v1alpha1.ChunkPhaseRunning)
+	partThree := newTestChunk("blob:part:blob:3:14-1e", blob, v1alpha1.ChunkPhasePending)
+	c, client := newTestFromChunkController(t, blob, newTestSucceededFirstChunk(blob, 30, "etag-1"), partTwo, partThree, newTestMultipart(blob, 3, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	if got, want := chunkNames(t, client), []string{"blob:first:blob"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("chunks %v, want %v", got, want)
+	}
+	got := getBlob(t, client, blob.Name)
+	if got.Status.Phase != v1alpha1.BlobPhaseFailed || len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Type != "FirstPartSizeMismatch" {
+		t.Errorf("phase %s, conditions %v; want %s with FirstPartSizeMismatch", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseFailed)
+	}
+	if got.Status.RunningChunks != 0 || got.Status.PendingChunks != 0 {
+		t.Errorf("running chunks %d, pending chunks %d; want 0, 0", got.Status.RunningChunks, got.Status.PendingChunks)
+	}
+}

@@ -372,6 +372,9 @@ func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1al
 				Type:    "FirstPartSizeMismatch",
 				Message: fmt.Sprintf("first chunk took %d bytes, but the first part of the layout is %d bytes", took, want),
 			})
+			blob.Status.RunningChunks = 0
+			blob.Status.PendingChunks = 0
+			c.deleteChunksInNonFinalStates(ctx, blob)
 			return nil
 		}
 	}
