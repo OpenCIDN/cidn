@@ -416,6 +416,19 @@ func TestRecordedPartOneGetsNoFirstChunkAgain(t *testing.T) {
 	waitForChunkNames(t, client, "blob:part:blob:2:0a-14")
 }
 
+func TestRecordedFirstChunkGoesOnceItsNextPartIsRecorded(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	mp := newTestMultipart(blob, 3, "upload-1")
+	mp.UploadEtags[0] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+	mp.UploadEtags[1] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-2"}}
+	partTwo := newTestChunk("blob:part:blob:2:0a-14", blob, v1alpha1.ChunkPhaseSucceeded)
+	c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestSucceededFirstChunk(blob, 10, "etag-1"), partTwo, mp)
+
+	c.handler(context.Background(), blob.Name)
+
+	waitForChunkNames(t, client, "blob:part:blob:2:0a-14", "blob:part:blob:3:14-1e")
+}
+
 func TestSkippedFirstChunkLeavesTheOtherPartsUncreated(t *testing.T) {
 	blob := newTestLaidOutSkipHeadBlob()
 	c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestSucceededFirstChunk(blob, 0), newTestMultipart(blob, 1, "upload-1"))
