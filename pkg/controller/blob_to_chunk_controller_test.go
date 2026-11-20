@@ -415,3 +415,12 @@ func TestRecordedPartOneGetsNoFirstChunkAgain(t *testing.T) {
 
 	waitForChunkNames(t, client, "blob:part:blob:2:0a-14")
 }
+
+func TestSkippedFirstChunkLeavesTheOtherPartsUncreated(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestSucceededFirstChunk(blob, 0), newTestMultipart(blob, 1, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	waitForChunkNames(t, client, "blob:first:blob")
+}

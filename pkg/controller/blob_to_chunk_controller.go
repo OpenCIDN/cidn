@@ -191,7 +191,7 @@ func (c *BlobToChunkController) handler(ctx context.Context, name string) {
 		}
 
 		if blob.Spec.SkipHead {
-			err := c.toChunks(ctx, blob)
+			err := c.toChunksAfterFirstChunk(ctx, blob)
 			if err != nil {
 				c.workqueue.AddAfter(blob.Name, 5*time.Second)
 				klog.Errorf("failed to create chunks for blob %s: %v", blob.Name, err)
@@ -388,6 +388,15 @@ func (c *BlobToChunkController) buildFirstChunk(ctx context.Context, blob *v1alp
 	chunk.Spec.BearerName, chunk.Spec.Source = firstSource(blob, http.MethodGet)
 
 	return chunk, nil
+}
+
+// toChunksAfterFirstChunk creates a laid out skipHead blob's parts unless its first chunk skipped the transfer.
+func (c *BlobToChunkController) toChunksAfterFirstChunk(ctx context.Context, blob *v1alpha1.Blob) error {
+	first, err := c.chunkInformer.Lister().Get(buildFirstChunkName(blob.Name))
+	if err == nil && first.Status.Phase == v1alpha1.ChunkPhaseSucceeded && len(first.Status.Etags) == 0 {
+		return nil
+	}
+	return c.toChunks(ctx, blob)
 }
 
 func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
