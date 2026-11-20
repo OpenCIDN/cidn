@@ -634,6 +634,13 @@ func schema_pkg_apis_task_v1alpha1_BlobSpec(ref common.ReferenceCallback) common
 							Format:      "",
 						},
 					},
+					"skipHead": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SkipHead replaces the HEAD with a GET without Range whose body becomes the first part.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"source", "destination", "priority"},
 			},
