@@ -396,3 +396,30 @@ func TestLaidOutSkipHeadBlobCommitsItsPartsOnceItsFirstChunkIsGone(t *testing.T)
 		t.Errorf("phase %s, progress %d, conditions %v; want %s, 30", got.Status.Phase, got.Status.Progress, got.Status.Conditions, v1alpha1.BlobPhaseSucceeded)
 	}
 }
+
+func TestSkipHeadBlobRecordsAFirstChunkOfOneLaidOutChunkAsPartOne(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	c, client := newTestFromChunkController(t, blob, newTestSucceededFirstChunk(blob, 10, "etag-1"), newTestMultipart(blob, 3, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	got := getBlob(t, client, blob.Name)
+	if got.Status.Phase != v1alpha1.BlobPhaseRunning || got.Status.SucceededChunks != 1 || got.Status.Progress != 10 {
+		t.Errorf("phase %s, succeeded chunks %d, progress %d, conditions %v; want %s, 1, 10", got.Status.Phase, got.Status.SucceededChunks, got.Status.Progress, got.Status.Conditions, v1alpha1.BlobPhaseRunning)
+	}
+}
+
+func TestSkipHeadBlobFailsWhenItsFirstChunkTookMoreThanALaidOutChunk(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	c, client := newTestFromChunkController(t, blob, newTestSucceededFirstChunk(blob, 30, "etag-1"), newTestMultipart(blob, 3, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	got := getBlob(t, client, blob.Name)
+	if got.Status.Phase != v1alpha1.BlobPhaseFailed {
+		t.Errorf("phase %s, want %s", got.Status.Phase, v1alpha1.BlobPhaseFailed)
+	}
+	if len(got.Status.Conditions) != 1 || !strings.Contains(got.Status.Conditions[0].Message, "30") || !strings.Contains(got.Status.Conditions[0].Message, "10") {
+		t.Errorf("conditions %v, want one naming 30 and 10", got.Status.Conditions)
+	}
+}

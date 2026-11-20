@@ -336,6 +336,11 @@ func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1al
 
 	if chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
 		took := chunk.Status.SourceProgress
+		// Part 1 of more than one is a whole chunk of the layout, otherwise the whole content.
+		want := blob.Status.Total
+		if blob.Spec.ChunksNumber > 1 {
+			want = blob.Spec.ChunkSize
+		}
 		switch {
 		case len(chunk.Status.Etags) == 0:
 			// Skipped: every destination already holds the content.
@@ -349,11 +354,11 @@ func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1al
 			if took > 0 {
 				blob.Status.Total = took
 			}
-		case took != blob.Status.Total:
+		case took != want:
 			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
 				Type:    "FirstPartSizeMismatch",
-				Message: fmt.Sprintf("first chunk took %d bytes, but the first part of the layout is %d bytes", took, blob.Status.Total),
+				Message: fmt.Sprintf("first chunk took %d bytes, but the first part of the layout is %d bytes", took, want),
 			})
 			return nil
 		}
