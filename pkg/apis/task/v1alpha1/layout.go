@@ -16,6 +16,19 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	"strconv"
+)
+
+// ParseResponseHeaders reads the total size (-1 if unknown) and range support from lowercase response headers.
+func ParseResponseHeaders(headers map[string]string, forceAcceptRanges bool) (total int64, acceptRanges bool) {
+	total, _ = strconv.ParseInt(headers["content-length"], 10, 64)
+	if total <= 0 {
+		return -1, false
+	}
+	return total, forceAcceptRanges || headers["accept-ranges"] == "bytes"
+}
+
 // ComputeChunkLayout returns how many chunks of which size a blob of total bytes is split into.
 func ComputeChunkLayout(total int64, acceptRanges bool, minimumChunkSize, presetChunkSize, presetChunksNumber int64) (chunksNumber, chunkSize int64) {
 	switch {

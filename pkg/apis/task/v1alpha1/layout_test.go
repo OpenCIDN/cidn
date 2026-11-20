@@ -25,6 +25,34 @@ const (
 	gib = 1024 * mib
 )
 
+func TestParseResponseHeaders(t *testing.T) {
+	tests := []struct {
+		name              string
+		headers           map[string]string
+		forceAcceptRanges bool
+		wantTotal         int64
+		wantAcceptRanges  bool
+	}{
+		{name: "no headers", wantTotal: -1},
+		{name: "content-length missing even when forced", headers: map[string]string{"accept-ranges": "bytes"}, forceAcceptRanges: true, wantTotal: -1},
+		{name: "content-length zero", headers: map[string]string{"content-length": "0", "accept-ranges": "bytes"}, wantTotal: -1},
+		{name: "content-length negative", headers: map[string]string{"content-length": "-1", "accept-ranges": "bytes"}, wantTotal: -1},
+		{name: "content-length not a number", headers: map[string]string{"content-length": "abc", "accept-ranges": "bytes"}, wantTotal: -1},
+		{name: "accept-ranges bytes", headers: map[string]string{"content-length": "1024", "accept-ranges": "bytes"}, wantTotal: 1024, wantAcceptRanges: true},
+		{name: "accept-ranges none", headers: map[string]string{"content-length": "1024", "accept-ranges": "none"}, wantTotal: 1024},
+		{name: "accept-ranges missing", headers: map[string]string{"content-length": "1024"}, wantTotal: 1024},
+		{name: "forced without accept-ranges", headers: map[string]string{"content-length": "1024"}, forceAcceptRanges: true, wantTotal: 1024, wantAcceptRanges: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTotal, gotAcceptRanges := ParseResponseHeaders(tt.headers, tt.forceAcceptRanges)
+			if gotTotal != tt.wantTotal || gotAcceptRanges != tt.wantAcceptRanges {
+				t.Errorf("ParseResponseHeaders() = %d, %t, want %d, %t", gotTotal, gotAcceptRanges, tt.wantTotal, tt.wantAcceptRanges)
+			}
+		})
+	}
+}
+
 func TestComputeChunkLayout(t *testing.T) {
 	tests := []struct {
 		name             string
