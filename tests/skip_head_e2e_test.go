@@ -41,6 +41,8 @@ const (
 	noHeadPath = "/no-head/"
 	// Ignores Range and sends no Accept-Ranges.
 	noHeadNoRangePath = "/no-head-no-range/"
+	// Sends the body at 1 KiB/s.
+	noHeadSlowPath = "/no-head-slow/"
 )
 
 func TestBlobWithoutSkipHeadFailsWhenTheSourceRejectsHead(t *testing.T) {
@@ -152,6 +154,37 @@ func TestBlobWithOnlyChunkSizeIsSplitByIt(t *testing.T) {
 	}
 	if blob.Spec.ChunksNumber != 3 || blob.Spec.ChunkSize != chunkSize {
 		t.Errorf("blob %s was split into %d chunks of %d bytes, want 3 of %d", name, blob.Spec.ChunksNumber, blob.Spec.ChunkSize, chunkSize)
+	}
+}
+
+func TestSkipHeadBlobWithSkipIfExistsSucceedsWithoutTheBody(t *testing.T) {
+	t.Parallel()
+	client := newE2EClient(t)
+	name := uniqueName("e2e-skip-head-exists")
+	size := int64(1 << 20)
+	sha := writeSource(t, name, size)
+	createBlob(t, client, name, sha)
+	if blob := waitForBlobDone(t, client, name); blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
+		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
+	}
+
+	again := name + "-again"
+	start := time.Now()
+	createBlob(t, client, again, sha, noHeadSource(noHeadSlowPath, name), skipHead, func(spec *taskv1alpha1.BlobSpec) {
+		spec.Destination[0].Path = "e2e/" + name
+		spec.Destination[0].SkipIfExists = true
+	})
+
+	blob := waitForBlobDone(t, client, again)
+	took := time.Since(start)
+	// At the 1 KiB/s of noHeadSlowPath.
+	bodyTime := time.Duration(size>>10) * time.Second
+	t.Logf("blob %s took %s; its body needs %s from %s", again, took.Round(time.Millisecond), bodyTime, noHeadSlowPath)
+	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
+		t.Fatalf("blob %s is %s, want %s; status: %s", again, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
+	}
+	if took > bodyTime/10 {
+		t.Errorf("blob %s took %s, not far below the %s its body needs", again, took, bodyTime)
 	}
 }
 
