@@ -46,7 +46,7 @@ type testSource struct {
 	content      []byte
 	acceptRanges bool
 	noLength     bool
-	// pauseAfter holds the rest of the body back until the client hangs up.
+	// hungUp holds the body past pauseAfter back until the client hangs up.
 	pauseAfter int
 	hungUp     chan<- bool
 }
@@ -66,7 +66,7 @@ func startSource(t *testing.T, source testSource) string {
 			w.(http.Flusher).Flush()
 		}
 		body := source.content
-		if source.pauseAfter > 0 {
+		if source.hungUp != nil {
 			_, _ = w.Write(body[:source.pauseAfter])
 			w.(http.Flusher).Flush()
 			select {
@@ -416,7 +416,9 @@ func TestFirstPartReportsSourceResponseBeforeTheTransferEnds(t *testing.T) {
 
 func TestFirstPartSkipsWhenEveryDestinationHoldsTheTotal(t *testing.T) {
 	content := testContent(70000)
-	source := startSource(t, testSource{content: content, acceptRanges: true})
+	hungUp := make(chan bool, 1)
+	// The whole body is held back, so only the headers reach the runner.
+	source := startSource(t, testSource{content: content, acceptRanges: true, hungUp: hungUp})
 	destinations := []*testDestination{startDestination(t, "etag-0", nil), startDestination(t, "etag-1", nil)}
 	chunk := newFirstPartChunk(source, &v1alpha1.ChunkFirstPart{ChunkSize: 16384, ExistingSizes: []int64{70000, 70000}}, destinations...)
 	// Progress left behind by an earlier attempt.
@@ -431,6 +433,14 @@ func TestFirstPartSkipsWhenEveryDestinationHoldsTheTotal(t *testing.T) {
 		if uploads := destination.received(); len(uploads) != 0 {
 			t.Errorf("destination %d received %d requests, want none", index, len(uploads))
 		}
+	}
+	select {
+	case cut := <-hungUp:
+		if !cut {
+			t.Error("the runner read the source body instead of hanging up")
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the source saw no hang-up within 5s after the skip, so its connection is still held")
 	}
 }
 
