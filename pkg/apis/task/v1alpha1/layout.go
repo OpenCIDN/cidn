@@ -44,6 +44,10 @@ func ComputeChunkLayout(total int64, acceptRanges bool, minimumChunkSize, preset
 	default:
 		return 1, total
 	}
+	if chunksNumber > 1 {
+		// More than one chunk must tile the content exactly.
+		chunksNumber = getChunksNumber(total, chunkSize)
+	}
 	return chunksNumber, chunkSize
 }
 
