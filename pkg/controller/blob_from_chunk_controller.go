@@ -322,12 +322,40 @@ func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1al
 	}
 
 	if blob.Status.Total == 0 {
+		// Writing the total lays the blob out, so its parts wait for the next pass.
 		if resp := chunk.Status.SourceResponse; resp != nil && resp.StatusCode == http.StatusOK {
 			blob.Status.Total, blob.Status.AcceptRanges = v1alpha1.ParseResponseHeaders(resp.Headers, chunk.Spec.FirstPart.ForceAcceptRanges)
 		}
+		blob.Status.Phase = v1alpha1.BlobPhaseRunning
+		return nil
 	}
-	blob.Status.Phase = v1alpha1.BlobPhaseRunning
-	return nil
+
+	if chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
+		took := chunk.Status.SourceProgress
+		switch {
+		case len(chunk.Status.Etags) == 0:
+			// Skipped: every destination already holds the content.
+			blob.Status.PendingChunks, blob.Status.RunningChunks, blob.Status.FailedChunks = 0, 0, 0
+			blob.Status.SucceededChunks = blob.Spec.ChunksNumber
+			blob.Status.Progress = blob.Status.Total
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseSucceeded)
+			return nil
+		case blob.Status.Total < 0:
+			// Empty content keeps its total unknown, as without skipHead.
+			if took > 0 {
+				blob.Status.Total = took
+			}
+		case took != blob.Status.Total:
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
+				Type:    "FirstPartSizeMismatch",
+				Message: fmt.Sprintf("first chunk took %d bytes, but the first part of the layout is %d bytes", took, blob.Status.Total),
+			})
+			return nil
+		}
+	}
+
+	return c.fromChunks(ctx, blob)
 }
 
 // abortUnusedMultipart aborts the blob's upload unless one of its parts is recorded.
@@ -441,7 +469,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				index := chunk.Spec.ChunkIndex - 1
 				if mp.UploadEtags[index].Size == 0 {
 					mp.UploadEtags[index] = v1alpha1.UploadEtags{
-						Size:  chunk.Spec.Total,
+						Size:  partSize(chunk),
 						Etags: chunk.Status.Etags,
 					}
 					updateEtag = true
@@ -526,11 +554,14 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		return nil
 	}
 
-	if blob.Status.Progress != blob.Status.Total {
+	// Only empty content reaches this point with its total still unknown.
+	total := max(blob.Status.Total, 0)
+
+	if blob.Status.Progress != total {
 		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 		blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
 			Type:    "BlobSizeMismatch",
-			Message: fmt.Sprintf("total size of all chunks (%d) does not match expected total (%d)", blob.Status.Progress, blob.Status.Total),
+			Message: fmt.Sprintf("total size of all chunks (%d) does not match expected total (%d)", blob.Status.Progress, total),
 		})
 		blob.Status.RunningChunks = 0
 		blob.Status.PendingChunks = 0
@@ -541,11 +572,11 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	for _, etag := range mp.UploadEtags {
 		totalSize += etag.Size
 	}
-	if totalSize != blob.Status.Total {
+	if totalSize != total {
 		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 		blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
 			Type:    "UploadSizeMismatch",
-			Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, blob.Status.Total),
+			Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, total),
 		})
 		blob.Status.RunningChunks = 0
 		blob.Status.PendingChunks = 0
@@ -617,6 +648,14 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	}
 
 	return nil
+}
+
+// partSize is the size of the part a succeeded chunk uploaded.
+func partSize(chunk *v1alpha1.Chunk) int64 {
+	if chunk.Spec.FirstPart != nil {
+		return chunk.Status.SourceProgress
+	}
+	return chunk.Spec.Total
 }
 
 func (c *BlobFromChunkController) verifySha256(ctx context.Context, blob *v1alpha1.Blob) error {

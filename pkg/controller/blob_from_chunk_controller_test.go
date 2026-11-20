@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -296,6 +297,78 @@ func TestFailedFirstChunkRemovesTheUploadOnlyWhileNoPartIsRecorded(t *testing.T)
 
 			if got := multipartExists(t, client, blob.Name); got != tt.wantMultipart {
 				t.Errorf("multipart kept %t, want %t", got, tt.wantMultipart)
+			}
+		})
+	}
+}
+
+func newTestSucceededFirstChunk(blob *v1alpha1.Blob, took int64, etags ...string) *v1alpha1.Chunk {
+	chunk := newTestFirstChunk(blob, v1alpha1.ChunkPhaseSucceeded)
+	chunk.Status.SourceProgress, chunk.Status.Etags = took, etags
+	return chunk
+}
+
+func TestSkipHeadBlobSucceedsWhenItsFirstChunkSkipped(t *testing.T) {
+	blob := newTestSkipHeadBlob()
+	blob.Spec.ChunksNumber, blob.Status.Total = 1, 1024
+	c, client := newTestFromChunkController(t, blob, newTestSucceededFirstChunk(blob, 0), newTestMultipart(blob, 1, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	got := getBlob(t, client, blob.Name)
+	if got.Status.Phase != v1alpha1.BlobPhaseSucceeded {
+		t.Errorf("phase %s, want %s", got.Status.Phase, v1alpha1.BlobPhaseSucceeded)
+	}
+	if got.Status.Progress != 1024 || got.Status.SucceededChunks != 1 {
+		t.Errorf("progress %d, succeeded chunks %d; want 1024, 1", got.Status.Progress, got.Status.SucceededChunks)
+	}
+}
+
+func TestSkipHeadBlobFailsWhenItsFirstChunkTookAnotherSize(t *testing.T) {
+	blob := newTestSkipHeadBlob()
+	blob.Spec.ChunksNumber, blob.Status.Total = 1, 1024
+	c, client := newTestFromChunkController(t, blob, newTestSucceededFirstChunk(blob, 1000, "etag-1"), newTestMultipart(blob, 1, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	got := getBlob(t, client, blob.Name)
+	if got.Status.Phase != v1alpha1.BlobPhaseFailed {
+		t.Errorf("phase %s, want %s", got.Status.Phase, v1alpha1.BlobPhaseFailed)
+	}
+	if len(got.Status.Conditions) != 1 || !strings.Contains(got.Status.Conditions[0].Message, "1000") || !strings.Contains(got.Status.Conditions[0].Message, "1024") {
+		t.Errorf("conditions %v, want one naming 1000 and 1024", got.Status.Conditions)
+	}
+}
+
+func TestSkipHeadBlobCommitsItsFirstChunkAsItsOnlyPart(t *testing.T) {
+	tests := []struct {
+		name      string
+		total     int64
+		took      int64
+		wantTotal int64
+	}{
+		{name: "known total", total: 1024, took: 1024, wantTotal: 1024},
+		{name: "unknown total", total: -1, took: 1500, wantTotal: 1500},
+		{name: "empty content", total: -1, took: 0, wantTotal: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			blob.Spec.ChunksNumber, blob.Status.Total = 1, tt.total
+			// An empty upload ID makes the commit skip the store.
+			c, client := newTestFromChunkController(t, blob, newTestSucceededFirstChunk(blob, tt.took, "etag-1"), newTestMultipart(blob, 1, ""))
+
+			c.handler(context.Background(), blob.Name)
+
+			got := getBlob(t, client, blob.Name)
+			if got.Status.Phase != v1alpha1.BlobPhaseSucceeded {
+				t.Errorf("phase %s, conditions %v; want %s", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseSucceeded)
+			}
+			if got.Status.Total != tt.wantTotal || got.Status.Progress != tt.took {
+				t.Errorf("total %d, progress %d; want %d, %d", got.Status.Total, got.Status.Progress, tt.wantTotal, tt.took)
+			}
+			if multipartExists(t, client, blob.Name) {
+				t.Error("multipart kept after the commit")
 			}
 		})
 	}
