@@ -429,37 +429,12 @@ func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.B
 }
 
 func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num, start, end int64, lastName string, uploadIDs []string) (*v1alpha1.Chunk, error) {
-	chunk := &v1alpha1.Chunk{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   name,
-			Labels: map[string]string{},
-			Annotations: map[string]string{
-				BlobNameAnnotationKey: blob.Name,
-			},
-		},
-		Spec: v1alpha1.ChunkSpec{
-			Total:        end - start,
-			Priority:     blob.Spec.Priority,
-			MaximumRetry: blob.Spec.MaximumRetry - blob.Status.Retry,
-			ChunkIndex:   num,
-			ChunksNumber: blob.Spec.ChunksNumber,
-		},
-		Status: v1alpha1.ChunkStatus{
-			Phase: v1alpha1.ChunkPhasePending,
-		},
+	chunk, err := c.newPartChunk(blob, name, num, uploadIDs)
+	if err != nil {
+		return nil, err
 	}
-
-	group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]
-	if group != "" {
-		chunk.Annotations[v1alpha1.WebuiGroupAnnotation] = group
-		chunk.Annotations[v1alpha1.WebuiGroupIgnoreSizeAnnotation] = "true"
-	}
-
-	blobName := blob.Annotations[v1alpha1.WebuiDisplayNameAnnotation]
-	if blobName == "" {
-		blobName = blob.Name
-	}
-	chunk.Annotations[v1alpha1.WebuiDisplayNameAnnotation] = fmt.Sprintf("Part %d of %s", num, blobName)
+	chunk.Spec.Total = end - start
+	chunk.Spec.ChunksNumber = blob.Spec.ChunksNumber
 
 	if blob.Spec.ContentSha256 != "" {
 		chunk.Spec.Sha256PartialPreviousName = lastName
@@ -493,6 +468,41 @@ func (c *BlobToChunkController) buildChunk(blob *v1alpha1.Blob, name string, num
 			},
 		},
 	}
+
+	return chunk, nil
+}
+
+// newPartChunk builds what every chunk uploading part num of the blob shares.
+func (c *BlobToChunkController) newPartChunk(blob *v1alpha1.Blob, name string, num int64, uploadIDs []string) (*v1alpha1.Chunk, error) {
+	chunk := &v1alpha1.Chunk{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: map[string]string{},
+			Annotations: map[string]string{
+				BlobNameAnnotationKey: blob.Name,
+			},
+		},
+		Spec: v1alpha1.ChunkSpec{
+			Priority:     blob.Spec.Priority,
+			MaximumRetry: blob.Spec.MaximumRetry - blob.Status.Retry,
+			ChunkIndex:   num,
+		},
+		Status: v1alpha1.ChunkStatus{
+			Phase: v1alpha1.ChunkPhasePending,
+		},
+	}
+
+	group := blob.Annotations[v1alpha1.WebuiGroupAnnotation]
+	if group != "" {
+		chunk.Annotations[v1alpha1.WebuiGroupAnnotation] = group
+		chunk.Annotations[v1alpha1.WebuiGroupIgnoreSizeAnnotation] = "true"
+	}
+
+	blobName := blob.Annotations[v1alpha1.WebuiDisplayNameAnnotation]
+	if blobName == "" {
+		blobName = blob.Name
+	}
+	chunk.Annotations[v1alpha1.WebuiDisplayNameAnnotation] = fmt.Sprintf("Part %d of %s", num, blobName)
 
 	for j, dst := range blob.Spec.Destination {
 		s3 := c.s3[dst.Name]
