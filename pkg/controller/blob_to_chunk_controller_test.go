@@ -308,7 +308,7 @@ func TestFirstChunkGetsTheFirstSourceIntoPartOne(t *testing.T) {
 	}
 	wantSpec := v1alpha1.ChunkSpec{
 		Source: v1alpha1.ChunkHTTP{
-			Request:  v1alpha1.ChunkHTTPRequest{Method: "GET", URL: "http://source.example/blob", Headers: map[string]string{"X-Token": "token"}},
+			Request:  v1alpha1.ChunkHTTPRequest{Method: "GET", URL: "http://source.example/blob", Headers: map[string]string{"Accept-Encoding": "identity", "X-Token": "token"}},
 			Response: v1alpha1.ChunkHTTPResponse{StatusCode: 200},
 		},
 		BearerName: "bearer",
@@ -325,6 +325,38 @@ func TestFirstChunkGetsTheFirstSourceIntoPartOne(t *testing.T) {
 	}
 	if !reflect.DeepEqual(chunk.Spec, wantSpec) {
 		t.Errorf("spec\n%+v\nwant\n%+v", chunk.Spec, wantSpec)
+	}
+}
+
+func TestOnlyTheFirstChunkAsksForTheIdentityEncoding(t *testing.T) {
+	tests := []struct {
+		name         string
+		skipHead     bool
+		chunksNumber int64
+		total        int64
+		headers      map[string]string
+		chunkName    string
+		want         string
+	}{
+		{name: "first chunk", skipHead: true, chunkName: "blob:first:blob", want: "identity"},
+		{name: "first chunk of a source that sets it", skipHead: true, headers: map[string]string{"accept-encoding": "gzip"}, chunkName: "blob:first:blob", want: "gzip"},
+		{name: "HEAD chunk", chunkName: "blob:head:blob:0"},
+		{name: "full chunk", chunksNumber: 1, total: 1024, chunkName: "blob:full:blob"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestBlob()
+			blob.Spec.Source[0].Headers = tt.headers
+			blob.Spec.SkipHead = tt.skipHead
+			blob.Spec.ChunksNumber, blob.Status.Total = tt.chunksNumber, tt.total
+			c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestMultipart(blob, 1, "upload-1"))
+
+			c.handler(context.Background(), blob.Name)
+
+			if got := getChunk(t, client, tt.chunkName).Spec.Source.Request.Headers["Accept-Encoding"]; got != tt.want {
+				t.Errorf("Accept-Encoding %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

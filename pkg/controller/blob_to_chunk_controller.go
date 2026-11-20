@@ -395,6 +395,10 @@ func (c *BlobToChunkController) buildFirstChunk(ctx context.Context, blob *v1alp
 	}
 
 	chunk.Spec.BearerName, chunk.Spec.Source = firstSource(blob, http.MethodGet)
+	if _, ok := chunk.Spec.Source.Request.Headers["Accept-Encoding"]; !ok {
+		// Go asks for gzip otherwise, and a compressed response hides the content length.
+		chunk.Spec.Source.Request.Headers["Accept-Encoding"] = "identity"
+	}
 
 	return chunk, nil
 }
