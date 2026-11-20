@@ -243,6 +243,14 @@ func TestUnknownTotalStaysOneChunkWhenTheSizeIsBackfilled(t *testing.T) {
 	}
 }
 
+func TestUnknownTotalStaysOneChunkWhenBackfilledWithRangeSupport(t *testing.T) {
+	blob := mustUpdate(t, testStatusStrategy, newBlob(v1alpha1.BlobSpec{MinimumChunkSize: 5 * mib}), setTotal(-1, false))
+	blob = mustUpdate(t, testStatusStrategy, blob, setTotal(16*mib, true))
+	if blob.Spec.ChunksNumber != 1 {
+		t.Errorf("backfilled total with range support: %d chunks, want 1", blob.Spec.ChunksNumber)
+	}
+}
+
 func TestSpecUpdateChangingAChunkPresetIsRejected(t *testing.T) {
 	determined := mustUpdate(t, testStatusStrategy, newBlob(v1alpha1.BlobSpec{MinimumChunkSize: 5 * mib}), setTotal(16*mib, true))
 	tests := []struct {

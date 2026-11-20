@@ -68,6 +68,7 @@ func TestComputeChunkLayout(t *testing.T) {
 		{name: "not chunkable", total: 300 * mib, minimumChunkSize: 128 * mib, chunkSize: 16 * mib, wantChunksNumber: 1, wantChunkSize: 300 * mib},
 		{name: "unknown total", total: -1, minimumChunkSize: 128 * mib, wantChunksNumber: 1, wantChunkSize: -1},
 		{name: "unknown total with range support", total: -1, acceptRanges: true, chunksNumber: 4, wantChunksNumber: 1, wantChunkSize: -1},
+		{name: "unknown total with a chunk size only", total: -1, acceptRanges: true, chunkSize: 16 * mib, wantChunksNumber: 1, wantChunkSize: -1},
 		{name: "minimum chunk size splits evenly", total: 300 * mib, acceptRanges: true, minimumChunkSize: 128 * mib, wantChunksNumber: 2, wantChunkSize: 150 * mib},
 		{name: "minimum chunk size above the total", total: 100 * mib, acceptRanges: true, minimumChunkSize: 128 * mib, wantChunksNumber: 1, wantChunkSize: 100 * mib},
 		{name: "minimum chunk size rounds the chunk size up", total: 16 * mib, acceptRanges: true, minimumChunkSize: 5 * mib, wantChunksNumber: 3, wantChunkSize: 5592406},
