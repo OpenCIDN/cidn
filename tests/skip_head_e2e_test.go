@@ -18,8 +18,10 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -81,13 +83,10 @@ func TestSkipHeadBlobMultiChunkSucceedsWithoutHeadOrFullChunk(t *testing.T) {
 	if blob.Spec.ChunksNumber != 3 {
 		t.Errorf("blob %s was split into %d chunks, want 3", name, blob.Spec.ChunksNumber)
 	}
-	if !slices.Contains(names, "blob:first:"+name) {
-		t.Errorf("blob %s had no first chunk; chunks: %v", name, names)
-	}
-	for _, chunk := range names {
-		if strings.HasPrefix(chunk, "blob:head:"+name+":") || chunk == "blob:full:"+name {
-			t.Errorf("blob %s had chunk %s; chunks: %v", name, chunk, names)
-		}
+	// The first chunk is part 1; chunks re-created after the commit reuse these names.
+	want := []string{"blob:first:" + name, partChunkName(blob, 2), partChunkName(blob, 3)}
+	if !slices.Equal(names, want) {
+		t.Errorf("blob %s had chunks %v, want %v", name, names, want)
 	}
 }
 
@@ -299,4 +298,13 @@ func watchChunkNames(t *testing.T, client versioned.Interface, blobName string) 
 		<-ended
 		return slices.Sorted(maps.Keys(names))
 	}
+}
+
+// partChunkName is the controller's name for part num of a laid out blob.
+func partChunkName(blob *taskv1alpha1.Blob, num int64) string {
+	start := (num - 1) * blob.Spec.ChunkSize
+	end := min(start+blob.Spec.ChunkSize, blob.Status.Total)
+	numWidth := len(strconv.FormatInt(blob.Spec.ChunksNumber, 10))
+	offsetWidth := len(strconv.FormatInt(blob.Status.Total, 16))
+	return fmt.Sprintf("blob:part:%s:%0*d:%0*x-%0*x", blob.Name, numWidth, num, offsetWidth, start, offsetWidth, end)
 }
