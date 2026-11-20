@@ -289,3 +289,32 @@ func TestSpecUpdateChangingAChunkPresetIsRejected(t *testing.T) {
 		})
 	}
 }
+
+func TestSpecUpdateChangingSkipHeadIsRejected(t *testing.T) {
+	for _, skipHead := range []bool{false, true} {
+		t.Run(fmt.Sprintf("from %t", skipHead), func(t *testing.T) {
+			_, err := update(testStrategy, newBlob(v1alpha1.BlobSpec{SkipHead: skipHead}), func(blob *v1alpha1.Blob) { blob.Spec.SkipHead = !skipHead })
+			if err == nil || !strings.Contains(err.Error(), "spec.skipHead") {
+				t.Errorf("update error = %v, want a field error on spec.skipHead", err)
+			}
+		})
+	}
+}
+
+func TestUpdatesKeepingSkipHeadAreAccepted(t *testing.T) {
+	tests := []struct {
+		name     string
+		strategy rest.RESTUpdateStrategy
+		change   func(*v1alpha1.Blob)
+	}{
+		{name: "spec update", strategy: testStrategy, change: func(blob *v1alpha1.Blob) { blob.Spec.Priority = 1 }},
+		{name: "status update setting the total", strategy: testStatusStrategy, change: setTotal(16*mib, true)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := update(tt.strategy, newBlob(v1alpha1.BlobSpec{SkipHead: true, MinimumChunkSize: 5 * mib}), tt.change); err != nil {
+				t.Errorf("update rejected: %v", err)
+			}
+		})
+	}
+}

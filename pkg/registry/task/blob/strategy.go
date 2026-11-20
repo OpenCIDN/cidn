@@ -160,6 +160,10 @@ func (*blobStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object
 		errList = append(errList, field.Forbidden(field.NewPath("spec", "destination"), "destination is immutable"))
 	}
 
+	if newBlob.Spec.SkipHead != oldBlob.Spec.SkipHead {
+		errList = append(errList, field.Forbidden(field.NewPath("spec", "skipHead"), "skipHead is immutable"))
+	}
+
 	if oldBlob.Status.Total > 0 && newBlob.Status.Total != oldBlob.Status.Total {
 		errList = append(errList, field.Forbidden(field.NewPath("status", "total"), "total is immutable"))
 	}
