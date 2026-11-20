@@ -262,14 +262,6 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 		return fmt.Errorf("failed to check for existing chunk: %v", err)
 	}
 
-	src := blob.Spec.Source[0]
-
-	headers := map[string]string{}
-
-	for k, v := range src.Headers {
-		headers[textproto.CanonicalMIMEHeaderKey(k)] = v
-	}
-
 	chunk := &v1alpha1.Chunk{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   chunkName,
@@ -287,17 +279,7 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 		},
 	}
 
-	chunk.Spec.BearerName = src.BearerName
-	chunk.Spec.Source = v1alpha1.ChunkHTTP{
-		Request: v1alpha1.ChunkHTTPRequest{
-			Method:  http.MethodHead,
-			URL:     src.URL,
-			Headers: headers,
-		},
-		Response: v1alpha1.ChunkHTTPResponse{
-			StatusCode: http.StatusOK,
-		},
-	}
+	chunk.Spec.BearerName, chunk.Spec.Source = firstSource(blob, http.MethodHead)
 
 	_, err = c.client.TaskV1alpha1().Chunks().Create(ctx, chunk, metav1.CreateOptions{})
 	if err != nil {
@@ -307,6 +289,28 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 	}
 
 	return nil
+}
+
+// firstSource is how the HEAD chunk and the first chunk ask the blob's first source.
+func firstSource(blob *v1alpha1.Blob, method string) (bearerName string, source v1alpha1.ChunkHTTP) {
+	src := blob.Spec.Source[0]
+
+	headers := map[string]string{}
+
+	for k, v := range src.Headers {
+		headers[textproto.CanonicalMIMEHeaderKey(k)] = v
+	}
+
+	return src.BearerName, v1alpha1.ChunkHTTP{
+		Request: v1alpha1.ChunkHTTPRequest{
+			Method:  method,
+			URL:     src.URL,
+			Headers: headers,
+		},
+		Response: v1alpha1.ChunkHTTPResponse{
+			StatusCode: http.StatusOK,
+		},
+	}
 }
 
 func buildFullChunkName(blobName string) string {
@@ -360,25 +364,7 @@ func (c *BlobToChunkController) toFirstChunk(ctx context.Context, blob *v1alpha1
 		chunk.Spec.Sha256 = blob.Spec.ContentSha256
 	}
 
-	src := blob.Spec.Source[0]
-
-	headers := map[string]string{}
-
-	for k, v := range src.Headers {
-		headers[textproto.CanonicalMIMEHeaderKey(k)] = v
-	}
-
-	chunk.Spec.BearerName = src.BearerName
-	chunk.Spec.Source = v1alpha1.ChunkHTTP{
-		Request: v1alpha1.ChunkHTTPRequest{
-			Method:  http.MethodGet,
-			URL:     src.URL,
-			Headers: headers,
-		},
-		Response: v1alpha1.ChunkHTTPResponse{
-			StatusCode: http.StatusOK,
-		},
-	}
+	chunk.Spec.BearerName, chunk.Spec.Source = firstSource(blob, http.MethodGet)
 
 	return c.scheduleChunkCreation(ctx, chunk)
 }
