@@ -78,6 +78,10 @@ func (*blobStrategy) NamespaceScoped() bool {
 }
 
 func (*blobStrategy) PrepareForCreate(ctx context.Context, obj runtime.Object) {
+	blob := obj.(*v1alpha1.Blob)
+	if blob.Status.Total != 0 {
+		determineLayout(blob)
+	}
 }
 
 func (*blobStrategy) PrepareForUpdate(ctx context.Context, obj, old runtime.Object) {
@@ -120,22 +124,26 @@ func (*blobStrategy) Canonicalize(obj runtime.Object) {
 	if blob.Status.Phase == "" {
 		blob.Status.Phase = v1alpha1.BlobPhasePending
 	}
+}
 
-	if blob.Status.Total != 0 {
-		if !blob.Status.AcceptRanges {
-			blob.Spec.ChunksNumber = 1
-			blob.Spec.ChunkSize = blob.Status.Total
-		} else if blob.Spec.MinimumChunkSize != 0 {
-			blob.Spec.ChunksNumber = getChunksNumberByMinimumChunkSize(blob.Status.Total, blob.Spec.MinimumChunkSize)
-			blob.Spec.ChunkSize = getChunkSize(blob.Status.Total, blob.Spec.ChunksNumber)
-		} else if blob.Spec.ChunkSize == 0 && blob.Spec.ChunksNumber != 0 {
-			blob.Spec.ChunkSize = getChunkSize(blob.Status.Total, blob.Spec.ChunksNumber)
-		} else if blob.Spec.ChunkSize != 0 && blob.Spec.ChunksNumber == 0 {
-			blob.Spec.ChunksNumber = getChunksNumber(blob.Status.Total, blob.Spec.ChunkSize)
-		} else {
-			blob.Spec.ChunksNumber = 1
-			blob.Spec.ChunkSize = blob.Status.Total
-		}
+func setsTotal(oldBlob, newBlob *v1alpha1.Blob) bool {
+	return oldBlob.Status.Total == 0 && newBlob.Status.Total != 0
+}
+
+func determineLayout(blob *v1alpha1.Blob) {
+	if !blob.Status.AcceptRanges {
+		blob.Spec.ChunksNumber = 1
+		blob.Spec.ChunkSize = blob.Status.Total
+	} else if blob.Spec.MinimumChunkSize != 0 {
+		blob.Spec.ChunksNumber = getChunksNumberByMinimumChunkSize(blob.Status.Total, blob.Spec.MinimumChunkSize)
+		blob.Spec.ChunkSize = getChunkSize(blob.Status.Total, blob.Spec.ChunksNumber)
+	} else if blob.Spec.ChunkSize == 0 && blob.Spec.ChunksNumber != 0 {
+		blob.Spec.ChunkSize = getChunkSize(blob.Status.Total, blob.Spec.ChunksNumber)
+	} else if blob.Spec.ChunkSize != 0 && blob.Spec.ChunksNumber == 0 {
+		blob.Spec.ChunksNumber = getChunksNumber(blob.Status.Total, blob.Spec.ChunkSize)
+	} else {
+		blob.Spec.ChunksNumber = 1
+		blob.Spec.ChunkSize = blob.Status.Total
 	}
 }
 
@@ -210,12 +218,15 @@ func (*blobStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object
 		errList = append(errList, field.Forbidden(field.NewPath("status", "total"), "total is immutable"))
 	}
 
-	if oldBlob.Spec.ChunkSize > 0 && newBlob.Spec.ChunkSize != oldBlob.Spec.ChunkSize {
-		errList = append(errList, field.Forbidden(field.NewPath("spec", "chunkSize"), "chunkSize is immutable"))
-	}
+	// The write that sets the total replaces the presets with the layout.
+	if !setsTotal(oldBlob, newBlob) {
+		if oldBlob.Spec.ChunkSize > 0 && newBlob.Spec.ChunkSize != oldBlob.Spec.ChunkSize {
+			errList = append(errList, field.Forbidden(field.NewPath("spec", "chunkSize"), "chunkSize is immutable"))
+		}
 
-	if oldBlob.Spec.ChunksNumber != 0 && newBlob.Spec.ChunksNumber != oldBlob.Spec.ChunksNumber {
-		errList = append(errList, field.Forbidden(field.NewPath("spec", "chunksNumber"), "chunksNumber is immutable"))
+		if oldBlob.Spec.ChunksNumber != 0 && newBlob.Spec.ChunksNumber != oldBlob.Spec.ChunksNumber {
+			errList = append(errList, field.Forbidden(field.NewPath("spec", "chunksNumber"), "chunksNumber is immutable"))
+		}
 	}
 
 	return errList
@@ -342,4 +353,7 @@ func (*blobStatusStrategy) PrepareForUpdate(ctx context.Context, obj, old runtim
 
 	// Status changes are not allowed to update spec
 	newBlob.Spec = oldBlob.Spec
+	if setsTotal(oldBlob, newBlob) {
+		determineLayout(newBlob)
+	}
 }

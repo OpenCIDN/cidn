@@ -89,6 +89,48 @@ func checkLayout(t *testing.T, when string, blob *v1alpha1.Blob, chunksNumber, c
 	}
 }
 
+func TestChunkSizeOnlyLayoutSurvivesStatusUpdates(t *testing.T) {
+	blob := mustUpdate(t, testStatusStrategy, newBlob(v1alpha1.BlobSpec{ChunkSize: 16 * mib}), setTotal(50*mib, true))
+	checkLayout(t, "when the total is set", blob, 4, 16*mib)
+	for i := 1; i <= 2; i++ {
+		blob = mustUpdate(t, testStatusStrategy, blob, addProgress)
+		checkLayout(t, fmt.Sprintf("after status update %d", i), blob, 4, 16*mib)
+	}
+}
+
+func TestChunksNumberOnlyLayoutSurvivesStatusUpdates(t *testing.T) {
+	blob := mustUpdate(t, testStatusStrategy, newBlob(v1alpha1.BlobSpec{ChunksNumber: 4}), setTotal(64*mib, true))
+	checkLayout(t, "when the total is set", blob, 4, 16*mib)
+	blob = mustUpdate(t, testStatusStrategy, blob, addProgress)
+	checkLayout(t, "after a later status update", blob, 4, 16*mib)
+}
+
+func TestLayoutSetAtCreationSurvivesStatusUpdates(t *testing.T) {
+	blob := &v1alpha1.Blob{
+		ObjectMeta: metav1.ObjectMeta{Name: "blob"},
+		Spec: v1alpha1.BlobSpec{
+			Source:      []v1alpha1.BlobSource{{URL: "http://example.com/blob"}},
+			Destination: []v1alpha1.BlobDestination{{Name: "storage", Path: "blob"}},
+			ChunkSize:   16 * mib,
+		},
+		Status: v1alpha1.BlobStatus{Total: 50 * mib, AcceptRanges: true},
+	}
+	rest.FillObjectMetaSystemFields(blob)
+	if err := rest.BeforeCreate(testStrategy, testContext(), blob); err != nil {
+		t.Fatalf("create rejected: %v", err)
+	}
+	checkLayout(t, "at creation", blob, 4, 16*mib)
+	blob.ResourceVersion = "1" // assigned by the storage
+	blob = mustUpdate(t, testStatusStrategy, blob, addProgress)
+	checkLayout(t, "after a status update", blob, 4, 16*mib)
+}
+
+func TestSpecUpdateKeepsTheLayout(t *testing.T) {
+	blob := mustUpdate(t, testStatusStrategy, newBlob(v1alpha1.BlobSpec{ChunkSize: 16 * mib}), setTotal(50*mib, true))
+	blob = mustUpdate(t, testStrategy, blob, func(blob *v1alpha1.Blob) { blob.Spec.Priority = 1 })
+	checkLayout(t, "after a spec update", blob, 4, 16*mib)
+}
+
 func TestOtherPresetsKeepTheirLayoutAfterStatusUpdates(t *testing.T) {
 	tests := []struct {
 		name             string
