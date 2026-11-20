@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned/fake"
@@ -31,6 +32,7 @@ import (
 	"github.com/wzshiming/sss"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -421,5 +423,49 @@ func TestSkipHeadBlobFailsWhenItsFirstChunkTookMoreThanALaidOutChunk(t *testing.
 	}
 	if len(got.Status.Conditions) != 1 || !strings.Contains(got.Status.Conditions[0].Message, "30") || !strings.Contains(got.Status.Conditions[0].Message, "10") {
 		t.Errorf("conditions %v, want one naming 30 and 10", got.Status.Conditions)
+	}
+}
+
+// waitForUploadEtags waits for the multipart fromChunks updates in the background.
+func waitForUploadEtags(t *testing.T, client *fake.Clientset, name string, parts int) *v1alpha1.Multipart {
+	t.Helper()
+	var mp *v1alpha1.Multipart
+	if err := wait.PollUntilContextTimeout(context.Background(), 5*time.Millisecond, 5*time.Second, true, func(ctx context.Context) (bool, error) {
+		var err error
+		mp, err = client.TaskV1alpha1().Multiparts().Get(ctx, name, metav1.GetOptions{})
+		return err == nil && len(mp.UploadEtags) == parts, err
+	}); err != nil {
+		t.Fatalf("multipart %+v, want %d parts: %v", mp, parts, err)
+	}
+	return mp
+}
+
+func TestLaidOutSkipHeadBlobGrowsItsMultipartToItsNumberOfParts(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	partOne := v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+	mp := newTestMultipart(blob, 1, "upload-1")
+	mp.UploadEtags[0] = partOne
+	partTwo := newTestChunk("blob:part:blob:2:0a-14", blob, v1alpha1.ChunkPhaseRunning)
+	partTwo.Spec.ChunkIndex = 2
+	c, client := newTestFromChunkController(t, blob, newTestSucceededFirstChunk(blob, 10, "etag-1"), partTwo, mp)
+
+	c.handler(context.Background(), blob.Name)
+
+	got := waitForUploadEtags(t, client, blob.Name, 3)
+	if !reflect.DeepEqual(got.UploadIDs, []string{"upload-1"}) || !reflect.DeepEqual(got.UploadEtags[0], partOne) {
+		t.Errorf("upload IDs %v, part 1 %+v; want [upload-1], %+v", got.UploadIDs, got.UploadEtags[0], partOne)
+	}
+}
+
+func TestSkipHeadBlobRecordsAPartItsMultipartDidNotHoldYet(t *testing.T) {
+	blob := newTestLaidOutSkipHeadBlob()
+	mp := newTestMultipart(blob, 1, "upload-1")
+	mp.UploadEtags[0] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+	c, client := newTestFromChunkController(t, blob, newTestRecordedPart(blob, "blob:part:blob:2:0a-14", 2), mp)
+
+	c.handler(context.Background(), blob.Name)
+
+	if got := getBlob(t, client, blob.Name); got.Status.SucceededChunks != 2 || got.Status.Progress != 20 {
+		t.Errorf("succeeded chunks %d, progress %d; want 2, 20", got.Status.SucceededChunks, got.Status.Progress)
 	}
 }

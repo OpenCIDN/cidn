@@ -471,6 +471,13 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	var updateEtag bool
 	var succeededCount, failedCount, pendingCount, runningCount int64
 	var progress int64
+
+	// A skipHead blob's multipart holds part 1 only until the blob is laid out.
+	if missing := blob.Spec.ChunksNumber - int64(len(mp.UploadEtags)); missing > 0 {
+		mp.UploadEtags = append(mp.UploadEtags, make([]v1alpha1.UploadEtags, missing)...)
+		updateEtag = true
+	}
+
 	for _, chunk := range chunks {
 		switch chunk.Status.Phase {
 		case v1alpha1.ChunkPhaseSucceeded:
