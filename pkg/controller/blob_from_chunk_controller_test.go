@@ -88,6 +88,7 @@ func TestFromHeadChunkReadsTheHeadResponse(t *testing.T) {
 		name              string
 		headers           map[string]string
 		forceAcceptRanges bool
+		acceptRanges      bool
 		wantTotal         int64
 		wantAcceptRanges  bool
 	}{
@@ -97,11 +98,13 @@ func TestFromHeadChunkReadsTheHeadResponse(t *testing.T) {
 		{name: "accept-ranges bytes", headers: map[string]string{"content-length": "1024", "accept-ranges": "bytes"}, wantTotal: 1024, wantAcceptRanges: true},
 		{name: "ForceAcceptRanges", headers: map[string]string{"content-length": "1024"}, forceAcceptRanges: true, wantTotal: 1024, wantAcceptRanges: true},
 		{name: "ForceAcceptRanges with content-length missing", headers: map[string]string{}, forceAcceptRanges: true, wantTotal: -1},
+		{name: "content-length missing keeps earlier range support", headers: map[string]string{}, acceptRanges: true, wantTotal: -1, wantAcceptRanges: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			blob := newTestBlob()
 			blob.Spec.ForceAcceptRanges = tt.forceAcceptRanges
+			blob.Status.AcceptRanges = tt.acceptRanges
 			chunk := newTestChunk(buildHeadChunkName(blob.Name, 0), blob, v1alpha1.ChunkPhaseSucceeded)
 			chunk.Status.SourceResponse = &v1alpha1.ChunkHTTPResponse{StatusCode: http.StatusOK, Headers: tt.headers}
 			c, _ := newTestFromChunkController(t, blob, chunk)
