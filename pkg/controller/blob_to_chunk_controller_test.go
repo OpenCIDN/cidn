@@ -173,15 +173,19 @@ func multipartExists(t *testing.T, client *fake.Clientset, name string) bool {
 func TestCleanupBlobRemovesTheChunksAndOnlyAMultipartBlobsUpload(t *testing.T) {
 	tests := []struct {
 		name          string
+		skipHead      bool
 		chunksNumber  int64
 		wantMultipart bool
 	}{
 		{name: "more than one chunk", chunksNumber: 3},
 		{name: "one chunk", chunksNumber: 1, wantMultipart: true},
+		{name: "skipHead with one chunk", skipHead: true, chunksNumber: 1},
+		{name: "skipHead before its layout", skipHead: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			blob := newTestBlob()
+			blob.Spec.SkipHead = tt.skipHead
 			blob.Spec.ChunksNumber = tt.chunksNumber
 			chunk := newTestChunk("chunk", blob, v1alpha1.ChunkPhaseRunning)
 			c, client := newTestToChunkController(t, map[string]*sss.SSS{}, blob, chunk, newTestMultipart(blob, tt.chunksNumber, "upload-1"))

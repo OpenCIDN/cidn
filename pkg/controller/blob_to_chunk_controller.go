@@ -133,7 +133,7 @@ func (c *BlobToChunkController) cleanupBlob(blob *v1alpha1.Blob) {
 		}
 	}
 
-	if blob.Spec.ChunksNumber > 1 {
+	if blob.Spec.ChunksNumber > 1 || blob.Spec.SkipHead {
 		err := cleanupMultipart(context.Background(), c.client, c.s3, blob)
 		if err != nil {
 			klog.Errorf("failed to cleanup multipart for blob %s: %v", blob.Name, err)
