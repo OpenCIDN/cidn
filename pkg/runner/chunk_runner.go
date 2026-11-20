@@ -300,6 +300,9 @@ func (r *ChunkRunner) buildRequest(ctx context.Context, chunkHTTP *v1alpha1.Chun
 	req.Header.Set("User-Agent", versions.DefaultUserAgent())
 	if contentLength > 0 {
 		req.ContentLength = contentLength
+	} else if body != nil {
+		// net/http would send this empty body chunked, without Content-Length.
+		req.Body = http.NoBody
 	}
 
 	// Add custom headers from configuration

@@ -83,9 +83,10 @@ func startSource(t *testing.T, source testSource) string {
 }
 
 type testUpload struct {
-	contentLength    int64
-	transferEncoding []string
-	body             []byte
+	contentLength       int64
+	transferEncoding    []string
+	body                []byte
+	contentLengthHeader string
 }
 
 type testDestination struct {
@@ -103,7 +104,7 @@ func startDestination(t *testing.T, etag string, release <-chan struct{}) *testD
 		}
 		body, err := io.ReadAll(r.Body)
 		destination.mut.Lock()
-		destination.uploads = append(destination.uploads, testUpload{r.ContentLength, r.TransferEncoding, body})
+		destination.uploads = append(destination.uploads, testUpload{r.ContentLength, r.TransferEncoding, body, r.Header.Get("Content-Length")})
 		destination.mut.Unlock()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -467,5 +468,39 @@ func TestFirstPartTransfersToEveryDestinationUnlessAllHoldTheTotal(t *testing.T)
 			}
 			expectUploads(t, content, destinations...)
 		})
+	}
+}
+
+func TestEmptyContentIsUploadedWithContentLengthZero(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source testSource
+	}{
+		{"response with content length 0", testSource{acceptRanges: true}},
+		{"response without content length", testSource{acceptRanges: true, noLength: true}},
+	} {
+		for _, withFirstPart := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/firstPart=%t", test.name, withFirstPart), func(t *testing.T) {
+				source := startSource(t, test.source)
+				destinations := []*testDestination{startDestination(t, "etag-0", nil), startDestination(t, "etag-1", nil)}
+				chunk := newFirstPartChunk(source, &v1alpha1.ChunkFirstPart{MinimumChunkSize: 5 << 20}, destinations...)
+				if !withFirstPart {
+					chunk.Spec.FirstPart = nil
+				}
+				status := processChunk(t, chunk).Status
+				if status.Phase != v1alpha1.ChunkPhaseSucceeded || !reflect.DeepEqual(status.Etags, []string{"etag-0", "etag-1"}) {
+					t.Errorf("got phase=%s etags=%v conditions=%v, want Succeeded with both etags in destination order",
+						status.Phase, status.Etags, status.Conditions)
+				}
+				expectUploads(t, nil, destinations...)
+				for index, destination := range destinations {
+					for _, upload := range destination.received() {
+						if upload.contentLengthHeader != "0" {
+							t.Errorf("destination %d received the header Content-Length %q, want \"0\"", index, upload.contentLengthHeader)
+						}
+					}
+				}
+			})
+		}
 	}
 }
