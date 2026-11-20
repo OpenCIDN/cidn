@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"net/url"
 	"reflect"
 	"strconv"
@@ -25,6 +26,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned/fake"
 	"github.com/wzshiming/sss"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -144,6 +146,52 @@ func TestBuildChunkNeedsAClientAndAnUploadIDPerDestination(t *testing.T) {
 
 			if _, err := c.buildChunk(blob, "part-1", 1, 0, 10, "-", tt.uploadIDs); err == nil {
 				t.Error("built a chunk, want an error")
+			}
+		})
+	}
+}
+
+func newTestMultipart(blob *v1alpha1.Blob, parts int64, uploadIDs ...string) *v1alpha1.Multipart {
+	return &v1alpha1.Multipart{
+		ObjectMeta:       metav1.ObjectMeta{Name: blob.Name},
+		DestinationNames: []string{"storage"},
+		UploadIDs:        uploadIDs,
+		UploadEtags:      make([]v1alpha1.UploadEtags, parts),
+	}
+}
+
+func multipartExists(t *testing.T, client *fake.Clientset, name string) bool {
+	t.Helper()
+	_, err := client.TaskV1alpha1().Multiparts().Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		t.Fatal(err)
+	}
+	return err == nil
+}
+
+func TestCleanupBlobRemovesTheChunksAndOnlyAMultipartBlobsUpload(t *testing.T) {
+	tests := []struct {
+		name          string
+		chunksNumber  int64
+		wantMultipart bool
+	}{
+		{name: "more than one chunk", chunksNumber: 3},
+		{name: "one chunk", chunksNumber: 1, wantMultipart: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestBlob()
+			blob.Spec.ChunksNumber = tt.chunksNumber
+			chunk := newTestChunk("chunk", blob, v1alpha1.ChunkPhaseRunning)
+			c, client := newTestToChunkController(t, map[string]*sss.SSS{}, blob, chunk, newTestMultipart(blob, tt.chunksNumber, "upload-1"))
+
+			c.cleanupBlob(blob)
+
+			if _, err := client.TaskV1alpha1().Chunks().Get(context.Background(), chunk.Name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+				t.Errorf("chunk still there: %v", err)
+			}
+			if got := multipartExists(t, client, blob.Name); got != tt.wantMultipart {
+				t.Errorf("multipart kept %t, want %t", got, tt.wantMultipart)
 			}
 		})
 	}
