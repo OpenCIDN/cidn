@@ -21,6 +21,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/sha256"
+	"encoding"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -266,6 +267,27 @@ func TestFirstPartTakesOnlyPartOneWhenTheLayoutHasMoreChunks(t *testing.T) {
 				t.Error("the source saw no hang-up within 5s after the chunk finished")
 			}
 		})
+	}
+}
+
+func TestFirstPartLeavesTheHashStateOfPartOneForTheNextPart(t *testing.T) {
+	content := testContent(16 << 20)
+	whole := sha256.Sum256(content)
+	source := startSource(t, testSource{content: content, acceptRanges: true})
+	chunk := newFirstPartChunk(source, &v1alpha1.ChunkFirstPart{MinimumChunkSize: 5 << 20}, startDestination(t, "etag-0", nil))
+	chunk.Spec.Sha256PartialPreviousName = "-"
+	chunk.Spec.Sha256 = hex.EncodeToString(whole[:])
+	status := processChunk(t, chunk).Status
+	if status.Phase != v1alpha1.ChunkPhaseSucceeded {
+		t.Fatalf("got phase=%s conditions=%v, want Succeeded although Spec.Sha256 is the digest of the whole content", status.Phase, status.Conditions)
+	}
+	resumed := sha256.New()
+	if err := resumed.(encoding.BinaryUnmarshaler).UnmarshalBinary(status.Sha256Partial); err != nil {
+		t.Fatalf("sha256Partial of %d bytes is no sha256 state: %v", len(status.Sha256Partial), err)
+	}
+	resumed.Write(content[5592406:])
+	if got := resumed.Sum(nil); !bytes.Equal(got, whole[:]) {
+		t.Errorf("the state continued with the remaining bytes gives %x, want the digest of the whole content %x", got, whole)
 	}
 }
 

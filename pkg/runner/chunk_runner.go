@@ -593,7 +593,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	stopProgress := r.startProgressUpdater(ctx, cancel, s, &gsr, &gdrs)
 	defer stopProgress()
 
-	body, contentLength, _ := r.sourceRequest(ctx, chunk, s)
+	body, contentLength, truncated := r.sourceRequest(ctx, chunk, s)
 	if body == nil {
 		return
 	}
@@ -730,7 +730,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 		return
 	}
 
-	r.handleSha256AndFinalize(continues, chunk, s, swmr, etags)
+	r.handleSha256AndFinalize(continues, chunk, s, swmr, etags, truncated)
 }
 
 func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s *state, gsr **readCount, gdrs *[]*swmrCount) func() {
@@ -834,7 +834,7 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 	return func() { close(stop) }
 }
 
-func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string) {
+func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *v1alpha1.Chunk, s *state, swmr ioswmr.SWMR, etags []string, truncated bool) {
 	if chunk.Spec.Sha256PartialPreviousName == "" {
 		s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
 			ss.Status.Etags = etags
@@ -844,7 +844,12 @@ func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *
 		return
 	}
 	if chunk.Spec.Sha256PartialPreviousName == "-" {
-		sha256, sha256Partial, err := updateSha256(chunk.Spec.Sha256, nil, swmr.NewReader())
+		expected := chunk.Spec.Sha256
+		if truncated {
+			// Spec.Sha256 covers the whole content; the last part checks it.
+			expected = ""
+		}
+		sha256, sha256Partial, err := updateSha256(expected, nil, swmr.NewReader())
 		if err != nil {
 			s.handleProcessError("Sha256UpdateError", err)
 			return
