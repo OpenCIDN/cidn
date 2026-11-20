@@ -563,6 +563,45 @@ func TestSkipHeadBlobRecordsAPartItsMultipartDidNotHoldYet(t *testing.T) {
 	}
 }
 
+func TestCommitFailsABlobWhoseMultipartLacksAnEtagOrUploadID(t *testing.T) {
+	two := []v1alpha1.BlobDestination{{Name: "storage", Path: "/blob"}, {Name: "second", Path: "/blob"}}
+	tests := []struct {
+		name        string
+		destination []v1alpha1.BlobDestination
+		uploadIDs   []string
+		slots       int64
+		etags       []string
+	}{
+		{name: "more slots than parts", uploadIDs: []string{"upload-1"}, slots: 3, etags: []string{"etag-1"}},
+		{name: "fewer etags than destinations", destination: two, uploadIDs: []string{"upload-1", "upload-2"}, slots: 1, etags: []string{"etag-1"}},
+		{name: "fewer upload IDs than destinations", destination: two, uploadIDs: []string{"upload-1"}, slots: 1, etags: []string{"etag-1", "etag-2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			if tt.destination != nil {
+				blob.Spec.Destination = tt.destination
+			}
+			blob.Spec.ChunksNumber, blob.Status.Total = 1, 1024
+			stores := newTestStorage(t)
+			stores["second"] = stores["storage"]
+			client, factory := newTestInformers(t, blob, newTestSucceededFirstChunk(blob, 1024, tt.etags...), newTestMultipart(blob, tt.slots, tt.uploadIDs...))
+			c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+			t.Cleanup(c.workqueue.ShutDown)
+
+			c.handler(context.Background(), blob.Name)
+
+			got := getBlob(t, client, blob.Name)
+			if got.Status.Phase != v1alpha1.BlobPhaseFailed || len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Type != "MultipartIncomplete" {
+				t.Errorf("phase %s, conditions %v; want %s with MultipartIncomplete", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseFailed)
+			}
+			if !multipartExists(t, client, blob.Name) {
+				t.Error("multipart committed")
+			}
+		})
+	}
+}
+
 func TestFailedFirstChunkRemovesTheUnfinishedParts(t *testing.T) {
 	blob := newTestLaidOutSkipHeadBlob()
 	blob.Status.RunningChunks, blob.Status.PendingChunks = 2, 1

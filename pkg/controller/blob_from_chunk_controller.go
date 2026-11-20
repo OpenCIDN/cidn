@@ -612,6 +612,21 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		return nil
 	}
 
+	// The commit takes an upload ID per destination and, from every part, an etag per destination.
+	if len(mp.UploadIDs) < len(blob.Spec.Destination) || slices.ContainsFunc(mp.UploadEtags, func(e v1alpha1.UploadEtags) bool {
+		return len(e.Etags) < len(blob.Spec.Destination)
+	}) {
+		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+		blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
+			Type:    "MultipartIncomplete",
+			Message: "all chunks succeeded but the multipart lacks an upload ID or a part's etag for some destination",
+		})
+		blob.Status.RunningChunks = 0
+		blob.Status.PendingChunks = 0
+		c.deleteChunksInNonFinalStates(ctx, blob)
+		return nil
+	}
+
 	g, _ := errgroup.WithContext(ctx)
 	for i, dst := range blob.Spec.Destination {
 		uploadID := mp.UploadIDs[i]
