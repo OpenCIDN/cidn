@@ -131,6 +131,30 @@ func TestSpecUpdateKeepsTheLayout(t *testing.T) {
 	checkLayout(t, "after a spec update", blob, 4, 16*mib)
 }
 
+func TestCreationWithoutATotalKeepsThePresets(t *testing.T) {
+	for _, spec := range []v1alpha1.BlobSpec{{}, {MinimumChunkSize: 5 * mib}, {ChunkSize: 16 * mib}, {ChunksNumber: 4}} {
+		t.Run(fmt.Sprintf("minimum %d chunk size %d chunks %d", spec.MinimumChunkSize, spec.ChunkSize, spec.ChunksNumber), func(t *testing.T) {
+			blob := &v1alpha1.Blob{ObjectMeta: metav1.ObjectMeta{Name: "blob"}, Spec: spec}
+			blob.Spec.Source = []v1alpha1.BlobSource{{URL: "http://example.com/blob"}}
+			blob.Spec.Destination = []v1alpha1.BlobDestination{{Name: "storage", Path: "blob"}}
+			rest.FillObjectMetaSystemFields(blob)
+			if err := rest.BeforeCreate(testStrategy, testContext(), blob); err != nil {
+				t.Fatalf("create rejected: %v", err)
+			}
+			checkLayout(t, "at creation", blob, spec.ChunksNumber, spec.ChunkSize)
+		})
+	}
+}
+
+func TestStatusUpdateBeforeTheTotalKeepsThePresets(t *testing.T) {
+	for _, spec := range []v1alpha1.BlobSpec{{}, {MinimumChunkSize: 5 * mib}, {ChunkSize: 16 * mib}, {ChunksNumber: 4}} {
+		t.Run(fmt.Sprintf("minimum %d chunk size %d chunks %d", spec.MinimumChunkSize, spec.ChunkSize, spec.ChunksNumber), func(t *testing.T) {
+			blob := mustUpdate(t, testStatusStrategy, newBlob(spec), func(blob *v1alpha1.Blob) { blob.Status.HandlerName = "handler" })
+			checkLayout(t, "after a status update", blob, spec.ChunksNumber, spec.ChunkSize)
+		})
+	}
+}
+
 func TestOtherPresetsKeepTheirLayoutAfterStatusUpdates(t *testing.T) {
 	tests := []struct {
 		name             string
