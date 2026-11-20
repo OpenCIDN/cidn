@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned/fake"
@@ -30,6 +31,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func newTestToChunkController(t *testing.T, s3 map[string]*sss.SSS, objects ...runtime.Object) (*BlobToChunkController, *fake.Clientset) {
@@ -324,4 +326,32 @@ func TestFirstChunkGetsTheFirstSourceIntoPartOne(t *testing.T) {
 	if !reflect.DeepEqual(chunk.Spec, wantSpec) {
 		t.Errorf("spec\n%+v\nwant\n%+v", chunk.Spec, wantSpec)
 	}
+}
+
+// waitForChunkNames waits for the chunks createChunks creates in the background, then for no others.
+func waitForChunkNames(t *testing.T, client *fake.Clientset, want ...string) {
+	t.Helper()
+	var got []string
+	if err := wait.PollUntilContextTimeout(context.Background(), 5*time.Millisecond, 5*time.Second, true, func(context.Context) (bool, error) {
+		got = chunkNames(t, client)
+		return reflect.DeepEqual(got, want), nil
+	}); err != nil {
+		t.Fatalf("chunks %v, want %v", got, want)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if got = chunkNames(t, client); !reflect.DeepEqual(got, want) {
+		t.Fatalf("chunks %v, want only %v", got, want)
+	}
+}
+
+func TestLaidOutBlobWithoutSkipHeadCreatesItsPartsFromPartOne(t *testing.T) {
+	blob := newTestBlob()
+	blob.Spec.ChunksNumber, blob.Spec.ChunkSize = 3, 10
+	blob.Spec.MaximumRunning, blob.Spec.MaximumPending = 3, 2
+	blob.Status.Total, blob.Status.AcceptRanges = 30, true
+	c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestMultipart(blob, 3, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	waitForChunkNames(t, client, "blob:part:blob:1:00-0a", "blob:part:blob:2:0a-14")
 }
