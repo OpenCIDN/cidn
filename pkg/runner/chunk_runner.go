@@ -505,7 +505,7 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 	}
 
 	if firstPart := chunk.Spec.FirstPart; firstPart != nil {
-		total, _ := v1alpha1.ParseResponseHeaders(headers, firstPart.ForceAcceptRanges)
+		total, acceptRanges := v1alpha1.ParseResponseHeaders(headers, firstPart.ForceAcceptRanges)
 		skip := total > 0 && len(firstPart.ExistingSizes) != 0
 		for _, size := range firstPart.ExistingSizes {
 			skip = skip && size == total
@@ -519,6 +519,13 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 				return ss
 			})
 			return nil, 0
+		}
+		chunksNumber, chunkSize := v1alpha1.ComputeChunkLayout(total, acceptRanges, firstPart.MinimumChunkSize, firstPart.ChunkSize, firstPart.ChunksNumber)
+		if chunksNumber > 1 {
+			return struct {
+				io.Reader
+				io.Closer
+			}{io.LimitReader(srcResp.Body, chunkSize), srcResp.Body}, chunkSize
 		}
 	}
 

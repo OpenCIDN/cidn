@@ -45,6 +45,9 @@ type testSource struct {
 	content      []byte
 	acceptRanges bool
 	noLength     bool
+	// pauseAfter holds the rest of the body back until the client hangs up.
+	pauseAfter int
+	hungUp     chan<- bool
 }
 
 func startSource(t *testing.T, source testSource) string {
@@ -61,7 +64,18 @@ func startSource(t *testing.T, source testSource) string {
 			// Flushing before the body makes the server stream it without a length.
 			w.(http.Flusher).Flush()
 		}
-		_, _ = w.Write(source.content)
+		body := source.content
+		if source.pauseAfter > 0 {
+			_, _ = w.Write(body[:source.pauseAfter])
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+			case <-time.After(30 * time.Second):
+			}
+			source.hungUp <- r.Context().Err() != nil
+			body = body[source.pauseAfter:]
+		}
+		_, _ = w.Write(body)
 	}))
 	t.Cleanup(server.Close)
 	return server.URL
@@ -216,6 +230,42 @@ func TestFirstPartTakesTheWholeBodyWhenTheLayoutIsOneChunk(t *testing.T) {
 				expectUploads(t, content, destinations...)
 			})
 		}
+	}
+}
+
+func TestFirstPartTakesOnlyPartOneWhenTheLayoutHasMoreChunks(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		size         int
+		acceptRanges bool
+		firstPart    v1alpha1.ChunkFirstPart
+		part         int
+	}{
+		{"minimum chunk size", 16 << 20, true, v1alpha1.ChunkFirstPart{MinimumChunkSize: 5 << 20}, 5592406},
+		{"source without ranges, forced", 70000, false, v1alpha1.ChunkFirstPart{ChunkSize: 16384, ForceAcceptRanges: true}, 16384},
+		{"chunk size only", 70000, true, v1alpha1.ChunkFirstPart{ChunkSize: 30000}, 30000},
+		{"chunks number only", 6<<20 + 1, true, v1alpha1.ChunkFirstPart{ChunksNumber: 4}, 1572865},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			content := testContent(test.size)
+			hungUp := make(chan bool, 1)
+			source := startSource(t, testSource{content: content, acceptRanges: test.acceptRanges, pauseAfter: test.part, hungUp: hungUp})
+			destinations := []*testDestination{startDestination(t, "etag-0", nil), startDestination(t, "etag-1", nil)}
+			status := processChunk(t, newFirstPartChunk(source, &test.firstPart, destinations...)).Status
+			if status.Phase != v1alpha1.ChunkPhaseSucceeded || status.SourceProgress != int64(test.part) || !reflect.DeepEqual(status.Etags, []string{"etag-0", "etag-1"}) {
+				t.Errorf("got phase=%s sourceProgress=%d etags=%v conditions=%v, want Succeeded, %d and both etags in destination order",
+					status.Phase, status.SourceProgress, status.Etags, status.Conditions, test.part)
+			}
+			expectUploads(t, content[:test.part], destinations...)
+			select {
+			case cut := <-hungUp:
+				if !cut {
+					t.Error("the runner read the source past part 1 instead of hanging up")
+				}
+			case <-time.After(5 * time.Second):
+				t.Error("the source saw no hang-up within 5s after the chunk finished")
+			}
+		})
 	}
 }
 
