@@ -342,6 +342,26 @@ func TestFirstPartReportsSourceResponseBeforeTheTransferEnds(t *testing.T) {
 	}
 }
 
+func TestFirstPartSkipsWhenEveryDestinationHoldsTheTotal(t *testing.T) {
+	content := testContent(70000)
+	source := startSource(t, testSource{content: content, acceptRanges: true})
+	destinations := []*testDestination{startDestination(t, "etag-0", nil), startDestination(t, "etag-1", nil)}
+	chunk := newFirstPartChunk(source, &v1alpha1.ChunkFirstPart{ChunkSize: 16384, ExistingSizes: []int64{70000, 70000}}, destinations...)
+	// Progress left behind by an earlier attempt.
+	chunk.Status.Retry = 1
+	chunk.Status.SourceProgress = 4096
+	status := processChunk(t, chunk).Status
+	if status.Phase != v1alpha1.ChunkPhaseSucceeded || len(status.Etags) != 0 || status.SourceProgress != 0 {
+		t.Errorf("got phase=%s etags=%v sourceProgress=%d conditions=%v, want Succeeded without etags and sourceProgress 0",
+			status.Phase, status.Etags, status.SourceProgress, status.Conditions)
+	}
+	for index, destination := range destinations {
+		if uploads := destination.received(); len(uploads) != 0 {
+			t.Errorf("destination %d received %d requests, want none", index, len(uploads))
+		}
+	}
+}
+
 func TestFirstPartTransfersToEveryDestinationUnlessAllHoldTheTotal(t *testing.T) {
 	content := testContent(70000)
 	for _, test := range []struct {

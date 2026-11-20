@@ -504,6 +504,24 @@ func (r *ChunkRunner) sourceRequest(ctx context.Context, chunk *v1alpha1.Chunk, 
 		}
 	}
 
+	if firstPart := chunk.Spec.FirstPart; firstPart != nil {
+		total, _ := v1alpha1.ParseResponseHeaders(headers, firstPart.ForceAcceptRanges)
+		skip := total > 0 && len(firstPart.ExistingSizes) != 0
+		for _, size := range firstPart.ExistingSizes {
+			skip = skip && size == total
+		}
+		if skip {
+			srcResp.Body.Close()
+			s.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
+				// A retried chunk may still carry the progress of an earlier attempt.
+				ss.Status.SourceProgress = 0
+				utils.SetChunkTerminalPhase(ss, v1alpha1.ChunkPhaseSucceeded)
+				return ss
+			})
+			return nil, 0
+		}
+	}
+
 	return srcResp.Body, srcResp.ContentLength
 }
 
