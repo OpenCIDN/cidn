@@ -323,8 +323,7 @@ func buildFirstChunkName(blobName string) string {
 
 // toFirstChunk starts a skipHead blob with a GET whose body becomes part 1.
 func (c *BlobToChunkController) toFirstChunk(ctx context.Context, blob *v1alpha1.Blob) error {
-	chunkName := buildFirstChunkName(blob.Name)
-	if _, err := c.chunkInformer.Lister().Get(chunkName); err == nil {
+	if _, err := c.chunkInformer.Lister().Get(buildFirstChunkName(blob.Name)); err == nil {
 		return nil
 	} else if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to check for existing chunk: %v", err)
@@ -335,9 +334,19 @@ func (c *BlobToChunkController) toFirstChunk(ctx context.Context, blob *v1alpha1
 		return err
 	}
 
-	chunk, err := c.newPartChunk(blob, chunkName, 1, mp.UploadIDs)
+	chunk, err := c.buildFirstChunk(ctx, blob, mp.UploadIDs)
 	if err != nil {
 		return err
+	}
+
+	return c.scheduleChunkCreation(ctx, chunk)
+}
+
+// buildFirstChunk builds the GET without Range whose body becomes part 1 of a skipHead blob.
+func (c *BlobToChunkController) buildFirstChunk(ctx context.Context, blob *v1alpha1.Blob, uploadIDs []string) (*v1alpha1.Chunk, error) {
+	chunk, err := c.newPartChunk(blob, buildFirstChunkName(blob.Name), 1, uploadIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	chunk.Spec.FirstPart = &v1alpha1.ChunkFirstPart{
@@ -366,7 +375,7 @@ func (c *BlobToChunkController) toFirstChunk(ctx context.Context, blob *v1alpha1
 
 	chunk.Spec.BearerName, chunk.Spec.Source = firstSource(blob, http.MethodGet)
 
-	return c.scheduleChunkCreation(ctx, chunk)
+	return chunk, nil
 }
 
 func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
