@@ -377,6 +377,45 @@ func TestSkipHeadBlobCommitsItsFirstChunkAsItsOnlyPart(t *testing.T) {
 	}
 }
 
+func TestUnknownTotalIsCheckedAgainstTheFirstChunksOwnResponse(t *testing.T) {
+	tests := []struct {
+		name       string
+		headers    map[string]string
+		wantCommit bool
+	}{
+		{name: "response with a larger total", headers: map[string]string{"content-length": "16777216", "accept-ranges": "bytes"}},
+		{name: "response with the bytes taken as total", headers: map[string]string{"content-length": "5592406"}, wantCommit: true},
+		{name: "response without a total", headers: map[string]string{}, wantCommit: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			blob.Spec.ChunksNumber, blob.Status.Total = 1, -1
+			first := newTestSucceededFirstChunk(blob, 5592406, "etag-1")
+			first.Status.SourceResponse = &v1alpha1.ChunkHTTPResponse{StatusCode: http.StatusOK, Headers: tt.headers}
+			// An empty upload ID makes the commit skip the store.
+			c, client := newTestFromChunkController(t, blob, first, newTestMultipart(blob, 1, ""))
+
+			c.handler(context.Background(), blob.Name)
+
+			got := getBlob(t, client, blob.Name)
+			if committed := !multipartExists(t, client, blob.Name); committed != tt.wantCommit {
+				t.Fatalf("committed %t, phase %s, conditions %v; want committed %t", committed, got.Status.Phase, got.Status.Conditions, tt.wantCommit)
+			}
+			if tt.wantCommit {
+				if got.Status.Phase != v1alpha1.BlobPhaseSucceeded || got.Status.Total != 5592406 {
+					t.Errorf("phase %s, total %d; want %s, 5592406", got.Status.Phase, got.Status.Total, v1alpha1.BlobPhaseSucceeded)
+				}
+				return
+			}
+			if got.Status.Phase != v1alpha1.BlobPhaseFailed || len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Type != "FirstPartSizeMismatch" ||
+				!strings.Contains(got.Status.Conditions[0].Message, "5592406") || !strings.Contains(got.Status.Conditions[0].Message, "16777216") {
+				t.Errorf("phase %s, conditions %v; want %s with a FirstPartSizeMismatch naming 5592406 and 16777216", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseFailed)
+			}
+		})
+	}
+}
+
 func newTestRecordedPart(blob *v1alpha1.Blob, name string, num int64) *v1alpha1.Chunk {
 	chunk := newTestChunk(name, blob, v1alpha1.ChunkPhaseSucceeded)
 	chunk.Spec.ChunkIndex, chunk.Spec.Total = num, blob.Spec.ChunkSize

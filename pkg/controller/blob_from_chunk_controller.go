@@ -339,6 +339,10 @@ func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1al
 
 	if chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
 		took := chunk.Status.SourceProgress
+		if blob.Status.Total < 0 && chunk.Status.SourceResponse != nil {
+			// The total came from an earlier attempt; the runner laid this one out by its own response.
+			blob.Status.Total, _ = v1alpha1.ParseResponseHeaders(chunk.Status.SourceResponse.Headers, false)
+		}
 		// Part 1 of more than one is a whole chunk of the layout, otherwise the whole content.
 		want := blob.Status.Total
 		if blob.Spec.ChunksNumber > 1 {
