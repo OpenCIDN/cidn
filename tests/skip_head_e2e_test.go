@@ -39,6 +39,8 @@ const (
 // The nginx-test paths that answer every HEAD with 401.
 const (
 	noHeadPath = "/no-head/"
+	// Ignores Range and sends no Accept-Ranges.
+	noHeadNoRangePath = "/no-head-no-range/"
 )
 
 func TestBlobWithoutSkipHeadFailsWhenTheSourceRejectsHead(t *testing.T) {
@@ -93,6 +95,22 @@ func TestSkipHeadBlobSingleChunkSucceeds(t *testing.T) {
 	name := uniqueName("e2e-skip-head-single")
 	sha := writeSource(t, name, 1<<20)
 	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name), skipHead)
+
+	blob := waitForBlobDone(t, client, name)
+	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
+		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
+	}
+	if blob.Spec.ChunksNumber != 1 {
+		t.Errorf("blob %s was split into %d chunks, want 1", name, blob.Spec.ChunksNumber)
+	}
+}
+
+func TestSkipHeadBlobWithoutRangeSupportSucceedsInOneChunk(t *testing.T) {
+	t.Parallel()
+	client := newE2EClient(t)
+	name := uniqueName("e2e-skip-head-no-range")
+	sha := writeSource(t, name, 16<<20)
+	createBlob(t, client, name, sha, noHeadSource(noHeadNoRangePath, name), skipHead)
 
 	blob := waitForBlobDone(t, client, name)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
