@@ -164,6 +164,11 @@ func (*blobStrategy) ValidateUpdate(ctx context.Context, obj, old runtime.Object
 		errList = append(errList, field.Forbidden(field.NewPath("status", "total"), "total is immutable"))
 	}
 
+	// Back at 0 the next write would lay the blob out again.
+	if oldBlob.Status.Total < 0 && newBlob.Status.Total == 0 {
+		errList = append(errList, field.Forbidden(field.NewPath("status", "total"), "unknown total cannot return to 0"))
+	}
+
 	// The write that sets the total replaces the presets with the layout.
 	if !setsTotal(oldBlob, newBlob) {
 		if oldBlob.Spec.ChunkSize > 0 && newBlob.Spec.ChunkSize != oldBlob.Spec.ChunkSize {

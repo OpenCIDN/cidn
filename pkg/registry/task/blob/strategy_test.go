@@ -251,6 +251,17 @@ func TestUnknownTotalStaysOneChunkWhenBackfilledWithRangeSupport(t *testing.T) {
 	}
 }
 
+func TestStatusUpdateReturningTheTotalToZeroIsRejected(t *testing.T) {
+	for _, total := range []int64{16 * mib, -1} {
+		t.Run(fmt.Sprintf("total %d", total), func(t *testing.T) {
+			blob := mustUpdate(t, testStatusStrategy, newBlob(v1alpha1.BlobSpec{MinimumChunkSize: 5 * mib}), setTotal(total, total > 0))
+			if _, err := update(testStatusStrategy, blob, setTotal(0, false)); err == nil || !strings.Contains(err.Error(), "status.total") {
+				t.Errorf("update error = %v, want a field error on status.total", err)
+			}
+		})
+	}
+}
+
 func TestSpecUpdateChangingAChunkPresetIsRejected(t *testing.T) {
 	determined := mustUpdate(t, testStatusStrategy, newBlob(v1alpha1.BlobSpec{MinimumChunkSize: 5 * mib}), setTotal(16*mib, true))
 	tests := []struct {
