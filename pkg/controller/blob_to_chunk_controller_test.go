@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"reflect"
 	"strconv"
@@ -194,5 +195,87 @@ func TestCleanupBlobRemovesTheChunksAndOnlyAMultipartBlobsUpload(t *testing.T) {
 				t.Errorf("multipart kept %t, want %t", got, tt.wantMultipart)
 			}
 		})
+	}
+}
+
+func chunkNames(t *testing.T, client *fake.Clientset) []string {
+	t.Helper()
+	list, err := client.TaskV1alpha1().Chunks().List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, chunk := range list.Items {
+		names = append(names, chunk.Name)
+	}
+	return names
+}
+
+func TestSkipHeadBlobStartsWithItsFirstChunkOnly(t *testing.T) {
+	for _, chunksNumber := range []int64{0, 1, 4} {
+		t.Run(fmt.Sprintf("preset chunks number %d", chunksNumber), func(t *testing.T) {
+			blob := newTestBlob()
+			blob.Spec.SkipHead = true
+			blob.Spec.ChunksNumber = chunksNumber
+			c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestMultipart(blob, 1, "upload-1"))
+
+			c.handler(context.Background(), blob.Name)
+
+			if got, want := chunkNames(t, client), []string{"blob:first:blob"}; !reflect.DeepEqual(got, want) {
+				t.Errorf("chunks %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestFirstChunkGetsTheFirstSourceIntoPartOne(t *testing.T) {
+	blob := newTestBlob()
+	blob.Annotations = map[string]string{v1alpha1.WebuiGroupAnnotation: "group", v1alpha1.WebuiDisplayNameAnnotation: "layer"}
+	blob.Spec.Source = []v1alpha1.BlobSource{
+		{URL: "http://source.example/blob", BearerName: "bearer", Headers: map[string]string{"x-token": "token"}},
+		{URL: "http://mirror.example/blob"},
+	}
+	blob.Spec.SkipHead = true
+	blob.Spec.Priority = 7
+	blob.Spec.ContentSha256 = "sha"
+	blob.Spec.MinimumChunkSize, blob.Spec.ChunkSize, blob.Spec.ChunksNumber, blob.Spec.ForceAcceptRanges = 5<<20, 6<<20, 4, true
+	blob.Status.Retry = 1
+	c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestMultipart(blob, 1, "upload-1"))
+
+	c.handler(context.Background(), blob.Name)
+
+	chunk, err := client.TaskV1alpha1().Chunks().Get(context.Background(), "blob:first:blob", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkPartURLs(t, chunk, 1, "upload-1")
+	wantAnnotations := map[string]string{
+		BlobNameAnnotationKey:                   "blob",
+		v1alpha1.WebuiGroupAnnotation:           "group",
+		v1alpha1.WebuiGroupIgnoreSizeAnnotation: "true",
+		v1alpha1.WebuiDisplayNameAnnotation:     "Part 1 of layer",
+	}
+	if !reflect.DeepEqual(chunk.Annotations, wantAnnotations) {
+		t.Errorf("annotations %v, want %v", chunk.Annotations, wantAnnotations)
+	}
+	wantSpec := v1alpha1.ChunkSpec{
+		Source: v1alpha1.ChunkHTTP{
+			Request:  v1alpha1.ChunkHTTPRequest{Method: "GET", URL: "http://source.example/blob", Headers: map[string]string{"X-Token": "token"}},
+			Response: v1alpha1.ChunkHTTPResponse{StatusCode: 200},
+		},
+		BearerName: "bearer",
+		Destination: []v1alpha1.ChunkHTTP{{
+			Request:  v1alpha1.ChunkHTTPRequest{Method: "PUT", Headers: map[string]string{}},
+			Response: v1alpha1.ChunkHTTPResponse{StatusCode: 200},
+		}},
+		Priority:                  7,
+		ChunkIndex:                1,
+		Sha256PartialPreviousName: "-",
+		Sha256:                    "sha",
+		MaximumRetry:              2,
+		FirstPart:                 &v1alpha1.ChunkFirstPart{MinimumChunkSize: 5 << 20, ChunkSize: 6 << 20, ChunksNumber: 4, ForceAcceptRanges: true},
+	}
+	if !reflect.DeepEqual(chunk.Spec, wantSpec) {
+		t.Errorf("spec\n%+v\nwant\n%+v", chunk.Spec, wantSpec)
 	}
 }

@@ -178,6 +178,18 @@ func (c *BlobToChunkController) handler(ctx context.Context, name string) {
 
 	switch blob.Status.Phase {
 	case v1alpha1.BlobPhaseRunning, v1alpha1.BlobPhaseUnknown:
+		if blob.Spec.SkipHead {
+			err := c.toFirstChunk(ctx, blob)
+			if err != nil {
+				c.workqueue.AddAfter(blob.Name, 5*time.Second)
+				klog.Errorf("failed to create first chunk for blob %s: %v", blob.Name, err)
+				return
+			}
+
+			c.workqueue.AddAfter(name, 10*time.Second)
+			return
+		}
+
 		if blob.Spec.ChunksNumber == 1 {
 			err := c.toOneChunk(ctx, blob)
 			if err != nil {
@@ -299,6 +311,76 @@ func (c *BlobToChunkController) toHeadChunk(ctx context.Context, blob *v1alpha1.
 
 func buildFullChunkName(blobName string) string {
 	return fmt.Sprintf("blob:full:%s", blobName)
+}
+
+func buildFirstChunkName(blobName string) string {
+	return fmt.Sprintf("blob:first:%s", blobName)
+}
+
+// toFirstChunk starts a skipHead blob with a GET whose body becomes part 1.
+func (c *BlobToChunkController) toFirstChunk(ctx context.Context, blob *v1alpha1.Blob) error {
+	chunkName := buildFirstChunkName(blob.Name)
+	if _, err := c.chunkInformer.Lister().Get(chunkName); err == nil {
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to check for existing chunk: %v", err)
+	}
+
+	mp, err := c.getOrCreateMultipart(ctx, blob)
+	if err != nil {
+		return err
+	}
+
+	chunk, err := c.newPartChunk(blob, chunkName, 1, mp.UploadIDs)
+	if err != nil {
+		return err
+	}
+
+	chunk.Spec.FirstPart = &v1alpha1.ChunkFirstPart{
+		MinimumChunkSize:  blob.Spec.MinimumChunkSize,
+		ChunkSize:         blob.Spec.ChunkSize,
+		ChunksNumber:      blob.Spec.ChunksNumber,
+		ForceAcceptRanges: blob.Spec.ForceAcceptRanges,
+	}
+
+	existingSizes := make([]int64, len(blob.Spec.Destination))
+	for i, dst := range blob.Spec.Destination {
+		if !dst.SkipIfExists {
+			continue
+		}
+		fi, err := c.s3[dst.Name].StatHead(ctx, dst.Path)
+		if err == nil && fi.Size() > 0 {
+			existingSizes[i] = fi.Size()
+			chunk.Spec.FirstPart.ExistingSizes = existingSizes
+		}
+	}
+
+	if blob.Spec.ContentSha256 != "" {
+		chunk.Spec.Sha256PartialPreviousName = "-"
+		chunk.Spec.Sha256 = blob.Spec.ContentSha256
+	}
+
+	src := blob.Spec.Source[0]
+
+	headers := map[string]string{}
+
+	for k, v := range src.Headers {
+		headers[textproto.CanonicalMIMEHeaderKey(k)] = v
+	}
+
+	chunk.Spec.BearerName = src.BearerName
+	chunk.Spec.Source = v1alpha1.ChunkHTTP{
+		Request: v1alpha1.ChunkHTTPRequest{
+			Method:  http.MethodGet,
+			URL:     src.URL,
+			Headers: headers,
+		},
+		Response: v1alpha1.ChunkHTTPResponse{
+			StatusCode: http.StatusOK,
+		},
+	}
+
+	return c.scheduleChunkCreation(ctx, chunk)
 }
 
 func (c *BlobToChunkController) toOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
@@ -562,13 +644,19 @@ func (c *BlobToChunkController) toMultipart(ctx context.Context, blob *v1alpha1.
 		uploadIDs = append(uploadIDs, mp.UploadID())
 	}
 
+	parts := blob.Spec.ChunksNumber
+	if blob.Spec.SkipHead {
+		// Before its first response a skipHead blob only knows its first part.
+		parts = 1
+	}
+
 	mp := &v1alpha1.Multipart{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: blob.Name,
 		},
 		DestinationNames: destinationNames,
 		UploadIDs:        uploadIDs,
-		UploadEtags:      make([]v1alpha1.UploadEtags, blob.Spec.ChunksNumber),
+		UploadEtags:      make([]v1alpha1.UploadEtags, parts),
 	}
 
 	mp, err := c.client.TaskV1alpha1().Multiparts().Create(ctx, mp, metav1.CreateOptions{})
@@ -696,7 +784,7 @@ func (c *BlobToChunkController) needsMultipartRecreation(blob *v1alpha1.Blob, mp
 	}
 
 	needsRecreation := !slices.Equal(destinationNames, mp.DestinationNames) ||
-		blob.Spec.ChunksNumber != int64(len(mp.UploadEtags))
+		(!blob.Spec.SkipHead && blob.Spec.ChunksNumber != int64(len(mp.UploadEtags)))
 	return needsRecreation, nil
 }
 
