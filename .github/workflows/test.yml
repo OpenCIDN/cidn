@@ -1,0 +1,36 @@
+name: test
+on:
+  pull_request:
+  push:
+    branches:
+    - main
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+    - name: Run unit tests
+      run: make test-unit
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v5
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+    - name: Run e2e tests
+      run: make test-integration
+      env:
+        # Empty, not unset: pull from upstream registries instead of m.daocloud.io.
+        IMAGE_MIRROR_PREFIX: ""

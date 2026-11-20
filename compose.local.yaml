@@ -1,9 +1,10 @@
+name: cidn
 services:
   minio:
     restart: unless-stopped
     stop_signal: SIGINT
     stop_grace_period: 3s
-    image: m.daocloud.io/quay.io/minio/minio:RELEASE.2025-05-24T17-08-30Z
+    image: ${IMAGE_MIRROR_PREFIX-m.daocloud.io/}ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z
     entrypoint:
     - sh
     command:
@@ -32,7 +33,7 @@ services:
     restart: unless-stopped
     stop_signal: SIGINT
     stop_grace_period: 3s
-    image: m.daocloud.io/quay.io/coreos/etcd:v3.6.1
+    image: ${IMAGE_MIRROR_PREFIX-m.daocloud.io/}quay.io/coreos/etcd:v3.6.1
     command:
     - /usr/local/bin/etcd
     - --name=node0
@@ -55,6 +56,8 @@ services:
     build:
       context: .
       dockerfile: images/apiserver/Dockerfile
+      args:
+        IMAGE_MIRROR_PREFIX: ${IMAGE_MIRROR_PREFIX-m.daocloud.io/}
     depends_on:
       etcd:
         condition: service_started
@@ -76,6 +79,8 @@ services:
     build:
       context: .
       dockerfile: images/controller-manager/Dockerfile
+      args:
+        IMAGE_MIRROR_PREFIX: ${IMAGE_MIRROR_PREFIX-m.daocloud.io/}
     depends_on:
       apiserver:
         condition: service_started
@@ -97,6 +102,8 @@ services:
     build:
       context: .
       dockerfile: images/runner/Dockerfile
+      args:
+        IMAGE_MIRROR_PREFIX: ${IMAGE_MIRROR_PREFIX-m.daocloud.io/}
     depends_on:
       apiserver:
         condition: service_started
@@ -119,6 +126,8 @@ services:
     build:
       context: .
       dockerfile: images/webui/Dockerfile
+      args:
+        IMAGE_MIRROR_PREFIX: ${IMAGE_MIRROR_PREFIX-m.daocloud.io/}
     depends_on:
       apiserver:
         condition: service_started
@@ -135,7 +144,7 @@ services:
     restart: unless-stopped
     stop_signal: SIGINT
     stop_grace_period: 3s
-    image: m.daocloud.io/docker.io/nginx:alpine
+    image: ${IMAGE_MIRROR_PREFIX-m.daocloud.io/}docker.io/nginx:alpine
     volumes:
     - ./tests/testdata:/usr/share/nginx/html:ro
     configs:

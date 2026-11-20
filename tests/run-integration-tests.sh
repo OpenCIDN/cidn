@@ -82,10 +82,16 @@ done
 
 # Cleanup function
 cleanup() {
+    local exit_code=$?
     if [ "$CLEANUP" = true ]; then
+        cd "$PROJECT_ROOT"
+        if [ "$exit_code" -ne 0 ]; then
+            echo ""
+            echo -e "${YELLOW}Logs of all services:${NC}"
+            docker compose -f compose.local.yaml logs || true
+        fi
         echo ""
         echo -e "${YELLOW}Cleaning up Docker Compose services...${NC}"
-        cd "$PROJECT_ROOT"
         docker compose -f compose.local.yaml down -v
         echo -e "${GREEN}Cleanup complete${NC}"
     else
