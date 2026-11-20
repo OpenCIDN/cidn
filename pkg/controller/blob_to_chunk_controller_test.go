@@ -265,6 +265,15 @@ func TestSkipHeadBlobStartsWithItsFirstChunkOnly(t *testing.T) {
 	}
 }
 
+func TestExistingFirstChunkNeedsNothingFromTheStore(t *testing.T) {
+	blob := newTestSkipHeadBlob()
+	c, _ := newTestToChunkController(t, map[string]*sss.SSS{}, blob, newTestFirstChunk(blob, v1alpha1.ChunkPhaseFailed))
+
+	if err := c.toFirstChunk(context.Background(), blob); err != nil {
+		t.Errorf("toFirstChunk: %v, want nothing to do", err)
+	}
+}
+
 func TestFirstChunkGetsTheFirstSourceIntoPartOne(t *testing.T) {
 	blob := newTestBlob()
 	blob.Annotations = map[string]string{v1alpha1.WebuiGroupAnnotation: "group", v1alpha1.WebuiDisplayNameAnnotation: "layer"}

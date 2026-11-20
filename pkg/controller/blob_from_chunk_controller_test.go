@@ -311,6 +311,7 @@ func newTestSucceededFirstChunk(blob *v1alpha1.Blob, took int64, etags ...string
 func TestSkipHeadBlobSucceedsWhenItsFirstChunkSkipped(t *testing.T) {
 	blob := newTestSkipHeadBlob()
 	blob.Spec.ChunksNumber, blob.Status.Total = 1, 1024
+	blob.Status.RunningChunks = 1
 	c, client := newTestFromChunkController(t, blob, newTestSucceededFirstChunk(blob, 0), newTestMultipart(blob, 1, "upload-1"))
 
 	c.handler(context.Background(), blob.Name)
@@ -319,8 +320,8 @@ func TestSkipHeadBlobSucceedsWhenItsFirstChunkSkipped(t *testing.T) {
 	if got.Status.Phase != v1alpha1.BlobPhaseSucceeded {
 		t.Errorf("phase %s, want %s", got.Status.Phase, v1alpha1.BlobPhaseSucceeded)
 	}
-	if got.Status.Progress != 1024 || got.Status.SucceededChunks != 1 {
-		t.Errorf("progress %d, succeeded chunks %d; want 1024, 1", got.Status.Progress, got.Status.SucceededChunks)
+	if got.Status.Progress != 1024 || got.Status.SucceededChunks != 1 || got.Status.RunningChunks != 0 {
+		t.Errorf("progress %d, succeeded chunks %d, running chunks %d; want 1024, 1, 0", got.Status.Progress, got.Status.SucceededChunks, got.Status.RunningChunks)
 	}
 }
 
