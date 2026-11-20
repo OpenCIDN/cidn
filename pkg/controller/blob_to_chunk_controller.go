@@ -361,11 +361,20 @@ func (c *BlobToChunkController) buildFirstChunk(ctx context.Context, blob *v1alp
 		return nil, err
 	}
 
-	chunk.Spec.FirstPart = &v1alpha1.ChunkFirstPart{
-		MinimumChunkSize:  blob.Spec.MinimumChunkSize,
-		ChunkSize:         blob.Spec.ChunkSize,
-		ChunksNumber:      blob.Spec.ChunksNumber,
-		ForceAcceptRanges: blob.Spec.ForceAcceptRanges,
+	switch {
+	case blob.Status.Total == 0:
+		chunk.Spec.FirstPart = &v1alpha1.ChunkFirstPart{
+			MinimumChunkSize:  blob.Spec.MinimumChunkSize,
+			ChunkSize:         blob.Spec.ChunkSize,
+			ChunksNumber:      blob.Spec.ChunksNumber,
+			ForceAcceptRanges: blob.Spec.ForceAcceptRanges,
+		}
+	case blob.Spec.ChunksNumber > 1:
+		// The fixed layout's chunk size alone leads the runner back to it.
+		chunk.Spec.FirstPart = &v1alpha1.ChunkFirstPart{ChunkSize: blob.Spec.ChunkSize, ForceAcceptRanges: true}
+	default:
+		// Without presets the runner takes the whole content as one chunk.
+		chunk.Spec.FirstPart = &v1alpha1.ChunkFirstPart{}
 	}
 
 	existingSizes := make([]int64, len(blob.Spec.Destination))

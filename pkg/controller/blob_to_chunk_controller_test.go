@@ -424,3 +424,49 @@ func TestSkippedFirstChunkLeavesTheOtherPartsUncreated(t *testing.T) {
 
 	waitForChunkNames(t, client, "blob:first:blob")
 }
+
+func TestFirstChunkCreatedAfterTheLayoutLeadsTheRunnerToIt(t *testing.T) {
+	ranged := func(total int64) map[string]string {
+		return map[string]string{"content-length": strconv.FormatInt(total, 10), "accept-ranges": "bytes"}
+	}
+	tests := []struct {
+		name              string
+		headers           map[string]string
+		minimumChunkSize  int64
+		chunkSize         int64
+		chunksNumber      int64
+		forceAcceptRanges bool
+	}{
+		{name: "MinimumChunkSize", headers: ranged(16 << 20), minimumChunkSize: 5 << 20},
+		{name: "ChunkSize only", headers: ranged(16 << 20), chunkSize: 6 << 20},
+		{name: "ChunksNumber only", headers: ranged(64 << 20), chunksNumber: 4},
+		{name: "MinimumChunkSize over ChunksNumber 1", headers: ranged(16 << 20), minimumChunkSize: 5 << 20, chunksNumber: 1},
+		{name: "ForceAcceptRanges", headers: map[string]string{"content-length": "16777216"}, minimumChunkSize: 5 << 20, forceAcceptRanges: true},
+		{name: "both presets", headers: ranged(16 << 20), chunkSize: 6 << 20, chunksNumber: 4},
+		{name: "ChunkSize above the total", headers: ranged(16 << 20), chunkSize: 20 << 20},
+		{name: "one chunk capped at 5 GiB", headers: ranged(8 << 30), minimumChunkSize: 10 << 30},
+		{name: "no range support", headers: map[string]string{"content-length": "16777216"}, minimumChunkSize: 5 << 20},
+		{name: "unknown total", headers: map[string]string{}, minimumChunkSize: 5 << 20},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			blob.Spec.MinimumChunkSize, blob.Spec.ForceAcceptRanges = tt.minimumChunkSize, tt.forceAcceptRanges
+			// As the API server lays the blob out on the write that sets its total.
+			blob.Status.Total, blob.Status.AcceptRanges = v1alpha1.ParseResponseHeaders(tt.headers, tt.forceAcceptRanges)
+			blob.Spec.ChunksNumber, blob.Spec.ChunkSize = v1alpha1.ComputeChunkLayout(blob.Status.Total, blob.Status.AcceptRanges, tt.minimumChunkSize, tt.chunkSize, tt.chunksNumber)
+			c, client := newTestToChunkController(t, newTestStorage(t), blob, newTestMultipart(blob, 1, "upload-1"))
+
+			c.handler(context.Background(), blob.Name)
+
+			waitForChunkNames(t, client, "blob:first:blob")
+			firstPart := getChunk(t, client, "blob:first:blob").Spec.FirstPart
+			// As the runner lays the blob out when the response headers arrive.
+			total, acceptRanges := v1alpha1.ParseResponseHeaders(tt.headers, firstPart.ForceAcceptRanges)
+			chunksNumber, chunkSize := v1alpha1.ComputeChunkLayout(total, acceptRanges, firstPart.MinimumChunkSize, firstPart.ChunkSize, firstPart.ChunksNumber)
+			if chunksNumber != blob.Spec.ChunksNumber || (chunksNumber > 1 && chunkSize != blob.Spec.ChunkSize) {
+				t.Errorf("runner lays out %d chunks of %d bytes, blob %d chunks of %d bytes", chunksNumber, chunkSize, blob.Spec.ChunksNumber, blob.Spec.ChunkSize)
+			}
+		})
+	}
+}
