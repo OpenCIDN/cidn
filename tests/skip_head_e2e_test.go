@@ -188,6 +188,48 @@ func TestSkipHeadBlobWithSkipIfExistsSucceedsWithoutTheBody(t *testing.T) {
 	}
 }
 
+func TestSkipHeadBlobSha256MismatchFails(t *testing.T) {
+	t.Parallel()
+	client := newE2EClient(t)
+	name := uniqueName("e2e-skip-head-mismatch")
+	writeSource(t, name, 16<<20)
+	createBlob(t, client, name, strings.Repeat("0", 64), noHeadSource(noHeadPath, name), skipHead)
+
+	blob := waitForBlobDone(t, client, name)
+	if blob.Status.Phase != taskv1alpha1.BlobPhaseFailed {
+		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseFailed, statusJSON(blob))
+	}
+	if blob.Spec.ChunksNumber != 3 {
+		t.Errorf("blob %s was split into %d chunks, want 3", name, blob.Spec.ChunksNumber)
+	}
+	for _, condition := range blob.Status.Conditions {
+		if strings.Contains(condition.Message, "sha256 mismatch") {
+			return
+		}
+	}
+	t.Errorf("blob %s failed without a sha256 mismatch condition; status: %s", name, statusJSON(blob))
+}
+
+func TestSkipHeadBlobFailsWhenTheSourceAnswersGetWith404(t *testing.T) {
+	t.Parallel()
+	client := newE2EClient(t)
+	// Without writeSource nginx-test has nothing to serve under this name.
+	name := uniqueName("e2e-skip-head-not-found")
+	createBlob(t, client, name, "", noHeadSource(noHeadPath, name), skipHead)
+
+	blob := waitForBlobDone(t, client, name)
+	if blob.Status.Phase != taskv1alpha1.BlobPhaseFailed {
+		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseFailed, statusJSON(blob))
+	}
+	// noHeadPath answers every HEAD with 401, so only a GET gets the 404.
+	for _, condition := range blob.Status.Conditions {
+		if condition.Type == "UnexpectedStatusCode" && strings.Contains(condition.Message, "got 404") {
+			return
+		}
+	}
+	t.Errorf("blob %s failed without an UnexpectedStatusCode condition for 404; status: %s", name, statusJSON(blob))
+}
+
 // noHeadSource serves testdata/<name>.rand from path, one of the nginx-test paths that answer every HEAD with 401.
 func noHeadSource(path, name string) func(*taskv1alpha1.BlobSpec) {
 	return func(spec *taskv1alpha1.BlobSpec) {
