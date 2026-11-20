@@ -18,7 +18,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 	"testing"
 
@@ -231,6 +233,69 @@ func TestSkipHeadBlobTakesNoTotalFromAFailedAttemptsResponse(t *testing.T) {
 
 			if got := getBlob(t, client, blob.Name); got.Status.Total != 0 || got.Status.AcceptRanges {
 				t.Errorf("total %d, accept ranges %t; want 0, false", got.Status.Total, got.Status.AcceptRanges)
+			}
+		})
+	}
+}
+
+func TestSkipHeadBlobFailsWithTheConditionsOfItsFailedFirstChunk(t *testing.T) {
+	for _, total := range []int64{0, 1024} {
+		t.Run(fmt.Sprintf("total %d", total), func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			blob.Spec.ChunksNumber, blob.Status.Total = 1, total
+			chunk := newTestFirstChunk(blob, v1alpha1.ChunkPhaseFailed)
+			condition := v1alpha1.Condition{Type: "UnexpectedStatusCode", Message: "unexpected status code: got 404, want 200"}
+			chunk.Status.Conditions = []v1alpha1.Condition{condition}
+			c, client := newTestFromChunkController(t, blob, chunk)
+
+			c.handler(context.Background(), blob.Name)
+
+			got := getBlob(t, client, blob.Name)
+			if got.Status.Phase != v1alpha1.BlobPhaseFailed {
+				t.Errorf("phase %s, want %s", got.Status.Phase, v1alpha1.BlobPhaseFailed)
+			}
+			if !reflect.DeepEqual(got.Status.Conditions, []v1alpha1.Condition{condition}) {
+				t.Errorf("conditions %v, want %v", got.Status.Conditions, condition)
+			}
+		})
+	}
+}
+
+func TestSkipHeadBlobWaitsForTheRetryOfItsFirstChunk(t *testing.T) {
+	blob := newTestSkipHeadBlob()
+	chunk := newTestFirstChunk(blob, v1alpha1.ChunkPhaseFailed)
+	chunk.Status.Retryable, chunk.Status.Retry = true, 2
+	c, client := newTestFromChunkController(t, blob, chunk)
+
+	c.handler(context.Background(), blob.Name)
+
+	if got := getBlob(t, client, blob.Name); got.Status.Phase != v1alpha1.BlobPhaseRunning || got.Status.Retry != 2 {
+		t.Errorf("phase %s, retry %d; want %s, 2", got.Status.Phase, got.Status.Retry, v1alpha1.BlobPhaseRunning)
+	}
+}
+
+func TestFailedFirstChunkRemovesTheUploadOnlyWhileNoPartIsRecorded(t *testing.T) {
+	tests := []struct {
+		name          string
+		recorded      []v1alpha1.UploadEtags
+		wantMultipart bool
+	}{
+		{name: "no part recorded", recorded: make([]v1alpha1.UploadEtags, 1)},
+		{name: "part 2 recorded", recorded: []v1alpha1.UploadEtags{{}, {Size: 10, Etags: []string{"etag-2"}}, {}}, wantMultipart: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			blob.Spec.ChunksNumber = int64(len(tt.recorded))
+			blob.Status.Total = 30
+			mp := newTestMultipart(blob, 0, "upload-1")
+			mp.UploadEtags = tt.recorded
+			c, client := newTestFromChunkController(t, blob, newTestFirstChunk(blob, v1alpha1.ChunkPhaseFailed), mp)
+
+			c.handler(context.Background(), blob.Name)
+
+			if got := multipartExists(t, client, blob.Name); got != tt.wantMultipart {
+				t.Errorf("multipart kept %t, want %t", got, tt.wantMultipart)
 			}
 		})
 	}

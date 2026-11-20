@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -310,6 +311,16 @@ func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1al
 		return fmt.Errorf("failed to get chunk: %w", err)
 	}
 
+	if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
+		blob.Status.Retry = chunk.Status.Retry
+		if !chunk.Status.Retryable {
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
+			c.abortUnusedMultipart(ctx, blob)
+			return nil
+		}
+	}
+
 	if blob.Status.Total == 0 {
 		if resp := chunk.Status.SourceResponse; resp != nil && resp.StatusCode == http.StatusOK {
 			blob.Status.Total, blob.Status.AcceptRanges = v1alpha1.ParseResponseHeaders(resp.Headers, chunk.Spec.FirstPart.ForceAcceptRanges)
@@ -317,6 +328,17 @@ func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1al
 	}
 	blob.Status.Phase = v1alpha1.BlobPhaseRunning
 	return nil
+}
+
+// abortUnusedMultipart aborts the blob's upload unless one of its parts is recorded.
+func (c *BlobFromChunkController) abortUnusedMultipart(ctx context.Context, blob *v1alpha1.Blob) {
+	mp, err := c.multipartInformer.Lister().Get(blob.Name)
+	if err == nil && slices.ContainsFunc(mp.UploadEtags, func(e v1alpha1.UploadEtags) bool { return len(e.Etags) != 0 }) {
+		return
+	}
+	if err := cleanupMultipart(ctx, c.client, c.s3, blob); err != nil {
+		klog.Errorf("failed to abort multipart for blob %s: %v", blob.Name, err)
+	}
 }
 
 func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
