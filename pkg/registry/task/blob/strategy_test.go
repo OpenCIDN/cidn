@@ -125,6 +125,34 @@ func TestLayoutSetAtCreationSurvivesStatusUpdates(t *testing.T) {
 	checkLayout(t, "after a status update", blob, 4, 16*mib)
 }
 
+func TestUnknownTotalSetAtCreationStaysOneChunk(t *testing.T) {
+	blob := &v1alpha1.Blob{
+		ObjectMeta: metav1.ObjectMeta{Name: "blob"},
+		Spec: v1alpha1.BlobSpec{
+			Source:           []v1alpha1.BlobSource{{URL: "http://example.com/blob"}},
+			Destination:      []v1alpha1.BlobDestination{{Name: "storage", Path: "blob"}},
+			MinimumChunkSize: 5 * mib,
+		},
+		Status: v1alpha1.BlobStatus{Total: -1},
+	}
+	rest.FillObjectMetaSystemFields(blob)
+	if err := rest.BeforeCreate(testStrategy, testContext(), blob); err != nil {
+		t.Fatalf("create rejected: %v", err)
+	}
+	if blob.Spec.ChunksNumber != 1 {
+		t.Errorf("at creation: %d chunks, want 1", blob.Spec.ChunksNumber)
+	}
+	blob.ResourceVersion = "1" // assigned by the storage
+	blob = mustUpdate(t, testStatusStrategy, blob, addProgress)
+	if blob.Spec.ChunksNumber != 1 {
+		t.Errorf("after a status update: %d chunks, want 1", blob.Spec.ChunksNumber)
+	}
+	blob = mustUpdate(t, testStatusStrategy, blob, setTotal(16*mib, true))
+	if blob.Spec.ChunksNumber != 1 {
+		t.Errorf("after the size is backfilled: %d chunks, want 1", blob.Spec.ChunksNumber)
+	}
+}
+
 func TestSpecUpdateKeepsTheLayout(t *testing.T) {
 	blob := mustUpdate(t, testStatusStrategy, newBlob(v1alpha1.BlobSpec{ChunkSize: 16 * mib}), setTotal(50*mib, true))
 	blob = mustUpdate(t, testStrategy, blob, func(blob *v1alpha1.Blob) { blob.Spec.Priority = 1 })
