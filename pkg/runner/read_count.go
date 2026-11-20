@@ -82,8 +82,8 @@ func (r *swmrCount) Count() int64 {
 }
 
 func (r *swmrCount) NewReader() io.Reader {
-	r.mut.RLock()
-	defer r.mut.RUnlock()
+	r.mut.Lock()
+	defer r.mut.Unlock()
 	r.rc = newReadCount(r.ctx, r.swmr.NewReader())
 	return r.rc
 }
