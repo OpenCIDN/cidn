@@ -230,6 +230,20 @@ func TestSkipHeadBlobFailsWhenTheSourceAnswersGetWith404(t *testing.T) {
 	t.Errorf("blob %s failed without an UnexpectedStatusCode condition for 404; status: %s", name, statusJSON(blob))
 }
 
+func TestSkipHeadBlobOfEmptyContentSucceeds(t *testing.T) {
+	t.Parallel()
+	client := newE2EClient(t)
+	name := uniqueName("e2e-skip-head-empty")
+	sha := writeSource(t, name, 0)
+	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name), skipHead)
+
+	// createBlob's ReverifySha256 hashes the destination object, so success means it is empty.
+	blob := waitForBlobDone(t, client, name)
+	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
+		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
+	}
+}
+
 // noHeadSource serves testdata/<name>.rand from path, one of the nginx-test paths that answer every HEAD with 401.
 func noHeadSource(path, name string) func(*taskv1alpha1.BlobSpec) {
 	return func(spec *taskv1alpha1.BlobSpec) {
