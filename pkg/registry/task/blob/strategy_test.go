@@ -199,6 +199,11 @@ func TestLayoutSetByTheTotalTilesTheContent(t *testing.T) {
 	}
 }
 
+func TestNegativeChunksNumberGetsOneChunkWhenTheTotalIsSet(t *testing.T) {
+	blob := mustUpdate(t, testStatusStrategy, newBlob(v1alpha1.BlobSpec{ChunksNumber: -2}), setTotal(16*mib, true))
+	checkLayout(t, "when the total is set", blob, 1, 16*mib)
+}
+
 func TestStatusUpdateSettingTheTotalIsAccepted(t *testing.T) {
 	presets := []v1alpha1.BlobSpec{
 		{},

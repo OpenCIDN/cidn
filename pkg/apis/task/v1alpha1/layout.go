@@ -31,6 +31,8 @@ func ParseResponseHeaders(headers map[string]string, forceAcceptRanges bool) (to
 
 // ComputeChunkLayout returns how many chunks of which size a blob of total bytes is split into.
 func ComputeChunkLayout(total int64, acceptRanges bool, minimumChunkSize, presetChunkSize, presetChunksNumber int64) (chunksNumber, chunkSize int64) {
+	// Non-positive presets count as absent.
+	minimumChunkSize, presetChunkSize, presetChunksNumber = max(minimumChunkSize, 0), max(presetChunkSize, 0), max(presetChunksNumber, 0)
 	switch {
 	case !acceptRanges || total <= 0:
 		return 1, total

@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"math"
 	"math/rand/v2"
 	"testing"
 )
@@ -83,6 +84,9 @@ func TestComputeChunkLayout(t *testing.T) {
 		{name: "chunk size only", total: 50 * mib, acceptRanges: true, chunkSize: 16 * mib, wantChunksNumber: 4, wantChunkSize: 16 * mib},
 		{name: "chunk size and chunks number", total: 64 * mib, acceptRanges: true, chunkSize: 16 * mib, chunksNumber: 4, wantChunksNumber: 1, wantChunkSize: 64 * mib},
 		{name: "no presets", total: 64 * mib, acceptRanges: true, wantChunksNumber: 1, wantChunkSize: 64 * mib},
+		{name: "negative chunks number counts as absent", total: 16 * mib, acceptRanges: true, chunksNumber: -2, wantChunksNumber: 1, wantChunkSize: 16 * mib},
+		{name: "negative chunk size counts as absent", total: 16 * mib, acceptRanges: true, chunkSize: -3, wantChunksNumber: 1, wantChunkSize: 16 * mib},
+		{name: "negative minimum chunk size counts as absent", total: 50 * mib, acceptRanges: true, minimumChunkSize: -5, chunkSize: 16 * mib, wantChunksNumber: 4, wantChunkSize: 16 * mib},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -130,6 +134,24 @@ func TestComputeChunkLayoutTilesTheContent(t *testing.T) {
 		}
 		if last := in.total - (chunksNumber-1)*chunkSize; last <= 0 || last > chunkSize {
 			t.Errorf("ComputeChunkLayout(%+v) = %d chunks of %d, so the last chunk has %d bytes", in, chunksNumber, chunkSize, last)
+		}
+	}
+}
+
+func TestComputeChunkLayoutStaysPositiveWhateverThePresets(t *testing.T) {
+	presets := []int64{math.MinInt64, -5 * gib, -2, -1, 0, 1, 2, 5 * mib, 5 * gib, math.MaxInt64}
+	for _, total := range []int64{-1, 0, 1, 5 * mib, 5*mib + 1, 16 * mib, 10000*5*gib + 1, math.MaxInt64} {
+		for _, acceptRanges := range []bool{false, true} {
+			for _, minimumChunkSize := range presets {
+				for _, chunkSize := range presets {
+					for _, chunksNumber := range presets {
+						gotChunksNumber, gotChunkSize := ComputeChunkLayout(total, acceptRanges, minimumChunkSize, chunkSize, chunksNumber)
+						if gotChunksNumber < 1 || (total > 0 && gotChunkSize < 1) {
+							t.Errorf("ComputeChunkLayout(%d, %t, %d, %d, %d) = %d chunks of %d", total, acceptRanges, minimumChunkSize, chunkSize, chunksNumber, gotChunksNumber, gotChunkSize)
+						}
+					}
+				}
+			}
 		}
 	}
 }
