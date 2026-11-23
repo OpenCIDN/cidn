@@ -38,13 +38,14 @@ const (
 	chunkWatchSettle = 5 * time.Second
 )
 
-// The nginx-test paths that answer every HEAD with 401.
+// Query arguments that choose nginx-test's behaviour; they combine.
 const (
-	noHeadPath = "/no-head/"
+	// Answers every HEAD with 401, also with a valid token.
+	rejectHead = "head=reject"
 	// Ignores Range and sends no Accept-Ranges.
-	noHeadNoRangePath = "/no-head-no-range/"
+	noRange = "range=off"
 	// Sends the body at 1 KiB/s.
-	noHeadSlowPath = "/no-head-slow/"
+	slowBody = "rate=slow"
 )
 
 func TestBlobWithoutSkipHeadFailsWhenTheSourceRejectsHead(t *testing.T) {
@@ -52,7 +53,7 @@ func TestBlobWithoutSkipHeadFailsWhenTheSourceRejectsHead(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-head-rejected")
 	sha := writeSource(t, name, 1<<20)
-	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name))
+	createBlob(t, client, name, sha, sourceWith(name, rejectHead))
 
 	blob := waitForBlobDone(t, client, name)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseFailed {
@@ -72,7 +73,7 @@ func TestSkipHeadBlobMultiChunkSucceedsWithoutHeadOrFullChunk(t *testing.T) {
 	name := uniqueName("e2e-skip-head-multi")
 	sha := writeSource(t, name, 16<<20)
 	chunkNames := watchChunkNames(t, client, name)
-	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name), skipHead)
+	createBlob(t, client, name, sha, sourceWith(name, rejectHead), skipHead)
 
 	blob := waitForBlobDone(t, client, name)
 	names := chunkNames()
@@ -95,7 +96,7 @@ func TestSkipHeadBlobSingleChunkSucceeds(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-skip-head-single")
 	sha := writeSource(t, name, 1<<20)
-	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name), skipHead)
+	createBlob(t, client, name, sha, sourceWith(name, rejectHead), skipHead)
 
 	blob := waitForBlobDone(t, client, name)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
@@ -111,7 +112,7 @@ func TestSkipHeadBlobWithoutRangeSupportSucceedsInOneChunk(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-skip-head-no-range")
 	sha := writeSource(t, name, 16<<20)
-	createBlob(t, client, name, sha, noHeadSource(noHeadNoRangePath, name), skipHead)
+	createBlob(t, client, name, sha, sourceWith(name, rejectHead, noRange), skipHead)
 
 	blob := waitForBlobDone(t, client, name)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
@@ -128,7 +129,7 @@ func TestSkipHeadBlobWithOnlyChunkSizeIsSplitByIt(t *testing.T) {
 	name := uniqueName("e2e-skip-head-chunk-size")
 	sha := writeSource(t, name, 16<<20)
 	chunkSize := int64(6 << 20)
-	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name), skipHead, chunkSizeOnly(chunkSize))
+	createBlob(t, client, name, sha, sourceWith(name, rejectHead), skipHead, chunkSizeOnly(chunkSize))
 
 	blob := waitForBlobDone(t, client, name)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
@@ -169,16 +170,16 @@ func TestSkipHeadBlobWithSkipIfExistsSucceedsWithoutTheBody(t *testing.T) {
 
 	again := name + "-again"
 	start := time.Now()
-	createBlob(t, client, again, sha, noHeadSource(noHeadSlowPath, name), skipHead, func(spec *taskv1alpha1.BlobSpec) {
+	createBlob(t, client, again, sha, sourceWith(name, rejectHead, slowBody), skipHead, func(spec *taskv1alpha1.BlobSpec) {
 		spec.Destination[0].Path = "e2e/" + name
 		spec.Destination[0].SkipIfExists = true
 	})
 
 	blob := waitForBlobDone(t, client, again)
 	took := time.Since(start)
-	// At the 1 KiB/s of noHeadSlowPath.
+	// At the 1 KiB/s of slowBody.
 	bodyTime := time.Duration(size>>10) * time.Second
-	t.Logf("blob %s took %s; its body needs %s from %s", again, took.Round(time.Millisecond), bodyTime, noHeadSlowPath)
+	t.Logf("blob %s took %s; its body needs %s from %s", again, took.Round(time.Millisecond), bodyTime, slowBody)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
 		t.Fatalf("blob %s is %s, want %s; status: %s", again, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
 	}
@@ -192,7 +193,7 @@ func TestSkipHeadBlobSha256MismatchFails(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-skip-head-mismatch")
 	writeSource(t, name, 16<<20)
-	createBlob(t, client, name, strings.Repeat("0", 64), noHeadSource(noHeadPath, name), skipHead, func(spec *taskv1alpha1.BlobSpec) {
+	createBlob(t, client, name, strings.Repeat("0", 64), sourceWith(name, rejectHead), skipHead, func(spec *taskv1alpha1.BlobSpec) {
 		// Only the hash chain may report the mismatch; re-verification gives the same message.
 		spec.Destination[0].ReverifySha256 = false
 	})
@@ -217,13 +218,13 @@ func TestSkipHeadBlobFailsWhenTheSourceAnswersGetWith404(t *testing.T) {
 	client := newE2EClient(t)
 	// Without writeSource nginx-test has nothing to serve under this name.
 	name := uniqueName("e2e-skip-head-not-found")
-	createBlob(t, client, name, "", noHeadSource(noHeadPath, name), skipHead)
+	createBlob(t, client, name, "", sourceWith(name, rejectHead), skipHead)
 
 	blob := waitForBlobDone(t, client, name)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseFailed {
 		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseFailed, statusJSON(blob))
 	}
-	// noHeadPath answers every HEAD with 401, so only a GET gets the 404.
+	// rejectHead answers every HEAD with 401, so only a GET gets the 404.
 	for _, condition := range blob.Status.Conditions {
 		if condition.Type == "UnexpectedStatusCode" && strings.Contains(condition.Message, "got 404") {
 			return
@@ -237,7 +238,7 @@ func TestSkipHeadBlobOfEmptyContentSucceeds(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-skip-head-empty")
 	sha := writeSource(t, name, 0)
-	createBlob(t, client, name, sha, noHeadSource(noHeadPath, name), skipHead)
+	createBlob(t, client, name, sha, sourceWith(name, rejectHead), skipHead)
 
 	// createBlob's ReverifySha256 hashes the destination object, so success means it is empty.
 	blob := waitForBlobDone(t, client, name)
@@ -246,10 +247,10 @@ func TestSkipHeadBlobOfEmptyContentSucceeds(t *testing.T) {
 	}
 }
 
-// noHeadSource serves testdata/<name>.rand from path, one of the nginx-test paths that answer every HEAD with 401.
-func noHeadSource(path, name string) func(*taskv1alpha1.BlobSpec) {
+// sourceWith serves testdata/<name>.rand from nginx-test with the behaviours its query arguments choose.
+func sourceWith(name string, args ...string) func(*taskv1alpha1.BlobSpec) {
 	return func(spec *taskv1alpha1.BlobSpec) {
-		spec.Source[0].URL = "http://cidn-nginx-test-1" + path + name + ".rand"
+		spec.Source[0].URL = "http://cidn-nginx-test-1/" + name + ".rand?" + strings.Join(args, "&")
 	}
 }
 
