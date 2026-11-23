@@ -193,67 +193,6 @@ configs:
           root   /usr/share/nginx/html;
         }
 
-        # Like /, but HEAD gets 401 even with a valid token.
-        location /no-head/ {
-          if ($$request_id ~* "[1]$$") {
-            return 500;
-          }
-          if ($$request_id ~* "[2]$$") {
-            return 444;
-          }
-          if ($$request_method = HEAD) {
-            add_header 'www-authenticate' 'Bearer realm="http://$$http_host/token",service="registry",scope="pull"' always;
-            return 401;
-          }
-          if ($$http_authorization != "Bearer xxx-$$hostname") {
-            add_header 'www-authenticate' 'Bearer realm="http://$$http_host/token",service="registry",scope="pull"' always;
-            return 401;
-          }
-          limit_rate 10m;
-          alias /usr/share/nginx/html/;
-        }
-
-        # Like /no-head/, but Range is ignored and no Accept-Ranges is sent.
-        location /no-head-no-range/ {
-          if ($$request_id ~* "[1]$$") {
-            return 500;
-          }
-          if ($$request_id ~* "[2]$$") {
-            return 444;
-          }
-          if ($$request_method = HEAD) {
-            add_header 'www-authenticate' 'Bearer realm="http://$$http_host/token",service="registry",scope="pull"' always;
-            return 401;
-          }
-          if ($$http_authorization != "Bearer xxx-$$hostname") {
-            add_header 'www-authenticate' 'Bearer realm="http://$$http_host/token",service="registry",scope="pull"' always;
-            return 401;
-          }
-          max_ranges 0;
-          limit_rate 10m;
-          alias /usr/share/nginx/html/;
-        }
-
-        # Like /no-head/, but the body comes at 1 KiB/s, too slow to finish within a test.
-        location /no-head-slow/ {
-          if ($$request_id ~* "[1]$$") {
-            return 500;
-          }
-          if ($$request_id ~* "[2]$$") {
-            return 444;
-          }
-          if ($$request_method = HEAD) {
-            add_header 'www-authenticate' 'Bearer realm="http://$$http_host/token",service="registry",scope="pull"' always;
-            return 401;
-          }
-          if ($$http_authorization != "Bearer xxx-$$hostname") {
-            add_header 'www-authenticate' 'Bearer realm="http://$$http_host/token",service="registry",scope="pull"' always;
-            return 401;
-          }
-          limit_rate 1k;
-          alias /usr/share/nginx/html/;
-        }
-
         location = /token {
           if ($$request_id ~* "[1]$$") {
             return 500;
