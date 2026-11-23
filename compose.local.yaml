@@ -158,6 +158,15 @@ services:
 configs:
   nginx-test-config:
     content: |-
+      # head=reject: HEAD gets 401 even with a valid token.
+      map "$$request_method:$$arg_head" $$reject_head {
+        "HEAD:reject" 1;
+      }
+      # rate=slow: the body comes at 1 KiB/s, too slow to finish within a test.
+      map $$arg_rate $$body_rate {
+        slow    1k;
+        default 10m;
+      }
       server {
         listen 80;
         location / {
@@ -178,9 +187,26 @@ configs:
             return 401;
           }
 
-          limit_rate 10m;
+          if ($$reject_head) {
+            add_header 'www-authenticate' 'Bearer realm="http://$$http_host/token",service="registry",scope="pull"' always;
+            return 401;
+          }
+
+          # range=off: max_ranges cannot change per request, so @range-off serves it.
+          error_page 418 = @range-off;
+          if ($$arg_range = off) {
+            return 418;
+          }
+
+          limit_rate $$body_rate;
           root   /usr/share/nginx/html;
           index  index.html index.htm;
+        }
+
+        location @range-off {
+          max_ranges 0;
+          limit_rate $$body_rate;
+          root   /usr/share/nginx/html;
         }
 
         # Like /, but HEAD gets 401 even with a valid token.
