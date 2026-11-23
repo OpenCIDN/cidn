@@ -649,6 +649,10 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	sr := newReadCount(ctx, body)
 	g.Go(func() error {
 		_, err := io.Copy(swmr, sr)
+		if truncated {
+			// The rest is never read, so do not hold the source through the uploads.
+			body.Close()
+		}
 		if closeErr := swmr.Close(); err == nil {
 			err = closeErr
 		}

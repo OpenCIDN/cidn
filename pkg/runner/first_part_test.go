@@ -271,6 +271,48 @@ func TestFirstPartTakesOnlyPartOneWhenTheLayoutHasMoreChunks(t *testing.T) {
 	}
 }
 
+func TestFirstPartReleasesTheSourceBeforeTheUploadEnds(t *testing.T) {
+	content := testContent(70000)
+	hungUp := make(chan bool, 1)
+	source := startSource(t, testSource{content: content, acceptRanges: true, pauseAfter: 30000, hungUp: hungUp})
+	release := make(chan struct{})
+	destination := startDestination(t, "etag-0", release)
+	releaseDestination := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseDestination)
+	chunk := newFirstPartChunk(source, &v1alpha1.ChunkFirstPart{ChunkSize: 30000}, destination)
+	runner, client := newProcessRunner(t, chunk)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runProcess(runner, chunk)
+	}()
+	t.Cleanup(func() {
+		releaseDestination()
+		<-done
+	})
+	select {
+	case cut := <-hungUp:
+		if !cut {
+			t.Error("the runner read the source past part 1 instead of hanging up")
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the source saw no hang-up within 5s while the upload of part 1 was blocked")
+	}
+	select {
+	case <-done:
+		t.Fatal("the chunk finished although its destination was still blocked")
+	default:
+	}
+	releaseDestination()
+	<-done
+	status := waitForResult(t, client, chunk.Name).Status
+	if status.Phase != v1alpha1.ChunkPhaseSucceeded || status.SourceProgress != 30000 {
+		t.Errorf("got phase=%s sourceProgress=%d conditions=%v after the destination answered, want Succeeded and 30000",
+			status.Phase, status.SourceProgress, status.Conditions)
+	}
+	expectUploads(t, content[:30000], destination)
+}
+
 func TestFirstPartLeavesTheHashStateOfPartOneForTheNextPart(t *testing.T) {
 	content := testContent(16 << 20)
 	whole := sha256.Sum256(content)
