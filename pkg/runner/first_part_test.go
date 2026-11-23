@@ -33,6 +33,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -311,6 +312,78 @@ func TestFirstPartReleasesTheSourceBeforeTheUploadEnds(t *testing.T) {
 			status.Phase, status.SourceProgress, status.Conditions)
 	}
 	expectUploads(t, content[:30000], destination)
+}
+
+type sourceCloseCounter struct {
+	next     http.RoundTripper
+	failAt   int
+	requests atomic.Int32
+	closes   atomic.Int32
+}
+
+func (counter *sourceCloseCounter) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := counter.next.RoundTrip(request)
+	if err == nil && request.Method == http.MethodGet {
+		counter.requests.Add(1)
+		response.Body = &countedSourceBody{ReadCloser: response.Body, counter: counter}
+	}
+	return response, err
+}
+
+type countedSourceBody struct {
+	io.ReadCloser
+	counter *sourceCloseCounter
+	read    int
+}
+
+func (body *countedSourceBody) Read(p []byte) (int, error) {
+	n, err := body.ReadCloser.Read(p)
+	body.read += n
+	if body.counter.failAt > 0 && body.read >= body.counter.failAt {
+		err = io.ErrUnexpectedEOF
+	}
+	return n, err
+}
+
+func (body *countedSourceBody) Close() error {
+	body.counter.closes.Add(1)
+	return body.ReadCloser.Close()
+}
+
+func TestSourceBodyIsClosedExactlyOnce(t *testing.T) {
+	content := testContent(70000)
+	source := testSource{content: content, acceptRanges: true}
+	cut := &v1alpha1.ChunkFirstPart{ChunkSize: 30000}
+	whole := &v1alpha1.ChunkFirstPart{MinimumChunkSize: 5 << 20}
+	for _, test := range []struct {
+		name      string
+		source    testSource
+		firstPart *v1alpha1.ChunkFirstPart
+		failAt    int
+		phase     v1alpha1.ChunkPhase
+	}{
+		{"cut to part 1", source, cut, 0, v1alpha1.ChunkPhaseSucceeded},
+		{"whole content", source, whole, 0, v1alpha1.ChunkPhaseSucceeded},
+		{"skipped", source, &v1alpha1.ChunkFirstPart{ChunkSize: 30000, ExistingSizes: []int64{70000}}, 0, v1alpha1.ChunkPhaseSucceeded},
+		{"without firstPart", source, nil, 0, v1alpha1.ChunkPhaseSucceeded},
+		// Both copies fail where no upload is cut short, which would retry for minutes.
+		{"copy of part 1 fails", source, cut, 30000, v1alpha1.ChunkPhaseFailed},
+		{"copy of the whole content fails", testSource{content: content, acceptRanges: true, noLength: true}, whole, 10000, v1alpha1.ChunkPhaseFailed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			chunk := newFirstPartChunk(startSource(t, test.source), test.firstPart, startDestination(t, "etag-0", nil))
+			runner, client := newProcessRunner(t, chunk)
+			counter := &sourceCloseCounter{next: runner.httpClient.Transport, failAt: test.failAt}
+			runner.httpClient.Transport = counter
+			runProcess(runner, chunk)
+			if status := waitForResult(t, client, chunk.Name).Status; status.Phase != test.phase {
+				t.Fatalf("got phase=%s conditions=%v, want %s", status.Phase, status.Conditions, test.phase)
+			}
+			if requests, closes := counter.requests.Load(), counter.closes.Load(); requests != 1 || closes != 1 {
+				t.Errorf("the source body was closed %d times over %d requests, want one request closed once", closes, requests)
+			}
+		})
+	}
 }
 
 func TestFirstPartLeavesTheHashStateOfPartOneForTheNextPart(t *testing.T) {

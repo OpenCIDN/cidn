@@ -600,7 +600,9 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 	if body == nil {
 		return
 	}
-	defer body.Close()
+	// Every Close of an HTTP/2 body credits its unread bytes to the connection.
+	closeBody := sync.OnceFunc(func() { body.Close() })
+	defer closeBody()
 
 	if contentLength > 0 {
 		if chunk.Spec.Total > 0 && contentLength != chunk.Spec.Total {
@@ -651,7 +653,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 		_, err := io.Copy(swmr, sr)
 		if truncated {
 			// The rest is never read, so do not hold the source through the uploads.
-			body.Close()
+			closeBody()
 		}
 		if closeErr := swmr.Close(); err == nil {
 			err = closeErr
