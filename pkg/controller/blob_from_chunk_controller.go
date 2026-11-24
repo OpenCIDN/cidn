@@ -22,7 +22,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"strconv"
+	"net/http"
+	"slices"
 	"time"
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
@@ -76,6 +77,11 @@ func NewBlobFromChunkController(
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			blob := newObj.(*v1alpha1.Blob)
+			// A skipHead blob's first chunk may have ended before its total was known.
+			if blob.Spec.SkipHead && oldObj.(*v1alpha1.Blob).Status.Total == 0 && blob.Status.Total != 0 {
+				c.workqueue.Add(blob.Name)
+				return
+			}
 			c.workqueue.AddAfter(blob.Name, 10*time.Second)
 		},
 	})
@@ -154,6 +160,29 @@ func (c *BlobFromChunkController) handler(ctx context.Context, name string) {
 	}
 
 	blob = blob.DeepCopy()
+
+	if blob.Spec.SkipHead {
+		err = c.fromFirstChunk(ctx, blob)
+		if err != nil {
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update blob status for blob %s: %v", blob.Name, err)
+			return
+		}
+
+		blobStatus := blob.Status
+		_, err = utils.UpdateResourceStatusWithRetry(ctx, c.client.TaskV1alpha1().Blobs(), blob, func(blob *v1alpha1.Blob) *v1alpha1.Blob {
+			blob.Status = blobStatus
+			return blob
+		})
+		if err != nil {
+			c.workqueue.AddAfter(name, 5*time.Second)
+			klog.Errorf("failed to update blob status: %v", err)
+			return
+		}
+
+		c.workqueue.AddAfter(name, 10*time.Second)
+		return
+	}
 
 	if blob.Spec.ChunksNumber == 1 {
 		err = c.fromOneChunk(ctx, blob)
@@ -262,17 +291,10 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 			return fmt.Errorf("chunk %s succeeded but has no source response", chunkName)
 		}
 
-		total, _ := strconv.ParseInt(chunk.Status.SourceResponse.Headers["content-length"], 10, 64)
-		if total <= 0 {
-			blob.Status.Total = -1
-		} else {
-			blob.Status.Total = total
-			// Use ForceAcceptRanges if set, otherwise check the server response
-			if blob.Spec.ForceAcceptRanges {
-				blob.Status.AcceptRanges = true
-			} else {
-				blob.Status.AcceptRanges = chunk.Status.SourceResponse.Headers["accept-ranges"] == "bytes"
-			}
+		total, acceptRanges := v1alpha1.ParseResponseHeaders(chunk.Status.SourceResponse.Headers, blob.Spec.ForceAcceptRanges)
+		blob.Status.Total = total
+		if total > 0 {
+			blob.Status.AcceptRanges = acceptRanges
 		}
 		blob.Status.Phase = v1alpha1.BlobPhaseRunning
 	case v1alpha1.ChunkPhaseFailed:
@@ -285,6 +307,90 @@ func (c *BlobFromChunkController) fromHeadChunk(ctx context.Context, blob *v1alp
 		}
 	}
 	return nil
+}
+
+// fromFirstChunk follows a skipHead blob through its first chunk, the provider of part 1.
+func (c *BlobFromChunkController) fromFirstChunk(ctx context.Context, blob *v1alpha1.Blob) error {
+	chunk, err := c.chunkInformer.Lister().Get(buildFirstChunkName(blob.Name))
+	if apierrors.IsNotFound(err) && blob.Status.Total != 0 {
+		// Like any part's chunk, the first chunk goes once the next part is recorded.
+		return c.fromChunks(ctx, blob)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get chunk: %w", err)
+	}
+
+	if chunk.Status.Phase == v1alpha1.ChunkPhaseFailed {
+		blob.Status.Retry = chunk.Status.Retry
+		if !chunk.Status.Retryable {
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, chunk.Status.Conditions...)
+			blob.Status.RunningChunks = 0
+			blob.Status.PendingChunks = 0
+			c.deleteChunksInNonFinalStates(ctx, blob)
+			c.abortUnusedMultipart(ctx, blob)
+			return nil
+		}
+	}
+
+	if blob.Status.Total == 0 {
+		// Writing the total lays the blob out, so its parts wait for the next pass.
+		if resp := chunk.Status.SourceResponse; resp != nil && resp.StatusCode == http.StatusOK {
+			blob.Status.Total, blob.Status.AcceptRanges = v1alpha1.ParseResponseHeaders(resp.Headers, chunk.Spec.FirstPart.ForceAcceptRanges)
+		}
+		blob.Status.Phase = v1alpha1.BlobPhaseRunning
+		return nil
+	}
+
+	if chunk.Status.Phase == v1alpha1.ChunkPhaseSucceeded {
+		took := chunk.Status.SourceProgress
+		if blob.Status.Total < 0 && chunk.Status.SourceResponse != nil {
+			// The total came from an earlier attempt; the runner laid this one out by its own response.
+			blob.Status.Total, _ = v1alpha1.ParseResponseHeaders(chunk.Status.SourceResponse.Headers, false)
+		}
+		// Part 1 of more than one is a whole chunk of the layout, otherwise the whole content.
+		want := blob.Status.Total
+		if blob.Spec.ChunksNumber > 1 {
+			want = blob.Spec.ChunkSize
+		}
+		switch {
+		case len(chunk.Status.Etags) == 0:
+			// Skipped: every destination already holds the content.
+			blob.Status.PendingChunks, blob.Status.RunningChunks, blob.Status.FailedChunks = 0, 0, 0
+			blob.Status.SucceededChunks = blob.Spec.ChunksNumber
+			blob.Status.Progress = blob.Status.Total
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseSucceeded)
+			return nil
+		case blob.Status.Total < 0:
+			// Empty content keeps its total unknown, as without skipHead.
+			if took > 0 {
+				blob.Status.Total = took
+			}
+		case took != want:
+			utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+			blob.Status.Conditions = v1alpha1.AppendConditions(blob.Status.Conditions, v1alpha1.Condition{
+				Type:    "FirstPartSizeMismatch",
+				Message: fmt.Sprintf("first chunk took %d bytes, but the first part of the layout is %d bytes", took, want),
+			})
+			blob.Status.RunningChunks = 0
+			blob.Status.PendingChunks = 0
+			c.deleteChunksInNonFinalStates(ctx, blob)
+			return nil
+		}
+	}
+
+	return c.fromChunks(ctx, blob)
+}
+
+// abortUnusedMultipart aborts the blob's upload unless one of its parts is recorded.
+func (c *BlobFromChunkController) abortUnusedMultipart(ctx context.Context, blob *v1alpha1.Blob) {
+	mp, err := c.multipartInformer.Lister().Get(blob.Name)
+	if err == nil && slices.ContainsFunc(mp.UploadEtags, func(e v1alpha1.UploadEtags) bool { return len(e.Etags) != 0 }) {
+		return
+	}
+	if err := cleanupMultipart(ctx, c.client, c.s3, blob); err != nil {
+		klog.Errorf("failed to abort multipart for blob %s: %v", blob.Name, err)
+	}
 }
 
 func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alpha1.Blob) error {
@@ -342,13 +448,9 @@ func (c *BlobFromChunkController) fromOneChunk(ctx context.Context, blob *v1alph
 
 	if blob.Status.Total <= 0 {
 		resp := chunk.Status.SourceResponse
-		if resp != nil && resp.StatusCode == 200 && resp.Headers != nil {
-			cl := resp.Headers["content-length"]
-			if cl != "" {
-				total, _ := strconv.ParseInt(cl, 10, 64)
-				if total > 0 {
-					blob.Status.Total = total
-				}
+		if resp != nil && resp.StatusCode == 200 {
+			if total, _ := v1alpha1.ParseResponseHeaders(resp.Headers, false); total > 0 {
+				blob.Status.Total = total
 			}
 		}
 	}
@@ -384,6 +486,13 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	var updateEtag bool
 	var succeededCount, failedCount, pendingCount, runningCount int64
 	var progress int64
+
+	// A skipHead blob's multipart holds part 1 only until the blob is laid out.
+	if missing := blob.Spec.ChunksNumber - int64(len(mp.UploadEtags)); missing > 0 {
+		mp.UploadEtags = append(mp.UploadEtags, make([]v1alpha1.UploadEtags, missing)...)
+		updateEtag = true
+	}
+
 	for _, chunk := range chunks {
 		switch chunk.Status.Phase {
 		case v1alpha1.ChunkPhaseSucceeded:
@@ -391,7 +500,7 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 				index := chunk.Spec.ChunkIndex - 1
 				if mp.UploadEtags[index].Size == 0 {
 					mp.UploadEtags[index] = v1alpha1.UploadEtags{
-						Size:  chunk.Spec.Total,
+						Size:  partSize(chunk),
 						Etags: chunk.Status.Etags,
 					}
 					updateEtag = true
@@ -476,11 +585,14 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		return nil
 	}
 
-	if blob.Status.Progress != blob.Status.Total {
+	// Only empty content reaches this point with its total still unknown.
+	total := max(blob.Status.Total, 0)
+
+	if blob.Status.Progress != total {
 		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 		blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
 			Type:    "BlobSizeMismatch",
-			Message: fmt.Sprintf("total size of all chunks (%d) does not match expected total (%d)", blob.Status.Progress, blob.Status.Total),
+			Message: fmt.Sprintf("total size of all chunks (%d) does not match expected total (%d)", blob.Status.Progress, total),
 		})
 		blob.Status.RunningChunks = 0
 		blob.Status.PendingChunks = 0
@@ -491,11 +603,26 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	for _, etag := range mp.UploadEtags {
 		totalSize += etag.Size
 	}
-	if totalSize != blob.Status.Total {
+	if totalSize != total {
 		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
 		blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
 			Type:    "UploadSizeMismatch",
-			Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, blob.Status.Total),
+			Message: fmt.Sprintf("total size of uploaded parts (%d) does not match expected total (%d)", totalSize, total),
+		})
+		blob.Status.RunningChunks = 0
+		blob.Status.PendingChunks = 0
+		c.deleteChunksInNonFinalStates(ctx, blob)
+		return nil
+	}
+
+	// The commit takes an upload ID per destination and, from every part, an etag per destination.
+	if len(mp.UploadIDs) < len(blob.Spec.Destination) || slices.ContainsFunc(mp.UploadEtags, func(e v1alpha1.UploadEtags) bool {
+		return len(e.Etags) < len(blob.Spec.Destination)
+	}) {
+		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
+		blob.Status.Conditions = append(blob.Status.Conditions, v1alpha1.Condition{
+			Type:    "MultipartIncomplete",
+			Message: "all chunks succeeded but the multipart lacks an upload ID or a part's etag for some destination",
 		})
 		blob.Status.RunningChunks = 0
 		blob.Status.PendingChunks = 0
@@ -567,6 +694,14 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	}
 
 	return nil
+}
+
+// partSize is the size of the part a succeeded chunk uploaded.
+func partSize(chunk *v1alpha1.Chunk) int64 {
+	if chunk.Spec.FirstPart != nil {
+		return chunk.Status.SourceProgress
+	}
+	return chunk.Spec.Total
 }
 
 func (c *BlobFromChunkController) verifySha256(ctx context.Context, blob *v1alpha1.Blob) error {

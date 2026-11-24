@@ -95,6 +95,10 @@ func (*chunkStrategy) Validate(ctx context.Context, obj runtime.Object) field.Er
 		errList = append(errList, field.Required(field.NewPath("spec", "source", "request", "url"), "source URL must be specified"))
 	}
 
+	if firstPart := chunk.Spec.FirstPart; firstPart != nil && len(firstPart.ExistingSizes) != 0 && len(firstPart.ExistingSizes) != len(chunk.Spec.Destination) {
+		errList = append(errList, field.Invalid(field.NewPath("spec", "firstPart", "existingSizes"), firstPart.ExistingSizes, fmt.Sprintf("must list one size for each of the %d destinations", len(chunk.Spec.Destination))))
+	}
+
 	return errList
 }
 
