@@ -835,3 +835,41 @@ func TestBlobSucceedsWhenItsCommitCannotBeRecorded(t *testing.T) {
 		})
 	}
 }
+
+func TestRejectedCommitFailsTheBlobAndKeepsItsUploadIDs(t *testing.T) {
+	two := []v1alpha1.BlobDestination{{Name: "storage", Path: "/blob"}, {Name: "second", Path: "/blob"}}
+	tests := []struct {
+		name        string
+		destination []v1alpha1.BlobDestination
+		uploadIDs   []string
+		etags       []string
+	}{
+		{name: "one destination", uploadIDs: []string{"upload-2"}, etags: []string{"etag-1"}},
+		{name: "two destinations, one rejected", destination: two, uploadIDs: []string{"upload-1", "upload-2"}, etags: []string{"etag-1", "etag-2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			if tt.destination != nil {
+				blob.Spec.Destination = tt.destination
+			}
+			blob.Spec.ChunksNumber, blob.Status.Total = 1, 1024
+			// The store opened upload-1 only, so it rejects the commit of upload-2.
+			stores, _ := newTestUploadStorage(t, "upload-1")
+			stores["second"] = stores["storage"]
+			client, factory := newTestInformers(t, blob, newTestSucceededFirstChunk(blob, 1024, tt.etags...), newTestMultipart(blob, 1, tt.uploadIDs...))
+			c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+			t.Cleanup(c.workqueue.ShutDown)
+
+			c.handler(context.Background(), blob.Name)
+
+			got := getBlob(t, client, blob.Name)
+			if got.Status.Phase != v1alpha1.BlobPhaseFailed || len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Type != "MultipartCommit" {
+				t.Errorf("phase %s, conditions %v; want %s with MultipartCommit", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseFailed)
+			}
+			if got := getMultipart(t, client, blob.Name).UploadIDs; !reflect.DeepEqual(got, tt.uploadIDs) {
+				t.Errorf("upload IDs %q, want %q kept", got, tt.uploadIDs)
+			}
+		})
+	}
+}

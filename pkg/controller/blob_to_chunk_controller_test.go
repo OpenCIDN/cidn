@@ -281,7 +281,7 @@ func TestExistingFirstChunkNeedsNothingFromTheStore(t *testing.T) {
 	}
 }
 
-// newTestUploadStorage is a store without unfinished uploads that opens the next one as uploadID, accepts any commit, reads every object as "content", and lists the requests it got.
+// newTestUploadStorage is a store without unfinished uploads that opens the next one as uploadID, commits that one only, reads every object as "content", and lists the requests it got.
 func newTestUploadStorage(t *testing.T, uploadID string) (map[string]*sss.SSS, func() []string) {
 	t.Helper()
 	var mu sync.Mutex
@@ -297,8 +297,11 @@ func newTestUploadStorage(t *testing.T, uploadID string) (map[string]*sss.SSS, f
 			io.WriteString(w, "content")
 		case r.Method == http.MethodPost && r.URL.Query().Has("uploads"):
 			fmt.Fprintf(w, "<InitiateMultipartUploadResult><Key>blob</Key><UploadId>%s</UploadId></InitiateMultipartUploadResult>", uploadID)
-		case r.Method == http.MethodPost && r.URL.Query().Has("uploadId"):
+		case r.Method == http.MethodPost && r.URL.Query().Get("uploadId") == uploadID:
 			io.WriteString(w, "<CompleteMultipartUploadResult><Key>blob</Key></CompleteMultipartUploadResult>")
+		case r.Method == http.MethodPost && r.URL.Query().Has("uploadId"):
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, "<Error><Code>NoSuchUpload</Code><Message>The specified upload does not exist.</Message></Error>")
 		default:
 			t.Errorf("unexpected store call %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotImplemented)
