@@ -656,3 +656,27 @@ func TestToSideCreatesNothingForARunningBlobWhoseChunksAllSucceeded(t *testing.T
 		}
 	}
 }
+
+func TestCleanupRemovesACommittedMultipartWithoutAskingTheStore(t *testing.T) {
+	for _, tt := range newTestCommittingBlobs() {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.blob.Status.Phase = v1alpha1.BlobPhaseSucceeded
+			mp := newTestMultipart(tt.blob, int64(len(tt.parts)), "")
+			copy(mp.UploadEtags, tt.parts)
+			stores, requests := newTestUploadStorage(t, "upload-2")
+			c, client := newTestToChunkController(t, stores, tt.blob, tt.last, mp)
+
+			c.handler(context.Background(), tt.blob.Name)
+
+			if got := chunkNames(t, client); len(got) != 0 {
+				t.Errorf("chunks %v kept, want none", got)
+			}
+			if multipartExists(t, client, tt.blob.Name) {
+				t.Error("multipart kept")
+			}
+			if got := requests(); len(got) != 0 {
+				t.Errorf("store requests %q, want none", got)
+			}
+		})
+	}
+}
