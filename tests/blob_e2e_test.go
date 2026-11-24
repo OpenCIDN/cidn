@@ -64,9 +64,11 @@ func TestBlobMultiChunkSucceeds(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-multi")
 	sha := writeSource(t, name, 16<<20)
+	countCreations := watchCreations(t, client, name)
 	createBlob(t, client, name, sha)
 
 	blob := waitForBlobDone(t, client, name)
+	created := countCreations()
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
 		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
 	}
@@ -74,6 +76,7 @@ func TestBlobMultiChunkSucceeds(t *testing.T) {
 	if blob.Spec.ChunksNumber < 2 {
 		t.Errorf("blob %s was split into %d chunks, want more than 1", name, blob.Spec.ChunksNumber)
 	}
+	checkCreatedOnce(t, name, created)
 }
 
 func TestBlobSha256MismatchFails(t *testing.T) {

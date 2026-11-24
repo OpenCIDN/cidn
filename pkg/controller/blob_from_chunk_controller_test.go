@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -31,6 +32,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned/fake"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	"github.com/wzshiming/sss"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -181,6 +183,15 @@ func getBlob(t *testing.T, client *fake.Clientset, name string) *v1alpha1.Blob {
 		t.Fatal(err)
 	}
 	return blob
+}
+
+func getMultipart(t *testing.T, client *fake.Clientset, name string) *v1alpha1.Multipart {
+	t.Helper()
+	mp, err := client.TaskV1alpha1().Multiparts().Get(context.Background(), name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mp
 }
 
 func TestSkipHeadBlobTakesItsTotalFromTheRunningFirstChunk(t *testing.T) {
@@ -424,8 +435,9 @@ func TestSkipHeadBlobCommitsItsFirstChunkAsItsOnlyPart(t *testing.T) {
 			if got.Status.Total != tt.wantTotal || got.Status.Progress != tt.took {
 				t.Errorf("total %d, progress %d; want %d, %d", got.Status.Total, got.Status.Progress, tt.wantTotal, tt.took)
 			}
-			if multipartExists(t, client, blob.Name) {
-				t.Error("multipart kept after the commit")
+			want := []v1alpha1.UploadEtags{{Size: tt.took, Etags: []string{"etag-1"}}}
+			if mp := getMultipart(t, client, blob.Name); !reflect.DeepEqual(mp.UploadEtags, want) || !reflect.DeepEqual(mp.UploadIDs, []string{""}) {
+				t.Errorf("multipart parts %+v, upload IDs %q; want %+v and one empty upload ID", mp.UploadEtags, mp.UploadIDs, want)
 			}
 		})
 	}
@@ -453,7 +465,8 @@ func TestUnknownTotalIsCheckedAgainstTheFirstChunksOwnResponse(t *testing.T) {
 			c.handler(context.Background(), blob.Name)
 
 			got := getBlob(t, client, blob.Name)
-			if committed := !multipartExists(t, client, blob.Name); committed != tt.wantCommit {
+			// The commit leaves every part recorded in the multipart.
+			if committed := len(getMultipart(t, client, blob.Name).UploadEtags[0].Etags) != 0; committed != tt.wantCommit {
 				t.Fatalf("committed %t, phase %s, conditions %v; want committed %t", committed, got.Status.Phase, got.Status.Conditions, tt.wantCommit)
 			}
 			if tt.wantCommit {
@@ -595,8 +608,8 @@ func TestCommitFailsABlobWhoseMultipartLacksAnEtagOrUploadID(t *testing.T) {
 			if got.Status.Phase != v1alpha1.BlobPhaseFailed || len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Type != "MultipartIncomplete" {
 				t.Errorf("phase %s, conditions %v; want %s with MultipartIncomplete", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseFailed)
 			}
-			if !multipartExists(t, client, blob.Name) {
-				t.Error("multipart committed")
+			if got := getMultipart(t, client, blob.Name).UploadIDs; !reflect.DeepEqual(got, tt.uploadIDs) {
+				t.Errorf("multipart committed: upload IDs %q, want %q kept", got, tt.uploadIDs)
 			}
 		})
 	}
@@ -639,5 +652,224 @@ func TestFirstChunkOfAnotherSizeRemovesTheUnfinishedParts(t *testing.T) {
 	}
 	if got.Status.RunningChunks != 0 || got.Status.PendingChunks != 0 {
 		t.Errorf("running chunks %d, pending chunks %d; want 0, 0", got.Status.RunningChunks, got.Status.PendingChunks)
+	}
+}
+
+func TestCommitLeavesTheMultipartWithEveryPartAndNoUploadID(t *testing.T) {
+	withoutSkipHead := newTestBlob()
+	withoutSkipHead.Spec.ChunksNumber, withoutSkipHead.Spec.ChunkSize = 3, 10
+	withoutSkipHead.Status.Total, withoutSkipHead.Status.AcceptRanges = 30, true
+	laidOut := newTestLaidOutSkipHeadBlob()
+	onePart := newTestSkipHeadBlob()
+	onePart.Spec.ChunksNumber, onePart.Status.Total = 1, 1024
+	threeParts := []v1alpha1.UploadEtags{{Size: 10, Etags: []string{"etag-1"}}, {Size: 10, Etags: []string{"etag-2"}}, {Size: 10, Etags: []string{"etag-3"}}}
+	tests := []struct {
+		name      string
+		blob      *v1alpha1.Blob
+		lastChunk *v1alpha1.Chunk
+		want      []v1alpha1.UploadEtags
+	}{
+		{name: "three parts without skipHead", blob: withoutSkipHead, lastChunk: newTestRecordedPart(withoutSkipHead, "blob:part:blob:3:14-1e", 3), want: threeParts},
+		{name: "three parts of skipHead after its first chunk", blob: laidOut, lastChunk: newTestRecordedPart(laidOut, "blob:part:blob:3:14-1e", 3), want: threeParts},
+		{name: "one part of skipHead", blob: onePart, lastChunk: newTestSucceededFirstChunk(onePart, 1024, "etag-1"), want: []v1alpha1.UploadEtags{{Size: 1024, Etags: []string{"etag-1"}}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mp := newTestMultipart(tt.blob, int64(len(tt.want)), "upload-1")
+			// The multipart holds every part but the last, whose chunk succeeded.
+			copy(mp.UploadEtags, tt.want[:len(tt.want)-1])
+			stores, requests := newTestUploadStorage(t, "upload-1")
+			client, factory := newTestInformers(t, tt.blob, tt.lastChunk, mp)
+			c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+			t.Cleanup(c.workqueue.ShutDown)
+
+			c.handler(context.Background(), tt.blob.Name)
+
+			if got := getBlob(t, client, tt.blob.Name); got.Status.Phase != v1alpha1.BlobPhaseSucceeded {
+				t.Errorf("phase %s, conditions %v; want %s", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseSucceeded)
+			}
+			if got, want := requests(), []string{"POST /bucket/blob?uploadId=upload-1"}; !reflect.DeepEqual(got, want) {
+				t.Errorf("store requests %q, want %q", got, want)
+			}
+			for _, action := range client.Actions() {
+				if action.Matches("delete", "multiparts") {
+					t.Error("multipart deleted")
+				}
+			}
+			got := getMultipart(t, client, tt.blob.Name)
+			if !reflect.DeepEqual(got.UploadEtags, tt.want) || !reflect.DeepEqual(got.UploadIDs, []string{""}) {
+				t.Errorf("multipart parts %+v, upload IDs %q; want %+v and one empty upload ID", got.UploadEtags, got.UploadIDs, tt.want)
+			}
+		})
+	}
+}
+
+func TestPassAfterTheCommitSucceedsWithoutCommittingAgain(t *testing.T) {
+	blob := newTestBlob()
+	blob.Spec.ChunksNumber, blob.Spec.ChunkSize = 3, 10
+	blob.Status.Total, blob.Status.AcceptRanges = 30, true
+	mp := newTestMultipart(blob, 3, "upload-1")
+	mp.UploadEtags[0] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+	mp.UploadEtags[1] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-2"}}
+	stores, requests := newTestUploadStorage(t, "upload-1")
+	client, factory := newTestInformers(t, blob, newTestRecordedPart(blob, "blob:part:blob:3:14-1e", 3), mp)
+	c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+	t.Cleanup(c.workqueue.ShutDown)
+	// A pass that commits, but whose Succeeded never gets written.
+	if err := c.fromChunks(context.Background(), blob.DeepCopy()); err != nil {
+		t.Fatal(err)
+	}
+	committed := len(requests())
+	if err := factory.Task().V1alpha1().Multiparts().Informer().GetIndexer().Update(getMultipart(t, client, blob.Name)); err != nil {
+		t.Fatal(err)
+	}
+
+	c.handler(context.Background(), blob.Name)
+
+	if got := requests()[committed:]; len(got) != 0 {
+		t.Errorf("store requests %q after the commit, want none", got)
+	}
+	if got := getBlob(t, client, blob.Name); got.Status.Phase != v1alpha1.BlobPhaseSucceeded {
+		t.Errorf("phase %s, conditions %v; want %s", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseSucceeded)
+	}
+}
+
+func TestCommitIsRecordedInTheMultipartBeforeTheSha256Check(t *testing.T) {
+	blob := newTestBlob()
+	blob.Spec.ChunksNumber, blob.Spec.ChunkSize = 3, 10
+	blob.Status.Total, blob.Status.AcceptRanges = 30, true
+	blob.Spec.ContentSha256, blob.Spec.Destination[0].ReverifySha256 = "sha", true
+	mp := newTestMultipart(blob, 3, "upload-1")
+	mp.UploadEtags[0] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+	mp.UploadEtags[1] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-2"}}
+	stores, requests := newTestUploadStorage(t, "upload-1")
+	client, factory := newTestInformers(t, blob, newTestRecordedPart(blob, "blob:part:blob:3:14-1e", 3), mp)
+	var beforeRewrite []string
+	client.PrependReactor("update", "multiparts", func(clienttesting.Action) (bool, runtime.Object, error) {
+		beforeRewrite = requests()
+		return false, nil, nil
+	})
+	c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+	t.Cleanup(c.workqueue.ShutDown)
+
+	c.handler(context.Background(), blob.Name)
+
+	if got := getBlob(t, client, blob.Name); got.Status.Phase != v1alpha1.BlobPhaseFailed || len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Type != "Sha256Verification" {
+		t.Errorf("phase %s, conditions %v; want %s with Sha256Verification", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseFailed)
+	}
+	if want := []string{"POST /bucket/blob?uploadId=upload-1"}; !reflect.DeepEqual(beforeRewrite, want) {
+		t.Errorf("store requests %q when the multipart was rewritten, want %q", beforeRewrite, want)
+	}
+	want := []v1alpha1.UploadEtags{{Size: 10, Etags: []string{"etag-1"}}, {Size: 10, Etags: []string{"etag-2"}}, {Size: 10, Etags: []string{"etag-3"}}}
+	if got := getMultipart(t, client, blob.Name); !reflect.DeepEqual(got.UploadEtags, want) || !reflect.DeepEqual(got.UploadIDs, []string{""}) {
+		t.Errorf("multipart parts %+v, upload IDs %q; want %+v and one empty upload ID", got.UploadEtags, got.UploadIDs, want)
+	}
+}
+
+func TestCommitIsRecordedOverAConcurrentWrite(t *testing.T) {
+	blob := newTestBlob()
+	blob.Spec.ChunksNumber, blob.Spec.ChunkSize = 3, 10
+	blob.Status.Total, blob.Status.AcceptRanges = 30, true
+	mp := newTestMultipart(blob, 3, "upload-1")
+	mp.ResourceVersion = "1"
+	mp.UploadEtags[0] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+	stores, _ := newTestUploadStorage(t, "upload-1")
+	client, factory := newTestInformers(t, blob, newTestRecordedPart(blob, "blob:part:blob:2:0a-14", 2), newTestRecordedPart(blob, "blob:part:blob:3:14-1e", 3), mp)
+	// An earlier pass's write of part 2 reached the API server but not yet the cache.
+	latest := mp.DeepCopy()
+	latest.ResourceVersion = "2"
+	latest.UploadEtags[1] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-2"}}
+	if err := client.Tracker().Update(v1alpha1.SchemeGroupVersion.WithResource("multiparts"), latest, ""); err != nil {
+		t.Fatal(err)
+	}
+	// Like the API server, refuse a write based on an older version.
+	client.PrependReactor("update", "multiparts", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		if action.(clienttesting.UpdateAction).GetObject().(*v1alpha1.Multipart).ResourceVersion == latest.ResourceVersion {
+			return false, nil, nil
+		}
+		return true, nil, apierrors.NewConflict(v1alpha1.Resource("multiparts"), mp.Name, errors.New("the object has been modified"))
+	})
+	c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+	t.Cleanup(c.workqueue.ShutDown)
+
+	c.handler(context.Background(), blob.Name)
+
+	want := []v1alpha1.UploadEtags{{Size: 10, Etags: []string{"etag-1"}}, {Size: 10, Etags: []string{"etag-2"}}, {Size: 10, Etags: []string{"etag-3"}}}
+	if got := getMultipart(t, client, blob.Name); !reflect.DeepEqual(got.UploadEtags, want) || !reflect.DeepEqual(got.UploadIDs, []string{""}) {
+		t.Errorf("multipart parts %+v, upload IDs %q; want %+v and one empty upload ID", got.UploadEtags, got.UploadIDs, want)
+	}
+}
+
+func TestBlobSucceedsWhenItsCommitCannotBeRecorded(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "conflict on every write", err: apierrors.NewConflict(v1alpha1.Resource("multiparts"), "blob", errors.New("the object has been modified"))},
+		{name: "server error", err: apierrors.NewInternalError(errors.New("etcd unavailable"))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestBlob()
+			blob.Spec.ChunksNumber, blob.Spec.ChunkSize = 3, 10
+			blob.Status.Total, blob.Status.AcceptRanges = 30, true
+			mp := newTestMultipart(blob, 3, "upload-1")
+			mp.UploadEtags[0] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+			mp.UploadEtags[1] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-2"}}
+			stores, _ := newTestUploadStorage(t, "upload-1")
+			client, factory := newTestInformers(t, blob, newTestRecordedPart(blob, "blob:part:blob:3:14-1e", 3), mp)
+			client.PrependReactor("update", "multiparts", func(clienttesting.Action) (bool, runtime.Object, error) {
+				return true, nil, tt.err
+			})
+			c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+			t.Cleanup(c.workqueue.ShutDown)
+
+			c.handler(context.Background(), blob.Name)
+
+			if got := getBlob(t, client, blob.Name); got.Status.Phase != v1alpha1.BlobPhaseSucceeded {
+				t.Errorf("phase %s, conditions %v; want %s", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseSucceeded)
+			}
+			if got := getMultipart(t, client, blob.Name); !reflect.DeepEqual(got.UploadEtags, mp.UploadEtags) || !reflect.DeepEqual(got.UploadIDs, mp.UploadIDs) {
+				t.Errorf("multipart parts %+v, upload IDs %q; want %+v and %q as before", got.UploadEtags, got.UploadIDs, mp.UploadEtags, mp.UploadIDs)
+			}
+		})
+	}
+}
+
+func TestRejectedCommitFailsTheBlobAndKeepsItsUploadIDs(t *testing.T) {
+	two := []v1alpha1.BlobDestination{{Name: "storage", Path: "/blob"}, {Name: "second", Path: "/blob"}}
+	tests := []struct {
+		name        string
+		destination []v1alpha1.BlobDestination
+		uploadIDs   []string
+		etags       []string
+	}{
+		{name: "one destination", uploadIDs: []string{"upload-2"}, etags: []string{"etag-1"}},
+		{name: "two destinations, one rejected", destination: two, uploadIDs: []string{"upload-1", "upload-2"}, etags: []string{"etag-1", "etag-2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestSkipHeadBlob()
+			if tt.destination != nil {
+				blob.Spec.Destination = tt.destination
+			}
+			blob.Spec.ChunksNumber, blob.Status.Total = 1, 1024
+			// The store opened upload-1 only, so it rejects the commit of upload-2.
+			stores, _ := newTestUploadStorage(t, "upload-1")
+			stores["second"] = stores["storage"]
+			client, factory := newTestInformers(t, blob, newTestSucceededFirstChunk(blob, 1024, tt.etags...), newTestMultipart(blob, 1, tt.uploadIDs...))
+			c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+			t.Cleanup(c.workqueue.ShutDown)
+
+			c.handler(context.Background(), blob.Name)
+
+			got := getBlob(t, client, blob.Name)
+			if got.Status.Phase != v1alpha1.BlobPhaseFailed || len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Type != "MultipartCommit" {
+				t.Errorf("phase %s, conditions %v; want %s with MultipartCommit", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseFailed)
+			}
+			if got := getMultipart(t, client, blob.Name).UploadIDs; !reflect.DeepEqual(got, tt.uploadIDs) {
+				t.Errorf("upload IDs %q, want %q kept", got, tt.uploadIDs)
+			}
+		})
 	}
 }
