@@ -24,10 +24,8 @@ import (
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned/fake"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	k8stesting "k8s.io/client-go/testing"
 )
 
 func setDuration(t *testing.T, variable *time.Duration, value time.Duration) {
@@ -37,45 +35,21 @@ func setDuration(t *testing.T, variable *time.Duration, value time.Duration) {
 	t.Cleanup(func() { *variable = previous })
 }
 
-func recordUntilFailed(client *fake.Clientset) *callRecorder {
-	// NotFound stops the updater, which could otherwise read staleResetAfter after the test restored it.
-	client.PrependReactor("update", "chunks", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		update := action.(k8stesting.UpdateAction)
-		chunk := update.GetObject().(*v1alpha1.Chunk)
-		if update.GetSubresource() != "status" || chunk.Status.Phase != v1alpha1.ChunkPhaseFailed {
-			return false, nil, nil
-		}
-		return true, nil, apierrors.NewNotFound(v1alpha1.Resource("chunks"), chunk.Name)
-	})
-	return trackStatusUpdates(client, "chunks", nil)
-}
-
-func expectFailedByUploads(t *testing.T, chunk *v1alpha1.Chunk, updates *callRecorder) {
+func expectFailedByUploads(t *testing.T, chunk *v1alpha1.Chunk, client *fake.Clientset, updates *callRecorder) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		updates.mut.Lock()
-		writes := slices.Clone(updates.objects)
-		updates.mut.Unlock()
-		for _, object := range writes {
-			status := object.(*v1alpha1.Chunk).Status
-			if status.Phase == v1alpha1.ChunkPhasePending || status.HandlerName == "" {
-				t.Fatalf("a status write reset the chunk: phase=%s handler=%q", status.Phase, status.HandlerName)
-			}
-			if status.Phase != v1alpha1.ChunkPhaseFailed {
-				continue
-			}
-			if _, found := v1alpha1.GetCondition(status.Conditions, "DestinationRequestError"); !found || !status.Retryable ||
-				status.HandlerName != chunk.Status.HandlerName || status.Retry != chunk.Status.Retry {
-				t.Errorf("got retryable=%t handler=%q retry=%d conditions=%v, want retryable with DestinationRequestError, handler %q and retry %d",
-					status.Retryable, status.HandlerName, status.Retry, status.Conditions, chunk.Status.HandlerName, chunk.Status.Retry)
-			}
-			return
+	updates.mut.Lock()
+	writes := slices.Clone(updates.objects)
+	updates.mut.Unlock()
+	for _, object := range writes {
+		if status := object.(*v1alpha1.Chunk).Status; status.Phase == v1alpha1.ChunkPhasePending || status.HandlerName == "" {
+			t.Fatalf("a status write reset the chunk: phase=%s handler=%q", status.Phase, status.HandlerName)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("no Failed status was written within 5s")
-		}
-		time.Sleep(5 * time.Millisecond)
+	}
+	status := waitForResult(t, client, chunk.Name).Status
+	if _, found := v1alpha1.GetCondition(status.Conditions, "DestinationRequestError"); status.Phase != v1alpha1.ChunkPhaseFailed || !found ||
+		!status.Retryable || status.HandlerName != chunk.Status.HandlerName || status.Retry != chunk.Status.Retry {
+		t.Errorf("got phase=%s retryable=%t handler=%q retry=%d conditions=%v, want Failed, retryable with DestinationRequestError, handler %q and retry %d",
+			status.Phase, status.Retryable, status.HandlerName, status.Retry, status.Conditions, chunk.Status.HandlerName, chunk.Status.Retry)
 	}
 }
 
@@ -87,9 +61,9 @@ func TestUploadsFailingEveryTimeFailTheChunkInsteadOfResettingIt(t *testing.T) {
 	chunk := newFirstPartChunk(startSource(t, testSource{content: testContent(4096)}), nil, destination)
 	runner, client := newProcessRunner(t, chunk)
 	runner.updateDuration = 10 * time.Millisecond
-	updates := recordUntilFailed(client)
+	updates := trackStatusUpdates(client, "chunks", nil)
 	runProcess(runner, chunk)
-	expectFailedByUploads(t, chunk, updates)
+	expectFailedByUploads(t, chunk, client, updates)
 	if uploads := len(destination.arrived()); uploads != 5 {
 		t.Errorf("the destination received %d uploads, want 5", uploads)
 	}
@@ -104,9 +78,9 @@ func TestUploadsFailingSlowlyFailTheChunkInsteadOfResettingIt(t *testing.T) {
 	chunk := newFirstPartChunk(startSource(t, testSource{content: testContent(4096)}), nil, destination)
 	runner, client := newProcessRunner(t, chunk)
 	runner.updateDuration = 10 * time.Millisecond
-	updates := recordUntilFailed(client)
+	updates := trackStatusUpdates(client, "chunks", nil)
 	runProcess(runner, chunk)
-	expectFailedByUploads(t, chunk, updates)
+	expectFailedByUploads(t, chunk, client, updates)
 	if uploads := len(destination.arrived()); uploads != 5 {
 		t.Errorf("the destination received %d uploads, want 5", uploads)
 	}
