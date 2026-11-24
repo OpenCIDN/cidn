@@ -755,8 +755,14 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 			}
 
 			if reflect.DeepEqual(prevStatus, &ss.Status) {
+				if s.waiting.Load() > 0 {
+					return ss
+				}
 				since := time.Since(lastUpdateTime)
-				if since <= staleResetAfter || s.waiting.Load() {
+				if ended := s.waitEnded.Load(); ended != nil {
+					since = min(since, time.Since(*ended))
+				}
+				if since <= staleResetAfter {
 					return ss
 				}
 
@@ -874,9 +880,10 @@ func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *
 		return
 	}
 
-	s.waiting.Store(true)
+	stopWaiting := s.startWaiting()
 	<-continues
 	r.waitForPartialChunk(s, swmr, etags)
+	stopWaiting()
 }
 
 func (r *ChunkRunner) waitForPartialChunk(s *state, swmr ioswmr.SWMR, etags []string) {
@@ -1201,9 +1208,10 @@ func newSha256() hashEncoding {
 }
 
 type state struct {
-	ss      *v1alpha1.Chunk
-	mut     sync.Mutex
-	waiting atomic.Bool
+	ss        *v1alpha1.Chunk
+	mut       sync.Mutex
+	waiting   atomic.Int32
+	waitEnded atomic.Pointer[time.Time]
 }
 
 func newState(s *v1alpha1.Chunk) *state {
@@ -1225,6 +1233,17 @@ func (s *state) Get() *v1alpha1.Chunk {
 	defer s.mut.Unlock()
 
 	return s.ss.DeepCopy()
+}
+
+// startWaiting holds off the stale reset until a full window after the returned func is called.
+func (s *state) startWaiting() (stop func()) {
+	s.waiting.Add(1)
+	return func() {
+		// Stored before the count drops, since the stale check reads the count first.
+		now := time.Now()
+		s.waitEnded.Store(&now)
+		s.waiting.Add(-1)
+	}
 }
 
 func handleProcessError(chunk *v1alpha1.Chunk, typ string, err error) {
