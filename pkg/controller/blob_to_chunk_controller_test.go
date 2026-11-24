@@ -37,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	clienttesting "k8s.io/client-go/testing"
 )
 
 func newTestToChunkController(t *testing.T, s3 map[string]*sss.SSS, objects ...runtime.Object) (*BlobToChunkController, *fake.Clientset) {
@@ -591,5 +592,67 @@ func TestFirstChunkCreatedAfterTheLayoutLeadsTheRunnerToIt(t *testing.T) {
 				t.Errorf("runner lays out %d chunks of %d bytes, blob %d chunks of %d bytes", chunksNumber, chunkSize, blob.Spec.ChunksNumber, blob.Spec.ChunkSize)
 			}
 		})
+	}
+}
+
+// committingBlob is a running blob of a kind that commits a multipart upload, with every part it records and the succeeded chunk of its last part.
+type committingBlob struct {
+	name  string
+	blob  *v1alpha1.Blob
+	parts []v1alpha1.UploadEtags
+	last  *v1alpha1.Chunk
+}
+
+func newTestCommittingBlobs() []committingBlob {
+	withoutSkipHead := newTestBlob()
+	withoutSkipHead.Spec.ChunksNumber, withoutSkipHead.Spec.ChunkSize = 3, 10
+	withoutSkipHead.Status.Total, withoutSkipHead.Status.AcceptRanges = 30, true
+	laidOut := newTestLaidOutSkipHeadBlob()
+	onePart := newTestSkipHeadBlob()
+	onePart.Spec.ChunksNumber, onePart.Status.Total = 1, 1024
+	threeParts := []v1alpha1.UploadEtags{{Size: 10, Etags: []string{"etag-1"}}, {Size: 10, Etags: []string{"etag-2"}}, {Size: 10, Etags: []string{"etag-3"}}}
+	return []committingBlob{
+		{name: "three parts without skipHead", blob: withoutSkipHead, parts: threeParts, last: newTestRecordedPart(withoutSkipHead, "blob:part:blob:3:14-1e", 3)},
+		{name: "three parts of skipHead after its first chunk", blob: laidOut, parts: threeParts, last: newTestRecordedPart(laidOut, "blob:part:blob:3:14-1e", 3)},
+		{name: "one part of skipHead", blob: onePart, parts: []v1alpha1.UploadEtags{{Size: 1024, Etags: []string{"etag-1"}}}, last: newTestSucceededFirstChunk(onePart, 1024, "etag-1")},
+	}
+}
+
+// createdNames lists the objects created through the client as resource/name.
+func createdNames(client *fake.Clientset) []string {
+	var names []string
+	for _, action := range client.Actions() {
+		if action.GetVerb() == "create" {
+			names = append(names, action.GetResource().Resource+"/"+action.(clienttesting.CreateAction).GetObject().(metav1.Object).GetName())
+		}
+	}
+	return names
+}
+
+func TestToSideCreatesNothingForARunningBlobWhoseChunksAllSucceeded(t *testing.T) {
+	for _, committed := range []bool{false, true} {
+		for _, tt := range newTestCommittingBlobs() {
+			t.Run(fmt.Sprintf("%s, committed %t", tt.name, committed), func(t *testing.T) {
+				// Before the commit the record lacks the last part; the commit records it and clears the upload ID.
+				uploadID, recorded := "upload-1", tt.parts[:len(tt.parts)-1]
+				if committed {
+					uploadID, recorded = "", tt.parts
+				}
+				mp := newTestMultipart(tt.blob, int64(len(tt.parts)), uploadID)
+				copy(mp.UploadEtags, recorded)
+				stores, requests := newTestUploadStorage(t, "upload-2")
+				c, client := newTestToChunkController(t, stores, tt.blob, tt.last, mp)
+
+				c.handler(context.Background(), tt.blob.Name)
+
+				waitForChunkNames(t, client, tt.last.Name)
+				if got := createdNames(client); len(got) != 0 {
+					t.Errorf("created %v, want nothing", got)
+				}
+				if got := requests(); len(got) != 0 {
+					t.Errorf("store requests %q, want none", got)
+				}
+			})
+		}
 	}
 }
