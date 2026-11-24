@@ -38,6 +38,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 )
@@ -673,6 +674,26 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 		return nil
 	}
 
+	// The record stays with every part and no upload ID, so no later pass opens or commits an upload again.
+	for i := range mp.UploadIDs {
+		mp.UploadIDs[i] = ""
+	}
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		_, err := c.client.TaskV1alpha1().Multiparts().Update(ctx, mp, metav1.UpdateOptions{})
+		if apierrors.IsConflict(err) {
+			latest, getErr := c.client.TaskV1alpha1().Multiparts().Get(ctx, mp.Name, metav1.GetOptions{})
+			if getErr != nil {
+				return getErr
+			}
+			latest.UploadIDs, latest.UploadEtags = mp.UploadIDs, mp.UploadEtags
+			mp = latest
+		}
+		return err
+	})
+	if err != nil {
+		klog.Errorf("failed to record the commit in multipart %s: %v", blob.Name, err)
+	}
+
 	err = c.verifySha256(ctx, blob)
 	if err != nil {
 		utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseFailed)
@@ -687,12 +708,6 @@ func (c *BlobFromChunkController) fromChunks(ctx context.Context, blob *v1alpha1
 	}
 
 	utils.SetBlobTerminalPhase(blob, v1alpha1.BlobPhaseSucceeded)
-	err = c.client.TaskV1alpha1().Multiparts().Delete(ctx, blob.Name, metav1.DeleteOptions{})
-	if err != nil {
-		klog.Errorf("failed to delete multipart %s: %v", blob.Name, err)
-		return nil
-	}
-
 	return nil
 }
 

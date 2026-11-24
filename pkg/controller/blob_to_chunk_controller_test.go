@@ -24,7 +24,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -279,15 +281,22 @@ func TestExistingFirstChunkNeedsNothingFromTheStore(t *testing.T) {
 	}
 }
 
-// newTestUploadStorage is a store without unfinished uploads that opens the next one as uploadID.
-func newTestUploadStorage(t *testing.T, uploadID string) map[string]*sss.SSS {
+// newTestUploadStorage is a store without unfinished uploads that opens the next one as uploadID, accepts any commit, and lists the requests it got.
+func newTestUploadStorage(t *testing.T, uploadID string) (map[string]*sss.SSS, func() []string) {
 	t.Helper()
+	var mu sync.Mutex
+	var requests []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, r.Method+" "+r.URL.RequestURI())
+		mu.Unlock()
 		switch {
 		case r.Method == http.MethodGet && r.URL.Query().Has("uploads"):
 			io.WriteString(w, "<ListMultipartUploadsResult><IsTruncated>false</IsTruncated></ListMultipartUploadsResult>")
 		case r.Method == http.MethodPost && r.URL.Query().Has("uploads"):
 			fmt.Fprintf(w, "<InitiateMultipartUploadResult><Key>blob</Key><UploadId>%s</UploadId></InitiateMultipartUploadResult>", uploadID)
+		case r.Method == http.MethodPost && r.URL.Query().Has("uploadId"):
+			io.WriteString(w, "<CompleteMultipartUploadResult><Key>blob</Key></CompleteMultipartUploadResult>")
 		default:
 			t.Errorf("unexpected store call %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotImplemented)
@@ -298,7 +307,11 @@ func newTestUploadStorage(t *testing.T, uploadID string) map[string]*sss.SSS {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return map[string]*sss.SSS{"storage": s}
+	return map[string]*sss.SSS{"storage": s}, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(requests)
+	}
 }
 
 func TestSkipHeadBlobStartsWithAFreshMultipartInsteadOfAStaleOne(t *testing.T) {
@@ -319,7 +332,8 @@ func TestSkipHeadBlobStartsWithAFreshMultipartInsteadOfAStaleOne(t *testing.T) {
 			blob := newTestSkipHeadBlob()
 			mp := newTestMultipart(blob, 0, "upload-1")
 			mp.UploadEtags = tt.slots
-			c, client := newTestToChunkController(t, newTestUploadStorage(t, "upload-2"), blob, mp)
+			stores, _ := newTestUploadStorage(t, "upload-2")
+			c, client := newTestToChunkController(t, stores, blob, mp)
 
 			c.handler(context.Background(), blob.Name)
 
