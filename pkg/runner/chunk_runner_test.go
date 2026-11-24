@@ -257,6 +257,8 @@ func TestProgressUpdaterGivesAFullStaleWindowAfterTheLastWaitEnds(t *testing.T) 
 		}
 		time.Sleep(time.Millisecond)
 	}
+	// An earlier wait ends at once, so the window must run from the last one's end.
+	current.startWaiting()()
 	stopWaiting := current.startWaiting()
 	time.Sleep(2 * window)
 	ended := time.Now()
