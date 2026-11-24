@@ -18,6 +18,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"slices"
 	"testing"
@@ -256,15 +257,20 @@ func TestUploadFailingForGoodHangsUpOnAStalledSource(t *testing.T) {
 }
 
 func TestUploadFailingForGoodAbortsTheUploadToAHungDestination(t *testing.T) {
-	hung := startFailingDestination(t, testFailure{hangAt: 1})
-	rejecting := startFailingDestination(t, testFailure{status: http.StatusForbidden})
-	chunk := newFirstPartChunk(startSource(t, testSource{content: testContent(4096)}), nil, hung, rejecting)
-	runner, client := newProcessRunner(t, chunk)
-	done := startProcess(t, runner, chunk)
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("process did not return within 1s although one destination rejected its upload")
+	// Without a length the uploads start only after the whole source was read.
+	for _, noLength := range []bool{false, true} {
+		t.Run(fmt.Sprintf("noLength=%t", noLength), func(t *testing.T) {
+			hung := startFailingDestination(t, testFailure{hangAt: 1})
+			rejecting := startFailingDestination(t, testFailure{status: http.StatusForbidden})
+			chunk := newFirstPartChunk(startSource(t, testSource{content: testContent(4096), noLength: noLength}), nil, hung, rejecting)
+			runner, client := newProcessRunner(t, chunk)
+			done := startProcess(t, runner, chunk)
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("process did not return within 1s although one destination rejected its upload")
+			}
+			expectFailedWith(t, client, chunk.Name, "DestinationRequestError", false)
+		})
 	}
-	expectFailedWith(t, client, chunk.Name, "DestinationRequestError", false)
 }
