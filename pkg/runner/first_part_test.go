@@ -50,6 +50,8 @@ type testSource struct {
 	// hungUp holds the body past pauseAfter back until the client hangs up.
 	pauseAfter int
 	hungUp     chan<- bool
+	// trickle writes the body in 1 KiB pieces this far apart.
+	trickle time.Duration
 }
 
 func startSource(t *testing.T, source testSource) string {
@@ -76,6 +78,21 @@ func startSource(t *testing.T, source testSource) string {
 			}
 			source.hungUp <- r.Context().Err() != nil
 			body = body[source.pauseAfter:]
+		}
+		if source.trickle > 0 {
+			for len(body) > 0 {
+				piece := body[:min(len(body), 1024)]
+				body = body[len(piece):]
+				if _, err := w.Write(piece); err != nil {
+					return
+				}
+				w.(http.Flusher).Flush()
+				select {
+				case <-r.Context().Done():
+					return
+				case <-time.After(source.trickle):
+				}
+			}
 		}
 		_, _ = w.Write(body)
 	}))
@@ -128,15 +145,28 @@ func (destination *testDestination) received() []testUpload {
 type testFailure struct {
 	// cutAfter is how long each upload waits before its connection is cut.
 	cutAfter time.Duration
+	// hangAt is the upload, counted from 1, left unanswered until the client hangs up.
+	hangAt int
 }
 
 func startFailingDestination(t *testing.T, failure testFailure) *testDestination {
 	t.Helper()
+	ended := t.Context()
 	destination := &testDestination{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		destination.mut.Lock()
 		destination.arrivals = append(destination.arrivals, time.Now())
+		upload := len(destination.arrivals)
 		destination.mut.Unlock()
+		if upload == failure.hangAt {
+			// The server notices a hang-up only after the body was read.
+			_, _ = io.Copy(io.Discard, r.Body)
+			select {
+			case <-r.Context().Done():
+			case <-ended.Done():
+			}
+			return
+		}
 		time.Sleep(failure.cutAfter)
 		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
 			conn.Close()

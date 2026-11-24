@@ -707,8 +707,14 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 			for i := 0; i < 5; i++ {
 				if i > 0 {
 					stopWaiting := s.startWaiting()
-					time.Sleep(waitTime)
+					select {
+					case <-time.After(waitTime):
+					case <-ctx.Done():
+					}
 					stopWaiting()
+					if ctx.Err() != nil {
+						break
+					}
 					waitTime *= 2
 				}
 				etag, retry, err = r.destinationRequest(ctx, &dest, dr, contentLength)

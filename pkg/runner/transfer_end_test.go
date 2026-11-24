@@ -17,6 +17,7 @@ limitations under the License.
 package runner
 
 import (
+	"context"
 	"slices"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned/fake"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stesting "k8s.io/client-go/testing"
 )
@@ -125,5 +127,93 @@ func TestProcessReturnsWithoutWaitingAfterTheLastUploadAttempt(t *testing.T) {
 	// The wait before the fifth attempt; one after it would be twice as long.
 	if after := returned.Sub(arrivals[4]); after >= 8*interval {
 		t.Errorf("process returned %v after the fifth upload arrived, want less than the %v waited before it", after, 8*interval)
+	}
+}
+
+func startProcess(t *testing.T, runner *ChunkRunner, chunk *v1alpha1.Chunk) <-chan struct{} {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runProcess(runner, chunk)
+	}()
+	t.Cleanup(func() { <-done })
+	return done
+}
+
+func waitUntil(t *testing.T, within time.Duration, what string, condition func() bool) time.Time {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for !condition() {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s did not happen within %v", what, within)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return time.Now()
+}
+
+func TestStaleResetOfAHungUploadEndsTheChunkAtOnce(t *testing.T) {
+	window := 500 * time.Millisecond
+	// Over twice a window and an update period, so only the declared wait holds the reset off.
+	interval := 1500 * time.Millisecond
+	setDuration(t, &uploadRetryInterval, interval)
+	setDuration(t, &staleResetAfter, window)
+	destination := startFailingDestination(t, testFailure{hangAt: 2})
+	chunk := newFirstPartChunk(startSource(t, testSource{content: testContent(4096)}), nil, destination)
+	runner, client := newProcessRunner(t, chunk)
+	runner.updateDuration = 10 * time.Millisecond
+	updates := trackStatusUpdates(client, "chunks", nil)
+	done := startProcess(t, runner, chunk)
+	waitUntil(t, 2*interval, "the second upload", func() bool { return len(destination.arrived()) >= 2 })
+	second := destination.arrived()[1]
+	reset := waitUntil(t, 4*window, "a reset", func() bool {
+		updates.mut.Lock()
+		defer updates.mut.Unlock()
+		return slices.ContainsFunc(updates.objects, func(object runtime.Object) bool {
+			status := object.(*v1alpha1.Chunk).Status
+			return status.Phase == v1alpha1.ChunkPhasePending && status.HandlerName == ""
+		})
+	})
+	select {
+	case <-done:
+	case <-time.After(4 * interval):
+		t.Fatalf("process did not return within %v after the reset", 4*interval)
+	}
+	if after := reset.Sub(second); after < window/2 {
+		t.Errorf("the chunk was reset %v after its second upload began, want a stale window of %v", after, window)
+	}
+	if after := time.Since(reset); after >= interval {
+		t.Errorf("process returned %v after the reset, want well within the next wait of %v", after, 2*interval)
+	}
+}
+
+func TestDeletingTheChunkDuringARetryWaitEndsTheChunkAtOnce(t *testing.T) {
+	interval := 2 * time.Second
+	setDuration(t, &uploadRetryInterval, interval)
+	destination := startFailingDestination(t, testFailure{})
+	// A changing status makes the updater write, which is how it learns of the deletion.
+	source := startSource(t, testSource{content: testContent(1 << 20), trickle: 5 * time.Millisecond})
+	chunk := newFirstPartChunk(source, nil, destination)
+	runner, client := newProcessRunner(t, chunk)
+	runner.updateDuration = 10 * time.Millisecond
+	done := startProcess(t, runner, chunk)
+	waitUntil(t, time.Second, "the first upload", func() bool { return len(destination.arrived()) >= 1 })
+	// Time for the first attempt to fail, well inside the wait after it.
+	time.Sleep(100 * time.Millisecond)
+	if err := client.TaskV1alpha1().Chunks().Delete(context.Background(), chunk.Name, metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	deleted := time.Now()
+	select {
+	case <-done:
+	case <-time.After(2 * interval):
+		t.Fatalf("process did not return within %v after the chunk was deleted", 2*interval)
+	}
+	if after := time.Since(deleted); after >= interval/4 {
+		t.Errorf("process returned %v after the chunk was deleted, want well within the %v wait", after, interval)
+	}
+	if uploads := len(destination.arrived()); uploads != 1 {
+		t.Errorf("the destination received %d uploads, want 1", uploads)
 	}
 }
