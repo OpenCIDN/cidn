@@ -32,11 +32,13 @@ import (
 
 	"github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned/fake"
+	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	"github.com/wzshiming/sss"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/watch"
 	clienttesting "k8s.io/client-go/testing"
 )
 
@@ -282,7 +284,7 @@ func TestExistingFirstChunkNeedsNothingFromTheStore(t *testing.T) {
 	}
 }
 
-// newTestUploadStorage is a store without unfinished uploads that opens the next one as uploadID, commits that one only, reads every object as "content", and lists the requests it got.
+// newTestUploadStorage is a store without unfinished uploads that opens the next one as uploadID, commits or cancels that one only, reads every object as "content", and lists the requests it got.
 func newTestUploadStorage(t *testing.T, uploadID string) (map[string]*sss.SSS, func() []string) {
 	t.Helper()
 	var mu sync.Mutex
@@ -303,6 +305,8 @@ func newTestUploadStorage(t *testing.T, uploadID string) (map[string]*sss.SSS, f
 		case r.Method == http.MethodPost && r.URL.Query().Has("uploadId"):
 			w.WriteHeader(http.StatusNotFound)
 			io.WriteString(w, "<Error><Code>NoSuchUpload</Code><Message>The specified upload does not exist.</Message></Error>")
+		case r.Method == http.MethodDelete && r.URL.Query().Get("uploadId") == uploadID:
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			t.Errorf("unexpected store call %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotImplemented)
@@ -676,6 +680,99 @@ func TestCleanupRemovesACommittedMultipartWithoutAskingTheStore(t *testing.T) {
 			}
 			if got := requests(); len(got) != 0 {
 				t.Errorf("store requests %q, want none", got)
+			}
+		})
+	}
+}
+
+func TestBothControllersOpenNoSecondUploadAfterTheCommit(t *testing.T) {
+	for _, tt := range newTestCommittingBlobs() {
+		t.Run(tt.name, func(t *testing.T) {
+			mp := newTestMultipart(tt.blob, int64(len(tt.parts)), "upload-1")
+			copy(mp.UploadEtags, tt.parts[:len(tt.parts)-1])
+			stores, requests := newTestUploadStorage(t, "upload-1")
+			// The last chunk already succeeded, so the from side's first pass commits and no second pass reads a stale record.
+			client := fake.NewSimpleClientset(tt.blob, tt.last, mp)
+			watched := make(chan struct{}, 3)
+			client.PrependWatchReactor("*", func(action clienttesting.Action) (bool, watch.Interface, error) {
+				w, err := client.Tracker().Watch(action.GetResource(), action.GetNamespace())
+				watched <- struct{}{}
+				return true, w, err
+			})
+			// The from side's Succeeded reaches the API server only when the test lands it.
+			held := make(chan *v1alpha1.Blob, 1)
+			client.PrependReactor("update", "blobs", func(action clienttesting.Action) (bool, runtime.Object, error) {
+				blob := action.(clienttesting.UpdateAction).GetObject().(*v1alpha1.Blob)
+				if blob.Status.Phase != v1alpha1.BlobPhaseSucceeded {
+					return false, nil, nil
+				}
+				select {
+				case held <- blob.DeepCopy():
+				default:
+				}
+				return true, blob, nil
+			})
+			factory := externalversions.NewSharedInformerFactory(client, 0)
+			to := NewBlobToChunkController(testHandlerName, stores, client, factory)
+			from := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+			t.Cleanup(to.workqueue.ShutDown)
+			t.Cleanup(from.workqueue.ShutDown)
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			factory.Start(ctx.Done())
+			factory.WaitForCacheSync(ctx.Done())
+			// Changes made before an informer watches never reach it.
+			for range 3 {
+				select {
+				case <-watched:
+				case <-time.After(5 * time.Second):
+					t.Fatal("informers never watched")
+				}
+			}
+			if err := to.Start(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := from.Start(ctx); err != nil {
+				t.Fatal(err)
+			}
+
+			var succeeded *v1alpha1.Blob
+			select {
+			case succeeded = <-held:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("no Succeeded written; store requests %q", requests())
+			}
+			// The to side's pass below reads the record as the commit left it.
+			records := factory.Task().V1alpha1().Multiparts().Lister()
+			if err := wait.PollUntilContextTimeout(ctx, 5*time.Millisecond, 5*time.Second, true, func(ctx context.Context) (bool, error) {
+				cached, cacheErr := records.Get(tt.blob.Name)
+				stored, err := client.TaskV1alpha1().Multiparts().Get(ctx, tt.blob.Name, metav1.GetOptions{})
+				if cacheErr != nil || err != nil {
+					return apierrors.IsNotFound(cacheErr) && apierrors.IsNotFound(err), nil
+				}
+				return reflect.DeepEqual(cached.UploadIDs, stored.UploadIDs) && reflect.DeepEqual(cached.UploadEtags, stored.UploadEtags), nil
+			}); err != nil {
+				t.Fatal("the cache never caught up with the multipart")
+			}
+			to.handler(ctx, tt.blob.Name)
+
+			commit := []string{"POST /bucket/blob?uploadId=upload-1"}
+			if got := requests(); !reflect.DeepEqual(got, commit) {
+				t.Errorf("store requests %q while the blob still runs in the cache, want only %q", got, commit)
+			}
+			if err := client.Tracker().Update(v1alpha1.SchemeGroupVersion.WithResource("blobs"), succeeded, ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := wait.PollUntilContextTimeout(ctx, 5*time.Millisecond, 5*time.Second, true, func(context.Context) (bool, error) {
+				return !multipartExists(t, client, tt.blob.Name) && len(chunkNames(t, client)) == 0, nil
+			}); err != nil {
+				t.Errorf("multipart kept %t, chunks %v kept after the blob succeeded; want both deleted", multipartExists(t, client, tt.blob.Name), chunkNames(t, client))
+			}
+			if got := requests(); !reflect.DeepEqual(got, commit) {
+				t.Errorf("store requests %q, want only %q", got, commit)
+			}
+			if got := createdNames(client); len(got) != 0 {
+				t.Errorf("created %v, want nothing", got)
 			}
 		})
 	}
