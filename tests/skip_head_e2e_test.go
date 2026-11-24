@@ -29,6 +29,7 @@ import (
 	taskv1alpha1 "github.com/OpenCIDN/cidn/pkg/apis/task/v1alpha1"
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 const (
@@ -72,11 +73,12 @@ func TestSkipHeadBlobMultiChunkSucceedsWithoutHeadOrFullChunk(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-skip-head-multi")
 	sha := writeSource(t, name, 16<<20)
-	chunkNames := watchChunkNames(t, client, name)
+	countCreations := watchCreations(t, client, name)
 	createBlob(t, client, name, sha, sourceWith(name, rejectHead), skipHead)
 
 	blob := waitForBlobDone(t, client, name)
-	names := chunkNames()
+	created := countCreations()
+	names := slices.Sorted(maps.Keys(created.chunks))
 	t.Logf("chunks of blob %s: %v", name, names)
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
 		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
@@ -84,11 +86,12 @@ func TestSkipHeadBlobMultiChunkSucceedsWithoutHeadOrFullChunk(t *testing.T) {
 	if blob.Spec.ChunksNumber != 3 {
 		t.Errorf("blob %s was split into %d chunks, want 3", name, blob.Spec.ChunksNumber)
 	}
-	// The first chunk is part 1; chunks re-created after the commit reuse these names.
+	// The first chunk is part 1.
 	want := []string{"blob:first:" + name, partChunkName(blob, 2), partChunkName(blob, 3)}
 	if !slices.Equal(names, want) {
 		t.Errorf("blob %s had chunks %v, want %v", name, names, want)
 	}
+	checkCreatedOnce(t, name, created)
 }
 
 func TestSkipHeadBlobSingleChunkSucceeds(t *testing.T) {
@@ -96,15 +99,18 @@ func TestSkipHeadBlobSingleChunkSucceeds(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-skip-head-single")
 	sha := writeSource(t, name, 1<<20)
+	countCreations := watchCreations(t, client, name)
 	createBlob(t, client, name, sha, sourceWith(name, rejectHead), skipHead)
 
 	blob := waitForBlobDone(t, client, name)
+	created := countCreations()
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
 		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
 	}
 	if blob.Spec.ChunksNumber != 1 {
 		t.Errorf("blob %s was split into %d chunks, want 1", name, blob.Spec.ChunksNumber)
 	}
+	checkCreatedOnce(t, name, created)
 }
 
 func TestSkipHeadBlobWithoutRangeSupportSucceedsInOneChunk(t *testing.T) {
@@ -112,15 +118,18 @@ func TestSkipHeadBlobWithoutRangeSupportSucceedsInOneChunk(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-skip-head-no-range")
 	sha := writeSource(t, name, 16<<20)
+	countCreations := watchCreations(t, client, name)
 	createBlob(t, client, name, sha, sourceWith(name, rejectHead, noRange), skipHead)
 
 	blob := waitForBlobDone(t, client, name)
+	created := countCreations()
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
 		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
 	}
 	if blob.Spec.ChunksNumber != 1 {
 		t.Errorf("blob %s was split into %d chunks, want 1", name, blob.Spec.ChunksNumber)
 	}
+	checkCreatedOnce(t, name, created)
 }
 
 func TestSkipHeadBlobWithOnlyChunkSizeIsSplitByIt(t *testing.T) {
@@ -129,15 +138,18 @@ func TestSkipHeadBlobWithOnlyChunkSizeIsSplitByIt(t *testing.T) {
 	name := uniqueName("e2e-skip-head-chunk-size")
 	sha := writeSource(t, name, 16<<20)
 	chunkSize := int64(6 << 20)
+	countCreations := watchCreations(t, client, name)
 	createBlob(t, client, name, sha, sourceWith(name, rejectHead), skipHead, chunkSizeOnly(chunkSize))
 
 	blob := waitForBlobDone(t, client, name)
+	created := countCreations()
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
 		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
 	}
 	if blob.Spec.ChunksNumber != 3 || blob.Spec.ChunkSize != chunkSize {
 		t.Errorf("blob %s was split into %d chunks of %d bytes, want 3 of %d", name, blob.Spec.ChunksNumber, blob.Spec.ChunkSize, chunkSize)
 	}
+	checkCreatedOnce(t, name, created)
 }
 
 func TestBlobWithOnlyChunkSizeIsSplitByIt(t *testing.T) {
@@ -146,15 +158,18 @@ func TestBlobWithOnlyChunkSizeIsSplitByIt(t *testing.T) {
 	name := uniqueName("e2e-chunk-size")
 	sha := writeSource(t, name, 16<<20)
 	chunkSize := int64(6 << 20)
+	countCreations := watchCreations(t, client, name)
 	createBlob(t, client, name, sha, chunkSizeOnly(chunkSize))
 
 	blob := waitForBlobDone(t, client, name)
+	created := countCreations()
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
 		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
 	}
 	if blob.Spec.ChunksNumber != 3 || blob.Spec.ChunkSize != chunkSize {
 		t.Errorf("blob %s was split into %d chunks of %d bytes, want 3 of %d", name, blob.Spec.ChunksNumber, blob.Spec.ChunkSize, chunkSize)
 	}
+	checkCreatedOnce(t, name, created)
 }
 
 func TestSkipHeadBlobWithSkipIfExistsSucceedsWithoutTheBody(t *testing.T) {
@@ -238,13 +253,16 @@ func TestSkipHeadBlobOfEmptyContentSucceeds(t *testing.T) {
 	client := newE2EClient(t)
 	name := uniqueName("e2e-skip-head-empty")
 	sha := writeSource(t, name, 0)
+	countCreations := watchCreations(t, client, name)
 	createBlob(t, client, name, sha, sourceWith(name, rejectHead), skipHead)
 
 	// createBlob's ReverifySha256 hashes the destination object, so success means it is empty.
 	blob := waitForBlobDone(t, client, name)
+	created := countCreations()
 	if blob.Status.Phase != taskv1alpha1.BlobPhaseSucceeded {
 		t.Fatalf("blob %s is %s, want %s; status: %s", name, blob.Status.Phase, taskv1alpha1.BlobPhaseSucceeded, statusJSON(blob))
 	}
+	checkCreatedOnce(t, name, created)
 }
 
 // sourceWith serves testdata/<name>.rand from nginx-test with the behaviours its query arguments choose.
@@ -266,38 +284,82 @@ func chunkSizeOnly(size int64) func(*taskv1alpha1.BlobSpec) {
 	}
 }
 
-// watchChunkNames watches the Chunks of the blob named blobName; the returned func ends the watch and lists their names.
-func watchChunkNames(t *testing.T, client versioned.Interface, blobName string) func() []string {
+// creations counts how often the Multipart record of a blob and each of its Chunks, by name, were created.
+type creations struct {
+	multipart int
+	chunks    map[string]int
+}
+
+// watchCreations watches the Chunks and the Multipart record of the blob named blobName; the returned func ends the watch and counts their creations.
+func watchCreations(t *testing.T, client versioned.Interface, blobName string) func() creations {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	w, err := client.TaskV1alpha1().Chunks().Watch(ctx, metav1.ListOptions{})
+	chunks, err := client.TaskV1alpha1().Chunks().Watch(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("failed to watch chunks: %v", err)
 	}
+	t.Cleanup(chunks.Stop)
+	multiparts, err := client.TaskV1alpha1().Multiparts().Watch(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("failed to watch multiparts: %v", err)
+	}
+	t.Cleanup(multiparts.Stop)
 
-	names := map[string]bool{}
+	created := creations{chunks: map[string]int{}}
 	ended := make(chan struct{})
 	go func() {
 		defer close(ended)
-		for event := range w.ResultChan() {
-			if chunk, ok := event.Object.(*taskv1alpha1.Chunk); ok && chunk.Annotations[blobNameAnnotation] == blobName {
-				names[chunk.Name] = true
+		for {
+			var event watch.Event
+			var open bool
+			select {
+			case event, open = <-chunks.ResultChan():
+			case event, open = <-multiparts.ResultChan():
+			}
+			if !open {
+				return
+			}
+			if event.Type != watch.Added {
+				continue
+			}
+			switch object := event.Object.(type) {
+			case *taskv1alpha1.Chunk:
+				if object.Annotations[blobNameAnnotation] == blobName {
+					created.chunks[object.Name]++
+				}
+			case *taskv1alpha1.Multipart:
+				// The controller names the record after its blob.
+				if object.Name == blobName {
+					created.multipart++
+				}
 			}
 		}
 	}()
 
-	return func() []string {
+	return func() creations {
 		t.Helper()
 		time.Sleep(chunkWatchSettle)
 		select {
 		case <-ended:
-			t.Fatalf("the chunk watch of blob %s ended early", blobName)
+			t.Fatalf("the watch of blob %s ended early", blobName)
 		default:
 		}
-		w.Stop()
+		chunks.Stop()
+		multiparts.Stop()
 		<-ended
-		return slices.Sorted(maps.Keys(names))
+		return created
+	}
+}
+
+// checkCreatedOnce checks that the blob's Multipart record was created once and none of its Chunks more than once.
+func checkCreatedOnce(t *testing.T, blobName string, created creations) {
+	t.Helper()
+	if created.multipart != 1 {
+		t.Errorf("multipart record of blob %s was created %d times, want once", blobName, created.multipart)
+	}
+	for _, name := range slices.Sorted(maps.Keys(created.chunks)) {
+		if created.chunks[name] > 1 {
+			t.Errorf("chunk %s was created %d times, want once", name, created.chunks[name])
+		}
 	}
 }
 
