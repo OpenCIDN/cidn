@@ -608,8 +608,8 @@ func TestCommitFailsABlobWhoseMultipartLacksAnEtagOrUploadID(t *testing.T) {
 			if got.Status.Phase != v1alpha1.BlobPhaseFailed || len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Type != "MultipartIncomplete" {
 				t.Errorf("phase %s, conditions %v; want %s with MultipartIncomplete", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseFailed)
 			}
-			if !multipartExists(t, client, blob.Name) {
-				t.Error("multipart committed")
+			if got := getMultipart(t, client, blob.Name).UploadIDs; !reflect.DeepEqual(got, tt.uploadIDs) {
+				t.Errorf("multipart committed: upload IDs %q, want %q kept", got, tt.uploadIDs)
 			}
 		})
 	}
