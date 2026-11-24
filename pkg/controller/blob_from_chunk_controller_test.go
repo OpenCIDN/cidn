@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -31,6 +32,7 @@ import (
 	"github.com/OpenCIDN/cidn/pkg/clientset/versioned/fake"
 	"github.com/OpenCIDN/cidn/pkg/informers/externalversions"
 	"github.com/wzshiming/sss"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -758,6 +760,40 @@ func TestCommitIsRecordedInTheMultipartBeforeTheSha256Check(t *testing.T) {
 	if want := []string{"POST /bucket/blob?uploadId=upload-1"}; !reflect.DeepEqual(beforeRewrite, want) {
 		t.Errorf("store requests %q when the multipart was rewritten, want %q", beforeRewrite, want)
 	}
+	want := []v1alpha1.UploadEtags{{Size: 10, Etags: []string{"etag-1"}}, {Size: 10, Etags: []string{"etag-2"}}, {Size: 10, Etags: []string{"etag-3"}}}
+	if got := getMultipart(t, client, blob.Name); !reflect.DeepEqual(got.UploadEtags, want) || !reflect.DeepEqual(got.UploadIDs, []string{""}) {
+		t.Errorf("multipart parts %+v, upload IDs %q; want %+v and one empty upload ID", got.UploadEtags, got.UploadIDs, want)
+	}
+}
+
+func TestCommitIsRecordedOverAConcurrentWrite(t *testing.T) {
+	blob := newTestBlob()
+	blob.Spec.ChunksNumber, blob.Spec.ChunkSize = 3, 10
+	blob.Status.Total, blob.Status.AcceptRanges = 30, true
+	mp := newTestMultipart(blob, 3, "upload-1")
+	mp.ResourceVersion = "1"
+	mp.UploadEtags[0] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+	stores, _ := newTestUploadStorage(t, "upload-1")
+	client, factory := newTestInformers(t, blob, newTestRecordedPart(blob, "blob:part:blob:2:0a-14", 2), newTestRecordedPart(blob, "blob:part:blob:3:14-1e", 3), mp)
+	// An earlier pass's write of part 2 reached the API server but not yet the cache.
+	latest := mp.DeepCopy()
+	latest.ResourceVersion = "2"
+	latest.UploadEtags[1] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-2"}}
+	if err := client.Tracker().Update(v1alpha1.SchemeGroupVersion.WithResource("multiparts"), latest, ""); err != nil {
+		t.Fatal(err)
+	}
+	// Like the API server, refuse a write based on an older version.
+	client.PrependReactor("update", "multiparts", func(action clienttesting.Action) (bool, runtime.Object, error) {
+		if action.(clienttesting.UpdateAction).GetObject().(*v1alpha1.Multipart).ResourceVersion == latest.ResourceVersion {
+			return false, nil, nil
+		}
+		return true, nil, apierrors.NewConflict(v1alpha1.Resource("multiparts"), mp.Name, errors.New("the object has been modified"))
+	})
+	c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+	t.Cleanup(c.workqueue.ShutDown)
+
+	c.handler(context.Background(), blob.Name)
+
 	want := []v1alpha1.UploadEtags{{Size: 10, Etags: []string{"etag-1"}}, {Size: 10, Etags: []string{"etag-2"}}, {Size: 10, Etags: []string{"etag-3"}}}
 	if got := getMultipart(t, client, blob.Name); !reflect.DeepEqual(got.UploadEtags, want) || !reflect.DeepEqual(got.UploadIDs, []string{""}) {
 		t.Errorf("multipart parts %+v, upload IDs %q; want %+v and one empty upload ID", got.UploadEtags, got.UploadIDs, want)
