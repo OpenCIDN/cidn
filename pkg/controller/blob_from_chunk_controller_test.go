@@ -799,3 +799,39 @@ func TestCommitIsRecordedOverAConcurrentWrite(t *testing.T) {
 		t.Errorf("multipart parts %+v, upload IDs %q; want %+v and one empty upload ID", got.UploadEtags, got.UploadIDs, want)
 	}
 }
+
+func TestBlobSucceedsWhenItsCommitCannotBeRecorded(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "conflict on every write", err: apierrors.NewConflict(v1alpha1.Resource("multiparts"), "blob", errors.New("the object has been modified"))},
+		{name: "server error", err: apierrors.NewInternalError(errors.New("etcd unavailable"))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob := newTestBlob()
+			blob.Spec.ChunksNumber, blob.Spec.ChunkSize = 3, 10
+			blob.Status.Total, blob.Status.AcceptRanges = 30, true
+			mp := newTestMultipart(blob, 3, "upload-1")
+			mp.UploadEtags[0] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+			mp.UploadEtags[1] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-2"}}
+			stores, _ := newTestUploadStorage(t, "upload-1")
+			client, factory := newTestInformers(t, blob, newTestRecordedPart(blob, "blob:part:blob:3:14-1e", 3), mp)
+			client.PrependReactor("update", "multiparts", func(clienttesting.Action) (bool, runtime.Object, error) {
+				return true, nil, tt.err
+			})
+			c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+			t.Cleanup(c.workqueue.ShutDown)
+
+			c.handler(context.Background(), blob.Name)
+
+			if got := getBlob(t, client, blob.Name); got.Status.Phase != v1alpha1.BlobPhaseSucceeded {
+				t.Errorf("phase %s, conditions %v; want %s", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseSucceeded)
+			}
+			if got := getMultipart(t, client, blob.Name); !reflect.DeepEqual(got.UploadEtags, mp.UploadEtags) || !reflect.DeepEqual(got.UploadIDs, mp.UploadIDs) {
+				t.Errorf("multipart parts %+v, upload IDs %q; want %+v and %q as before", got.UploadEtags, got.UploadIDs, mp.UploadEtags, mp.UploadIDs)
+			}
+		})
+	}
+}
