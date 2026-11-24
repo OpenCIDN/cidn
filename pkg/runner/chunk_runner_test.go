@@ -271,6 +271,30 @@ func TestProgressUpdaterGivesAFullStaleWindowAfterTheLastWaitEnds(t *testing.T) 
 	}
 }
 
+func TestProgressUpdaterGivesAFullStaleWindowAfterAStatusChangeFollowingAWait(t *testing.T) {
+	window := time.Second
+	current, ctx, _ := startIdleChunkUpdater(t, window)
+	current.startWaiting()()
+	var changed time.Time
+	// Changes under half a window apart; the last lands just before a window since the wait.
+	for range 2 {
+		time.Sleep(window * 9 / 20)
+		current.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
+			ss.Status.Progress++
+			return ss
+		})
+		changed = time.Now()
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(4 * window):
+		t.Fatalf("chunk was not reset within %v after its status last changed", 4*window)
+	}
+	if after := time.Since(changed); after < window/2 {
+		t.Errorf("chunk was reset %v after its status changed, want a full stale window of %v", after, window)
+	}
+}
+
 func TestProgressUpdaterKeepsLocalResultAfterConflict(t *testing.T) {
 	chunk := newTestChunk("finished", 0, 0)
 	chunk.Status.HandlerName = "runner-test"
