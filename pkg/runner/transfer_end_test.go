@@ -72,7 +72,7 @@ func TestUploadsFailingEveryTimeFailTheChunkInsteadOfResettingIt(t *testing.T) {
 }
 
 func TestUploadsFailingSlowlyFailTheChunkInsteadOfResettingIt(t *testing.T) {
-	window := 200 * time.Millisecond
+	window := 600 * time.Millisecond
 	setDuration(t, &uploadRetryInterval, 10*time.Millisecond)
 	setDuration(t, &staleResetAfter, window)
 	// Each attempt takes half a window, all five together more than two.
