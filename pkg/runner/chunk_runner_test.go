@@ -159,7 +159,9 @@ func TestProgressUpdaterPreservesWaitingChunksButResetsStalledDownloads(t *testi
 			runner.updateDuration = 10 * time.Millisecond
 			updates := trackStatusUpdates(client, "chunks", nil)
 			current := newState(chunk)
-			current.waiting.Store(waiting)
+			if waiting {
+				current.startWaiting()
+			}
 			states = append(states, current)
 			ctx, cancel := context.WithCancel(context.Background())
 			var source *readCount
@@ -197,6 +199,101 @@ func TestProgressUpdaterPreservesWaitingChunksButResetsStalledDownloads(t *testi
 				t.Errorf("waiting=%t: reset update observed=%t", waiting, reset)
 			}
 		})
+	}
+}
+
+func startIdleChunkUpdater(t *testing.T, window time.Duration) (*state, context.Context, *callRecorder) {
+	t.Helper()
+	chunk := newTestChunk("running", 0, 0)
+	chunk.Status.HandlerName = "runner-test"
+	chunk.Status.Phase = v1alpha1.ChunkPhaseRunning
+	runner, client := newTestRunner(t, 1, []*v1alpha1.Chunk{chunk}, nil)
+	runner.updateDuration = 10 * time.Millisecond
+	updates := trackStatusUpdates(client, "chunks", nil)
+	current := newState(chunk)
+	previous := staleResetAfter
+	staleResetAfter = window
+	ctx, cancel := context.WithCancel(context.Background())
+	var source *readCount
+	var destinations []*swmrCount
+	stop := runner.startProgressUpdater(ctx, cancel, current, &source, &destinations)
+	t.Cleanup(func() {
+		stop()
+		cancel()
+		current.mut.Lock()
+		defer current.mut.Unlock()
+		staleResetAfter = previous
+	})
+	return current, ctx, updates
+}
+
+func TestProgressUpdaterKeepsChunkWhileOneOfTwoWaitsRemains(t *testing.T) {
+	window := 50 * time.Millisecond
+	current, ctx, updates := startIdleChunkUpdater(t, window)
+	current.startWaiting()
+	stopSecond := current.startWaiting()
+	stopSecond()
+	select {
+	case <-ctx.Done():
+		t.Error("chunk was cancelled by stale reset after one of its two waits ended")
+	case <-time.After(8 * window):
+	}
+	updates.mut.Lock()
+	defer updates.mut.Unlock()
+	for _, object := range updates.objects {
+		if status := object.(*v1alpha1.Chunk).Status; status.HandlerName == "" {
+			t.Errorf("reset written while a wait remained: phase=%s", status.Phase)
+		}
+	}
+}
+
+func TestProgressUpdaterGivesAFullStaleWindowAfterTheLastWaitEnds(t *testing.T) {
+	window := 500 * time.Millisecond
+	current, ctx, updates := startIdleChunkUpdater(t, window)
+	deadline := time.Now().Add(time.Second)
+	for len(updates.snapshot()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("no status update within 1s")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// An earlier wait ends at once, so the window must run from the last one's end.
+	current.startWaiting()()
+	stopWaiting := current.startWaiting()
+	time.Sleep(2 * window)
+	ended := time.Now()
+	stopWaiting()
+	select {
+	case <-ctx.Done():
+	case <-time.After(4 * window):
+		t.Fatalf("chunk was not reset within %v after its last wait ended", 4*window)
+	}
+	if after := time.Since(ended); after < window/2 {
+		t.Errorf("chunk was reset %v after its last wait ended, want a fresh stale window of %v", after, window)
+	}
+}
+
+func TestProgressUpdaterGivesAFullStaleWindowAfterAStatusChangeFollowingAWait(t *testing.T) {
+	window := time.Second
+	current, ctx, _ := startIdleChunkUpdater(t, window)
+	current.startWaiting()()
+	var changed time.Time
+	// Changes under half a window apart; the last lands just before a window since the wait.
+	for range 2 {
+		time.Sleep(window * 9 / 20)
+		current.Update(func(ss *v1alpha1.Chunk) *v1alpha1.Chunk {
+			ss.Status.Progress++
+			return ss
+		})
+		changed = time.Now()
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(4 * window):
+		t.Fatalf("chunk was not reset within %v after its status last changed", 4*window)
+	}
+	if after := time.Since(changed); after < window/2 {
+		t.Errorf("chunk was reset %v after its status changed, want a full stale window of %v", after, window)
 	}
 }
 

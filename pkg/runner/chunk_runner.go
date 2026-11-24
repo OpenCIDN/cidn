@@ -61,6 +61,8 @@ var (
 
 var staleResetAfter = 2 * time.Minute
 
+var uploadRetryInterval = 5 * time.Second
+
 // ChunkRunner executes Chunk tasks
 type ChunkRunner struct {
 	handlerName    string
@@ -647,8 +649,11 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	swmr := ioswmr.NewSWMR(f)
 
-	g, _ := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(ctx)
+	// An upload that fails for good also ends a read the source holds up.
+	context.AfterFunc(gctx, closeBody)
 	sr := newReadCount(ctx, body)
+	var readErr error
 	g.Go(func() error {
 		_, err := io.Copy(swmr, sr)
 		if truncated {
@@ -658,6 +663,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 		if closeErr := swmr.Close(); err == nil {
 			err = closeErr
 		}
+		readErr = err
 		return err
 	})
 
@@ -685,7 +691,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 			s.handleProcessError("ReadSourceError", err)
 			return
 		}
-		g, _ = errgroup.WithContext(ctx)
+		g, gctx = errgroup.WithContext(ctx)
 		contentLength = sr.Count()
 	}
 
@@ -700,18 +706,28 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 			var err error
 			var etag string
 			var retry bool
-			waitTime := 5 * time.Second
+			waitTime := uploadRetryInterval
 
 			for i := 0; i < 5; i++ {
-				etag, retry, err = r.destinationRequest(ctx, &dest, dr, contentLength)
+				if i > 0 {
+					stopWaiting := s.startWaiting()
+					select {
+					case <-time.After(waitTime):
+					case <-gctx.Done():
+					}
+					stopWaiting()
+					if gctx.Err() != nil {
+						break
+					}
+					waitTime *= 2
+				}
+				etag, retry, err = r.destinationRequest(gctx, &dest, dr, contentLength)
 				if err == nil {
 					break
 				}
 				if !retry {
 					return err
 				}
-				time.Sleep(waitTime)
-				waitTime *= 2
 			}
 			if err != nil {
 				return err
@@ -723,11 +739,16 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	err = g.Wait()
 	if err != nil {
+		typ := "DestinationRequestError"
+		// The group keeps the first error, so this tells whether the source failed first.
+		if err == readErr {
+			typ = "ReadSourceError"
+		}
 		if retry, err := utils.IsNetworkError(err); !retry {
-			s.handleProcessError("DestinationRequestError", err)
+			s.handleProcessError(typ, err)
 		} else {
 			r.unmarkRecord(chunk.Name)
-			s.handleProcessErrorAndRetryable("DestinationRequestError", err)
+			s.handleProcessErrorAndRetryable(typ, err)
 		}
 		return
 	}
@@ -746,6 +767,8 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 	var (
 		prevStatus     *v1alpha1.ChunkStatus
 		lastUpdateTime = time.Now()
+		// Read once: the goroutine below can outlive process, and tests change the variable.
+		staleWindow = staleResetAfter
 	)
 
 	chunkFunc := func() {
@@ -755,8 +778,14 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 			}
 
 			if reflect.DeepEqual(prevStatus, &ss.Status) {
+				if s.waiting.Load() > 0 {
+					return ss
+				}
 				since := time.Since(lastUpdateTime)
-				if since <= staleResetAfter || s.waiting.Load() {
+				if ended := s.waitEnded.Load(); ended != nil {
+					since = min(since, time.Since(*ended))
+				}
+				if since <= staleWindow {
 					return ss
 				}
 
@@ -874,9 +903,10 @@ func (r *ChunkRunner) handleSha256AndFinalize(continues <-chan struct{}, chunk *
 		return
 	}
 
-	s.waiting.Store(true)
+	stopWaiting := s.startWaiting()
 	<-continues
 	r.waitForPartialChunk(s, swmr, etags)
+	stopWaiting()
 }
 
 func (r *ChunkRunner) waitForPartialChunk(s *state, swmr ioswmr.SWMR, etags []string) {
@@ -1201,9 +1231,10 @@ func newSha256() hashEncoding {
 }
 
 type state struct {
-	ss      *v1alpha1.Chunk
-	mut     sync.Mutex
-	waiting atomic.Bool
+	ss        *v1alpha1.Chunk
+	mut       sync.Mutex
+	waiting   atomic.Int32
+	waitEnded atomic.Pointer[time.Time]
 }
 
 func newState(s *v1alpha1.Chunk) *state {
@@ -1225,6 +1256,17 @@ func (s *state) Get() *v1alpha1.Chunk {
 	defer s.mut.Unlock()
 
 	return s.ss.DeepCopy()
+}
+
+// startWaiting holds off the stale reset until a full window after the returned func is called.
+func (s *state) startWaiting() (stop func()) {
+	s.waiting.Add(1)
+	return func() {
+		// Stored before the count drops, since the stale check reads the count first.
+		now := time.Now()
+		s.waitEnded.Store(&now)
+		s.waiting.Add(-1)
+	}
 }
 
 func handleProcessError(chunk *v1alpha1.Chunk, typ string, err error) {
