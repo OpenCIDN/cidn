@@ -18,6 +18,7 @@ package runner
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"testing"
 	"time"
@@ -190,4 +191,80 @@ func TestDeletingTheChunkDuringARetryWaitEndsTheChunkAtOnce(t *testing.T) {
 	if uploads := len(destination.arrived()); uploads != 1 {
 		t.Errorf("the destination received %d uploads, want 1", uploads)
 	}
+}
+
+func expectFailedWith(t *testing.T, client *fake.Clientset, name, condition string, retryable bool) {
+	t.Helper()
+	status := waitForResult(t, client, name).Status
+	if _, found := v1alpha1.GetCondition(status.Conditions, condition); status.Phase != v1alpha1.ChunkPhaseFailed || !found || status.Retryable != retryable {
+		t.Errorf("got phase=%s retryable=%t conditions=%v, want Failed with %s and retryable=%t",
+			status.Phase, status.Retryable, status.Conditions, condition, retryable)
+	}
+}
+
+func TestSourceCutMidwayFailsTheChunkAsReadSourceErrorAtOnce(t *testing.T) {
+	destination := startDestination(t, "etag-0", nil)
+	chunk := newFirstPartChunk(startSource(t, testSource{content: testContent(64 << 10), cutAt: 16 << 10}), nil, destination)
+	runner, client := newProcessRunner(t, chunk)
+	started := time.Now()
+	runProcess(runner, chunk)
+	// Retrying the upload would first wait out the default interval of 5s.
+	if took := time.Since(started); took >= time.Second {
+		t.Errorf("process returned %v after it started, want within 1s", took)
+	}
+	expectFailedWith(t, client, chunk.Name, "ReadSourceError", true)
+	if uploads := len(destination.received()); uploads > 1 {
+		t.Errorf("the destination received %d uploads, want at most 1", uploads)
+	}
+}
+
+func TestSourceCutMidwayAbortsAnUploadLeftUnanswered(t *testing.T) {
+	// More than loopback buffers hold, so the upload is stuck writing when the source is cut.
+	source := startSource(t, testSource{content: testContent(5 << 20), cutAt: 4 << 20})
+	chunk := newFirstPartChunk(source, nil, startDestination(t, "etag-0", t.Context().Done()))
+	runner, client := newProcessRunner(t, chunk)
+	done := startProcess(t, runner, chunk)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("process did not return within 5s although the source was cut")
+	}
+	expectFailedWith(t, client, chunk.Name, "ReadSourceError", true)
+}
+
+func TestUploadFailingForGoodHangsUpOnAStalledSource(t *testing.T) {
+	hungUp := make(chan bool, 1)
+	// net/http answers at once only when 256 KiB or more of the request body are left unread.
+	source := startSource(t, testSource{content: testContent(1 << 20), pauseAfter: 64 << 10, hungUp: hungUp})
+	chunk := newFirstPartChunk(source, nil, startFailingDestination(t, testFailure{status: http.StatusForbidden}))
+	runner, client := newProcessRunner(t, chunk)
+	done := startProcess(t, runner, chunk)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("process did not return within 1s after the upload was rejected")
+	}
+	expectFailedWith(t, client, chunk.Name, "DestinationRequestError", false)
+	select {
+	case cut := <-hungUp:
+		if !cut {
+			t.Error("the source sent the rest of its body instead of seeing the runner hang up")
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the source saw no hang-up within 5s after the upload was rejected")
+	}
+}
+
+func TestUploadFailingForGoodAbortsTheUploadToAHungDestination(t *testing.T) {
+	hung := startFailingDestination(t, testFailure{hangAt: 1})
+	rejecting := startFailingDestination(t, testFailure{status: http.StatusForbidden})
+	chunk := newFirstPartChunk(startSource(t, testSource{content: testContent(4096)}), nil, hung, rejecting)
+	runner, client := newProcessRunner(t, chunk)
+	done := startProcess(t, runner, chunk)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("process did not return within 1s although one destination rejected its upload")
+	}
+	expectFailedWith(t, client, chunk.Name, "DestinationRequestError", false)
 }

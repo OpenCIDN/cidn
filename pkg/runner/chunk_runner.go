@@ -649,8 +649,11 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	swmr := ioswmr.NewSWMR(f)
 
-	g, _ := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(ctx)
+	// An upload that fails for good also ends a read the source holds up.
+	context.AfterFunc(gctx, closeBody)
 	sr := newReadCount(ctx, body)
+	var readErr error
 	g.Go(func() error {
 		_, err := io.Copy(swmr, sr)
 		if truncated {
@@ -660,6 +663,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 		if closeErr := swmr.Close(); err == nil {
 			err = closeErr
 		}
+		readErr = err
 		return err
 	})
 
@@ -687,7 +691,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 			s.handleProcessError("ReadSourceError", err)
 			return
 		}
-		g, _ = errgroup.WithContext(ctx)
+		g, gctx = errgroup.WithContext(ctx)
 		contentLength = sr.Count()
 	}
 
@@ -709,15 +713,15 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 					stopWaiting := s.startWaiting()
 					select {
 					case <-time.After(waitTime):
-					case <-ctx.Done():
+					case <-gctx.Done():
 					}
 					stopWaiting()
-					if ctx.Err() != nil {
+					if gctx.Err() != nil {
 						break
 					}
 					waitTime *= 2
 				}
-				etag, retry, err = r.destinationRequest(ctx, &dest, dr, contentLength)
+				etag, retry, err = r.destinationRequest(gctx, &dest, dr, contentLength)
 				if err == nil {
 					break
 				}
@@ -735,11 +739,16 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 
 	err = g.Wait()
 	if err != nil {
+		typ := "DestinationRequestError"
+		// The group keeps the first error, so this tells whether the source failed first.
+		if err == readErr {
+			typ = "ReadSourceError"
+		}
 		if retry, err := utils.IsNetworkError(err); !retry {
-			s.handleProcessError("DestinationRequestError", err)
+			s.handleProcessError(typ, err)
 		} else {
 			r.unmarkRecord(chunk.Name)
-			s.handleProcessErrorAndRetryable("DestinationRequestError", err)
+			s.handleProcessErrorAndRetryable(typ, err)
 		}
 		return
 	}

@@ -52,6 +52,8 @@ type testSource struct {
 	hungUp     chan<- bool
 	// trickle writes the body in 1 KiB pieces this far apart.
 	trickle time.Duration
+	// cutAt drops the connection once this many bytes of the body were sent.
+	cutAt int
 }
 
 func startSource(t *testing.T, source testSource) string {
@@ -69,6 +71,14 @@ func startSource(t *testing.T, source testSource) string {
 			w.(http.Flusher).Flush()
 		}
 		body := source.content
+		if source.cutAt > 0 {
+			_, _ = w.Write(body[:source.cutAt])
+			w.(http.Flusher).Flush()
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				conn.Close()
+			}
+			return
+		}
 		if source.hungUp != nil {
 			_, _ = w.Write(body[:source.pauseAfter])
 			w.(http.Flusher).Flush()
@@ -147,6 +157,8 @@ type testFailure struct {
 	cutAfter time.Duration
 	// hangAt is the upload, counted from 1, left unanswered until the client hangs up.
 	hangAt int
+	// status rejects every upload at once with this code instead of cutting it.
+	status int
 }
 
 func startFailingDestination(t *testing.T, failure testFailure) *testDestination {
@@ -165,6 +177,10 @@ func startFailingDestination(t *testing.T, failure testFailure) *testDestination
 			case <-r.Context().Done():
 			case <-ended.Done():
 			}
+			return
+		}
+		if failure.status != 0 {
+			w.WriteHeader(failure.status)
 			return
 		}
 		time.Sleep(failure.cutAfter)
