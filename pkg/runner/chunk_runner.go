@@ -758,6 +758,8 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 	var (
 		prevStatus     *v1alpha1.ChunkStatus
 		lastUpdateTime = time.Now()
+		// Read once: the goroutine below can outlive process, and tests change the variable.
+		staleWindow = staleResetAfter
 	)
 
 	chunkFunc := func() {
@@ -774,7 +776,7 @@ func (r *ChunkRunner) startProgressUpdater(ctx context.Context, cancel func(), s
 				if ended := s.waitEnded.Load(); ended != nil {
 					since = min(since, time.Since(*ended))
 				}
-				if since <= staleResetAfter {
+				if since <= staleWindow {
 					return ss
 				}
 
