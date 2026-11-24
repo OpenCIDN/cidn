@@ -705,6 +705,12 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 			waitTime := uploadRetryInterval
 
 			for i := 0; i < 5; i++ {
+				if i > 0 {
+					stopWaiting := s.startWaiting()
+					time.Sleep(waitTime)
+					stopWaiting()
+					waitTime *= 2
+				}
 				etag, retry, err = r.destinationRequest(ctx, &dest, dr, contentLength)
 				if err == nil {
 					break
@@ -712,10 +718,6 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 				if !retry {
 					return err
 				}
-				stopWaiting := s.startWaiting()
-				time.Sleep(waitTime)
-				stopWaiting()
-				waitTime *= 2
 			}
 			if err != nil {
 				return err

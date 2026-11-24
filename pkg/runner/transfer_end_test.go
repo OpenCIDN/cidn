@@ -109,3 +109,21 @@ func TestUploadsFailingSlowlyFailTheChunkInsteadOfResettingIt(t *testing.T) {
 		t.Errorf("the destination received %d uploads, want 5", uploads)
 	}
 }
+
+func TestProcessReturnsWithoutWaitingAfterTheLastUploadAttempt(t *testing.T) {
+	interval := 100 * time.Millisecond
+	setDuration(t, &uploadRetryInterval, interval)
+	destination := startFailingDestination(t, testFailure{})
+	chunk := newFirstPartChunk(startSource(t, testSource{content: testContent(4096)}), nil, destination)
+	runner, _ := newProcessRunner(t, chunk)
+	runProcess(runner, chunk)
+	returned := time.Now()
+	arrivals := destination.arrived()
+	if len(arrivals) != 5 {
+		t.Fatalf("the destination received %d uploads, want 5", len(arrivals))
+	}
+	// The wait before the fifth attempt; one after it would be twice as long.
+	if after := returned.Sub(arrivals[4]); after >= 8*interval {
+		t.Errorf("process returned %v after the fifth upload arrived, want less than the %v waited before it", after, 8*interval)
+	}
+}
