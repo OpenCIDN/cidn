@@ -731,3 +731,35 @@ func TestPassAfterTheCommitSucceedsWithoutCommittingAgain(t *testing.T) {
 		t.Errorf("phase %s, conditions %v; want %s", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseSucceeded)
 	}
 }
+
+func TestCommitIsRecordedInTheMultipartBeforeTheSha256Check(t *testing.T) {
+	blob := newTestBlob()
+	blob.Spec.ChunksNumber, blob.Spec.ChunkSize = 3, 10
+	blob.Status.Total, blob.Status.AcceptRanges = 30, true
+	blob.Spec.ContentSha256, blob.Spec.Destination[0].ReverifySha256 = "sha", true
+	mp := newTestMultipart(blob, 3, "upload-1")
+	mp.UploadEtags[0] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-1"}}
+	mp.UploadEtags[1] = v1alpha1.UploadEtags{Size: 10, Etags: []string{"etag-2"}}
+	stores, requests := newTestUploadStorage(t, "upload-1")
+	client, factory := newTestInformers(t, blob, newTestRecordedPart(blob, "blob:part:blob:3:14-1e", 3), mp)
+	var beforeRewrite []string
+	client.PrependReactor("update", "multiparts", func(clienttesting.Action) (bool, runtime.Object, error) {
+		beforeRewrite = requests()
+		return false, nil, nil
+	})
+	c := NewBlobFromChunkController(testHandlerName, stores, client, factory)
+	t.Cleanup(c.workqueue.ShutDown)
+
+	c.handler(context.Background(), blob.Name)
+
+	if got := getBlob(t, client, blob.Name); got.Status.Phase != v1alpha1.BlobPhaseFailed || len(got.Status.Conditions) != 1 || got.Status.Conditions[0].Type != "Sha256Verification" {
+		t.Errorf("phase %s, conditions %v; want %s with Sha256Verification", got.Status.Phase, got.Status.Conditions, v1alpha1.BlobPhaseFailed)
+	}
+	if want := []string{"POST /bucket/blob?uploadId=upload-1"}; !reflect.DeepEqual(beforeRewrite, want) {
+		t.Errorf("store requests %q when the multipart was rewritten, want %q", beforeRewrite, want)
+	}
+	want := []v1alpha1.UploadEtags{{Size: 10, Etags: []string{"etag-1"}}, {Size: 10, Etags: []string{"etag-2"}}, {Size: 10, Etags: []string{"etag-3"}}}
+	if got := getMultipart(t, client, blob.Name); !reflect.DeepEqual(got.UploadEtags, want) || !reflect.DeepEqual(got.UploadIDs, []string{""}) {
+		t.Errorf("multipart parts %+v, upload IDs %q; want %+v and one empty upload ID", got.UploadEtags, got.UploadIDs, want)
+	}
+}

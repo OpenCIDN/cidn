@@ -281,7 +281,7 @@ func TestExistingFirstChunkNeedsNothingFromTheStore(t *testing.T) {
 	}
 }
 
-// newTestUploadStorage is a store without unfinished uploads that opens the next one as uploadID, accepts any commit, and lists the requests it got.
+// newTestUploadStorage is a store without unfinished uploads that opens the next one as uploadID, accepts any commit, reads every object as "content", and lists the requests it got.
 func newTestUploadStorage(t *testing.T, uploadID string) (map[string]*sss.SSS, func() []string) {
 	t.Helper()
 	var mu sync.Mutex
@@ -293,6 +293,8 @@ func newTestUploadStorage(t *testing.T, uploadID string) (map[string]*sss.SSS, f
 		switch {
 		case r.Method == http.MethodGet && r.URL.Query().Has("uploads"):
 			io.WriteString(w, "<ListMultipartUploadsResult><IsTruncated>false</IsTruncated></ListMultipartUploadsResult>")
+		case r.Method == http.MethodGet:
+			io.WriteString(w, "content")
 		case r.Method == http.MethodPost && r.URL.Query().Has("uploads"):
 			fmt.Fprintf(w, "<InitiateMultipartUploadResult><Key>blob</Key><UploadId>%s</UploadId></InitiateMultipartUploadResult>", uploadID)
 		case r.Method == http.MethodPost && r.URL.Query().Has("uploadId"):
