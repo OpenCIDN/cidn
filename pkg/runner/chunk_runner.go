@@ -61,6 +61,8 @@ var (
 
 var staleResetAfter = 2 * time.Minute
 
+var uploadRetryInterval = 5 * time.Second
+
 // ChunkRunner executes Chunk tasks
 type ChunkRunner struct {
 	handlerName    string
@@ -700,7 +702,7 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 			var err error
 			var etag string
 			var retry bool
-			waitTime := 5 * time.Second
+			waitTime := uploadRetryInterval
 
 			for i := 0; i < 5; i++ {
 				etag, retry, err = r.destinationRequest(ctx, &dest, dr, contentLength)
@@ -710,7 +712,9 @@ func (r *ChunkRunner) process(continues <-chan struct{}, chunk *v1alpha1.Chunk) 
 				if !retry {
 					return err
 				}
+				stopWaiting := s.startWaiting()
 				time.Sleep(waitTime)
+				stopWaiting()
 				waitTime *= 2
 			}
 			if err != nil {

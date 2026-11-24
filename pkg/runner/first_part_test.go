@@ -91,9 +91,10 @@ type testUpload struct {
 }
 
 type testDestination struct {
-	url     string
-	mut     sync.Mutex
-	uploads []testUpload
+	url      string
+	mut      sync.Mutex
+	uploads  []testUpload
+	arrivals []time.Time
 }
 
 func startDestination(t *testing.T, etag string, release <-chan struct{}) *testDestination {
@@ -122,6 +123,34 @@ func (destination *testDestination) received() []testUpload {
 	destination.mut.Lock()
 	defer destination.mut.Unlock()
 	return slices.Clone(destination.uploads)
+}
+
+type testFailure struct {
+	// cutAfter is how long each upload waits before its connection is cut.
+	cutAfter time.Duration
+}
+
+func startFailingDestination(t *testing.T, failure testFailure) *testDestination {
+	t.Helper()
+	destination := &testDestination{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		destination.mut.Lock()
+		destination.arrivals = append(destination.arrivals, time.Now())
+		destination.mut.Unlock()
+		time.Sleep(failure.cutAfter)
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			conn.Close()
+		}
+	}))
+	t.Cleanup(server.Close)
+	destination.url = server.URL
+	return destination
+}
+
+func (destination *testDestination) arrived() []time.Time {
+	destination.mut.Lock()
+	defer destination.mut.Unlock()
+	return slices.Clone(destination.arrivals)
 }
 
 func testContent(size int) []byte {
